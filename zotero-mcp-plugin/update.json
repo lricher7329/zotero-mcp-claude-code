@@ -3,88 +3,8 @@
     "zotero-mcp-plugin@autoagent.my": {
       "updates": [
         {
-          "version": "1.1.0",
-          "update_link": "https://github.com/cookjohn/zotero-mcp/releases/download/v1.1.0/zotero-mcp-plugin-1.1.0.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "8.*"
-            }
-          }
-        },
-        {
-          "version": "1.2.0",
-          "update_link": "https://github.com/cookjohn/zotero-mcp/releases/download/v1.2.0/zotero-mcp-plugin-1.2.0.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "8.*"
-            }
-          }
-        },
-        {
-          "version": "1.2.1",
-          "update_link": "https://github.com/cookjohn/zotero-mcp/releases/download/v1.2.1/zotero-mcp-plugin-1.2.1.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "8.*"
-            }
-          }
-        },
-        {
-          "version": "1.2.2",
-          "update_link": "https://github.com/cookjohn/zotero-mcp/releases/download/v1.2.2/zotero-mcp-plugin-1.2.2.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "8.*"
-            }
-          }
-        },
-        {
-          "version": "1.2.3",
-          "update_link": "https://github.com/cookjohn/zotero-mcp/releases/download/v1.2.3/zotero-mcp-plugin-1.2.3.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "8.*"
-            }
-          }
-        },
-        {
-          "version": "1.2.4",
-          "update_link": "https://github.com/cookjohn/zotero-mcp/releases/download/v1.2.4/zotero-mcp-plugin-1.2.4.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "8.*"
-            }
-          }
-        },
-        {
-          "version": "1.2.5",
-          "update_link": "https://github.com/cookjohn/zotero-mcp/releases/download/v1.2.5/zotero-mcp-plugin-1.2.5.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "8.*"
-            }
-          }
-        },
-        {
-          "version": "1.2.6",
-          "update_link": "https://github.com/cookjohn/zotero-mcp/releases/download/v1.2.6/zotero-mcp-plugin-1.2.6.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "8.*"
-            }
-          }
-        },
-        {
           "version": "1.2.7",
-          "update_link": "https://github.com/cookjohn/zotero-mcp/releases/download/v1.2.7/zotero-mcp-plugin-1.2.7.xpi",
+          "update_link": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/download/v1.2.7-claude-code/zotero-mcp-plugin.xpi",
           "applications": {
             "zotero": {
               "strict_min_version": "6.999",
