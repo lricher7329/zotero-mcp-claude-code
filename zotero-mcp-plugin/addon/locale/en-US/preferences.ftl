@@ -51,6 +51,5 @@ first-install-open-prefs = Open Settings
 first-install-later = Configure Later
 
 pref-contact-title = Contact Information
-pref-contact-email = Email: fransjone@mail.com
-pref-contact-github = GitHub: https://github.com/cookjohn/zotero-mcp
-pref-contact-wechat = WeChat: 未来论文实验室
+pref-contact-github = GitHub: https://github.com/lricher7329/zotero-mcp-claude-code
+pref-contact-original = Original project: https://github.com/cookjohn/zotero-mcp

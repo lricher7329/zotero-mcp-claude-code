@@ -51,6 +51,5 @@ first-install-open-prefs = 打开设置
 first-install-later = 稍后配置
 
 pref-contact-title = 联系方式
-pref-contact-email = 邮箱：fransjone@mail.com
-pref-contact-github = GitHub：https://github.com/cookjohn/zotero-mcp
-pref-contact-wechat = 微信公众号：未来论文实验室
+pref-contact-github = GitHub：https://github.com/lricher7329/zotero-mcp-claude-code
+pref-contact-original = 原始项目：https://github.com/cookjohn/zotero-mcp

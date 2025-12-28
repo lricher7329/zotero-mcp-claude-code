@@ -1,7 +1,7 @@
 {
   "name": "zotero-mcp-plugin",
   "type": "module",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "description": "Zotero MCP Plugin",
   "config": {
     "addonName": "Zotero MCP Plugin",
@@ -12,13 +12,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cookjohn/zotero-mcp.git"
+    "url": "git+https://github.com/lricher7329/zotero-mcp-claude-code.git"
   },
-  "author": "cookjohn",
+  "author": "lricher7329",
   "bugs": {
-    "url": "https://github.com/cookjohn/zotero-mcp/issues"
+    "url": "https://github.com/lricher7329/zotero-mcp-claude-code/issues"
   },
-  "homepage": "https://github.com/cookjohn/zotero-mcp#readme",
+  "homepage": "https://github.com/lricher7329/zotero-mcp-claude-code#readme",
   "license": "MIT",
   "scripts": {
     "start": "zotero-plugin serve",
