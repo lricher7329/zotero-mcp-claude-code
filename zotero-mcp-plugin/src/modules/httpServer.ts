@@ -26,7 +26,7 @@ export class HttpServer {
       return;
     }
 
-    // 验证端口参数
+    // Validate port parameter
     if (!port || isNaN(port) || port < 1 || port > 65535) {
       const errorMsg = `[HttpServer] Invalid port number: ${port}. Port must be between 1 and 65535.`;
       Zotero.debug(errorMsg);
@@ -43,7 +43,7 @@ export class HttpServer {
         "@mozilla.org/network/server-socket;1"
       ].createInstance(Ci.nsIServerSocket);
 
-      // init方法参数：端口，是否允许回环地址，backlog队列大小
+      // init parameters: port, allow loopback only, backlog queue size
       this.serverSocket.init(port, true, -1);
       this.serverSocket.asyncListen(this.listener);
       this.isRunning = true;
@@ -189,7 +189,7 @@ export class HttpServer {
         input = transport.openInputStream(0, 0, 0);
         output = transport.openOutputStream(0, 0, 0);
 
-        // 使用转换输入流来正确处理UTF-8编码
+        // Use converter input stream to properly handle UTF-8 encoding
         const converterStream = Cc[
           "@mozilla.org/intl/converter-input-stream;1"
         ].createInstance(Ci.nsIConverterInputStream);
@@ -200,55 +200,110 @@ export class HttpServer {
         );
         sin.init(input);
 
-        // 改进请求读取逻辑 - 读取完整的HTTP请求
+        // Improved request reading logic - read complete HTTP request including body
         let requestText = "";
         let totalBytesRead = 0;
-        const maxRequestSize = 4096; // 增加最大请求大小
+        const maxHeaderSize = 8192; // 8KB for headers
+        const maxBodySize = 65536; // 64KB for body (increased for MCP requests)
         let waitAttempts = 0;
-        const maxWaitAttempts = 10;
+        const maxWaitAttempts = 50; // Increased wait attempts for larger requests
+
+        // Helper function to read data with retries
+        const readData = async (bytesToRead: number): Promise<string> => {
+          let chunk = "";
+          try {
+            const str: { value?: string } = {};
+            const bytesRead = converterStream.readString(bytesToRead, str);
+            chunk = str.value || "";
+            if (bytesRead === 0) return "";
+          } catch (converterError) {
+            // If converter fails, fall back to raw method
+            ztoolkit.log(
+              `[HttpServer] Converter failed, using fallback: ${converterError}`,
+              "error",
+            );
+            chunk = sin.read(bytesToRead);
+            if (!chunk) return "";
+          }
+          return chunk;
+        };
+
+        // Helper function to wait for data
+        const waitForData = async (): Promise<boolean> => {
+          waitAttempts++;
+          if (waitAttempts > maxWaitAttempts) {
+            return false;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return input.available() > 0;
+        };
 
         try {
-          // 尝试读取完整的HTTP请求直到遇到空行
-          while (totalBytesRead < maxRequestSize) {
-            const bytesToRead = Math.min(1024, maxRequestSize - totalBytesRead);
+          // Phase 1: Read HTTP headers (until \r\n\r\n)
+          while (totalBytesRead < maxHeaderSize) {
             const available = input.available();
-            
+
             if (available === 0) {
-              // 等待数据到达
-              waitAttempts++;
-              if (waitAttempts > maxWaitAttempts) {
-                ztoolkit.log(`[HttpServer] Timeout waiting for data after ${waitAttempts} attempts, TotalBytes: ${totalBytesRead}`, "warn");
+              if (!(await waitForData())) {
+                ztoolkit.log(`[HttpServer] Timeout waiting for headers after ${waitAttempts} attempts, TotalBytes: ${totalBytesRead}`, "warn");
                 break;
               }
-              await new Promise((resolve) => setTimeout(resolve, 10));
-              if (input.available() === 0) {
-                continue; // 继续等待
-              }
+              continue;
             }
 
-            // 尝试使用UTF-8转换流读取
-            let chunk = "";
-            try {
-              const str: { value?: string } = {};
-              const bytesRead = converterStream.readString(bytesToRead, str);
-              chunk = str.value || "";
-              if (bytesRead === 0) break;
-            } catch (converterError) {
-              // 如果转换器失败，回退到原始方法
-              ztoolkit.log(
-                `[HttpServer] Converter failed, using fallback: ${converterError}`,
-                "error",
-              );
-              chunk = sin.read(bytesToRead);
-              if (!chunk) break;
-            }
+            const bytesToRead = Math.min(1024, maxHeaderSize - totalBytesRead, available);
+            const chunk = await readData(bytesToRead);
+            if (!chunk) break;
 
             requestText += chunk;
             totalBytesRead += chunk.length;
 
-            // 检查是否读取到完整的HTTP头部（以双CRLF结束）
+            // Check if we have complete headers
             if (requestText.includes("\r\n\r\n")) {
               break;
+            }
+          }
+
+          // Phase 2: If we have headers, check for Content-Length and read body
+          const headerEndIndex = requestText.indexOf("\r\n\r\n");
+          if (headerEndIndex !== -1) {
+            const headers = requestText.substring(0, headerEndIndex);
+            const contentLengthMatch = headers.match(/Content-Length:\s*(\d+)/i);
+
+            if (contentLengthMatch) {
+              const contentLength = parseInt(contentLengthMatch[1], 10);
+              const bodyAlreadyRead = requestText.length - (headerEndIndex + 4);
+              const bodyRemaining = Math.min(contentLength - bodyAlreadyRead, maxBodySize - bodyAlreadyRead);
+
+              ztoolkit.log(`[HttpServer] Content-Length: ${contentLength}, already read: ${bodyAlreadyRead}, remaining: ${bodyRemaining}`);
+
+              // Reset wait attempts for body reading
+              waitAttempts = 0;
+
+              // Read remaining body
+              while (bodyRemaining > 0 && (requestText.length - headerEndIndex - 4) < contentLength) {
+                const available = input.available();
+
+                if (available === 0) {
+                  if (!(await waitForData())) {
+                    ztoolkit.log(`[HttpServer] Timeout waiting for body, got ${requestText.length - headerEndIndex - 4} of ${contentLength} bytes`, "warn");
+                    break;
+                  }
+                  continue;
+                }
+
+                const currentBodyLength = requestText.length - headerEndIndex - 4;
+                const bytesNeeded = Math.min(contentLength - currentBodyLength, maxBodySize - currentBodyLength);
+                const bytesToRead = Math.min(1024, bytesNeeded, available);
+
+                if (bytesToRead <= 0) break;
+
+                const chunk = await readData(bytesToRead);
+                if (!chunk) break;
+
+                requestText += chunk;
+                totalBytesRead += chunk.length;
+              }
             }
           }
         } catch (readError) {
@@ -286,7 +341,7 @@ export class HttpServer {
           `[HttpServer] Received request: ${requestLine} (${requestText.length} bytes)`,
         );
 
-        // 验证请求格式
+        // Validate request format
         if (!requestLine || !requestLine.includes("HTTP/")) {
           ztoolkit.log(
             `[HttpServer] Invalid request format - RequestLine: "${requestLine || '<empty>'}", TotalBytes: ${totalBytesRead}, RequestLength: ${requestText.length}, RequestPreview: "${requestText.substring(0, 100).replace(/\r?\n/g, '\\n')}"`,
@@ -324,7 +379,7 @@ export class HttpServer {
           const query = new URLSearchParams(url.search);
           const path = url.pathname;
           
-          // 提取POST请求的body
+          // Extract POST request body
           let requestBody = "";
           if (method === "POST") {
             const bodyStart = requestText.indexOf("\r\n\r\n");
@@ -360,8 +415,28 @@ export class HttpServer {
 
           if (path === "/mcp") {
             if (method === "POST") {
-              // Handle MCP requests via streamable HTTP
-              if (this.mcpServer) {
+              // Validate Accept header for MCP requests per spec
+              const acceptHeader = requestText.match(/Accept:\s*([^\r\n]+)/i);
+              const acceptValue = acceptHeader ? acceptHeader[1].toLowerCase() : '';
+              const acceptsJson = acceptValue.includes('application/json') || acceptValue.includes('*/*') || acceptValue === '';
+
+              if (!acceptsJson) {
+                // Return 406 Not Acceptable if client doesn't accept JSON
+                result = {
+                  status: 406,
+                  statusText: "Not Acceptable",
+                  headers: { "Content-Type": "application/json; charset=utf-8" },
+                  body: JSON.stringify({
+                    jsonrpc: "2.0",
+                    id: null,
+                    error: {
+                      code: -32600,
+                      message: "Not Acceptable: Client must accept application/json"
+                    }
+                  }),
+                };
+              } else if (this.mcpServer) {
+                // Handle MCP requests via streamable HTTP
                 result = await this.mcpServer.handleMCPRequest(requestBody);
               } else {
                 result = {
@@ -392,16 +467,35 @@ export class HttpServer {
                   documentation: "Send POST requests with MCP protocol messages to interact with Zotero data"
                 }),
               };
+            } else if (method === "DELETE") {
+              // Handle session termination per MCP spec
+              if (sessionId && this.activeSessions.has(sessionId)) {
+                this.activeSessions.delete(sessionId);
+                ztoolkit.log(`[HttpServer] Terminated MCP session: ${sessionId}`);
+                result = {
+                  status: 204,
+                  statusText: "No Content",
+                  headers: {},
+                  body: ""
+                };
+              } else {
+                result = {
+                  status: 404,
+                  statusText: "Not Found",
+                  headers: { "Content-Type": "application/json; charset=utf-8" },
+                  body: JSON.stringify({ error: "Session not found" })
+                };
+              }
             } else {
               result = {
                 status: 405,
                 statusText: "Method Not Allowed",
-                headers: { 
+                headers: {
                   "Content-Type": "application/json; charset=utf-8",
-                  "Allow": "GET, POST"
+                  "Allow": "GET, POST, DELETE"
                 },
-                body: JSON.stringify({ 
-                  error: `Method ${method} not allowed. Use GET for info or POST for MCP requests.` 
+                body: JSON.stringify({
+                  error: `Method ${method} not allowed. Use GET for info, POST for MCP requests, or DELETE to terminate session.` 
                 }),
               };
             }
@@ -541,7 +635,7 @@ export class HttpServer {
           );
         }
       } finally {
-        // 确保资源清理
+        // Ensure resource cleanup
         try {
           if (output) {
             output.close();

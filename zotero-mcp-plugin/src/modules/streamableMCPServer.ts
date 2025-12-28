@@ -45,21 +45,21 @@ function applyGlobalAIInstructions(responseData: any, toolName: string): Unified
     return createUnifiedResponse(null, 'object', toolName);
   }
   
-  // 处理字符串响应（如format='text'时的get_content）
+  // Handle string responses (e.g., get_content with format='text')
   if (typeof responseData === 'string') {
     return createUnifiedResponse(responseData, 'text', toolName);
   }
-  
-  // 处理数组响应（如某些collection列表）
+
+  // Handle array responses (e.g., collection lists)
   if (Array.isArray(responseData)) {
     return createUnifiedResponse(responseData, 'array', toolName, { count: responseData.length });
   }
-  
-  // 处理对象响应
+
+  // Handle object responses
   if (typeof responseData === 'object') {
-    // 检查是否是SmartAnnotationExtractor或UnifiedContentExtractor的完整结构
+    // Check if this is a complete structure from SmartAnnotationExtractor or UnifiedContentExtractor
     if (responseData.metadata && (responseData.data !== undefined || responseData.content !== undefined)) {
-      // 已有完整结构，只需增强metadata并保护数据
+      // Already has complete structure, just enhance metadata and protect data
       const enhanced = {
         ...responseData,
         metadata: AIInstructionsManager.enhanceMetadataWithAIGuidelines({
@@ -71,17 +71,17 @@ function applyGlobalAIInstructions(responseData: any, toolName: string): Unified
       };
       return AIInstructionsManager.protectResponseData(enhanced);
     }
-    
-    // 否则包装为统一结构
+
+    // Otherwise wrap in unified structure
     return createUnifiedResponse(responseData, 'object', toolName);
   }
-  
-  // 其他类型的响应（数字、布尔等）
+
+  // Other response types (numbers, booleans, etc.)
   return createUnifiedResponse(responseData, typeof responseData as any, toolName);
 }
 
 /**
- * 创建统一的响应结构
+ * Create unified response structure
  */
 function createUnifiedResponse(
   data: any, 
@@ -328,24 +328,78 @@ export class StreamableMCPServer {
 
   /**
    * Handle incoming MCP requests and return HTTP response
+   * Supports single requests, batch requests (arrays), and notifications (requests without id)
    */
   async handleMCPRequest(requestBody: string): Promise<{ status: number; statusText: string; headers: any; body: string }> {
     try {
-      const request = JSON.parse(requestBody) as MCPRequest;
+      const parsed = JSON.parse(requestBody);
+
+      // Handle batch requests (JSON-RPC 2.0 allows arrays of requests)
+      if (Array.isArray(parsed)) {
+        ztoolkit.log(`[StreamableMCP] Received batch request with ${parsed.length} items`);
+
+        const responses: MCPResponse[] = [];
+        for (const req of parsed) {
+          // Check if this is a notification (no id field)
+          if (req.id === undefined || req.id === null) {
+            // Process notification but don't add to responses
+            await this.processRequest(req as MCPRequest);
+            ztoolkit.log(`[StreamableMCP] Processed notification: ${req.method}`);
+          } else {
+            const response = await this.processRequest(req as MCPRequest);
+            responses.push(response);
+          }
+        }
+
+        // If all requests were notifications, return 202 Accepted with no body
+        if (responses.length === 0) {
+          return {
+            status: 202,
+            statusText: "Accepted",
+            headers: {},
+            body: ""
+          };
+        }
+
+        // Return array of responses
+        return {
+          status: 200,
+          statusText: "OK",
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify(responses)
+        };
+      }
+
+      // Handle single request
+      const request = parsed as MCPRequest;
       ztoolkit.log(`[StreamableMCP] Received: ${request.method}`);
 
+      // Check if this is a notification (no id field per JSON-RPC 2.0 spec)
+      if (request.id === undefined || request.id === null) {
+        // Process the notification but return 202 Accepted with no body
+        await this.processRequest(request);
+        ztoolkit.log(`[StreamableMCP] Processed notification: ${request.method}`);
+        return {
+          status: 202,
+          statusText: "Accepted",
+          headers: {},
+          body: ""
+        };
+      }
+
+      // Regular request - process and return response
       const response = await this.processRequest(request);
-      
+
       return {
         status: 200,
         statusText: "OK",
         headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify(response)
       };
-      
+
     } catch (error) {
       ztoolkit.log(`[StreamableMCP] Error handling request: ${error}`);
-      
+
       const errorResponse: MCPResponse = {
         jsonrpc: '2.0',
         id: 'unknown',
@@ -354,7 +408,7 @@ export class StreamableMCPServer {
           message: 'Parse error'
         }
       };
-      
+
       return {
         status: 400,
         statusText: "Bad Request",
@@ -405,20 +459,28 @@ export class StreamableMCPServer {
   private handleInitialize(request: MCPRequest): MCPResponse {
     // Extract client info from initialize request
     const clientInfo = request.params?.clientInfo || {};
+    const requestedVersion = request.params?.protocolVersion;
     const sessionId = this.generateSessionId();
-    
-    // Store session info
+
+    // Support multiple protocol versions for compatibility
+    const supportedVersions = ['2024-11-05', '2025-03-26'];
+    const protocolVersion = supportedVersions.includes(requestedVersion)
+      ? requestedVersion
+      : '2024-11-05'; // Default to oldest supported version
+
+    // Store session info with protocol version
     this.clientSessions.set(sessionId, {
       initTime: new Date(),
       lastActivity: new Date(),
-      clientInfo
-    });
-    
-    ztoolkit.log(`[StreamableMCP] Client initialized with session: ${sessionId}, client: ${clientInfo.name || 'unknown'}`);
-    
+      clientInfo,
+      protocolVersion
+    } as any);
+
+    ztoolkit.log(`[StreamableMCP] Client initialized with session: ${sessionId}, client: ${clientInfo.name || 'unknown'}, protocol: ${protocolVersion}`);
+
     // Create standard MCP initialize response (no custom fields)
     return this.createResponse(request.id, {
-      protocolVersion: '2024-11-05',
+      protocolVersion,
       capabilities: {
         tools: {
           listChanged: true,
