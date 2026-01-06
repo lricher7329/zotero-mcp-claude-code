@@ -19,6 +19,8 @@ export interface SmartAnnotationOptions {
   maxTokens?: number;
   outputMode?: string; // 'smart', 'preview', 'full', 'minimal'
   types?: string[];
+  colors?: string[];    // Filter by annotation colors (e.g., ['#ffd400', '#ff6666'])
+  tags?: string[];      // Filter by tags
   minRelevance?: number;
   limit?: number;
   offset?: number;
@@ -28,6 +30,9 @@ export interface AnnotationResult {
   id: string;
   type: 'note' | 'highlight' | 'annotation' | 'ink' | 'text' | 'image';
   content: string;
+  color?: string;        // Annotation color (hex code like '#ffd400')
+  colorName?: string;    // Human-readable color name
+  tags?: string[];       // Tags attached to this annotation
   importance?: number;
   keywords?: string[];
   page?: number;
@@ -66,8 +71,61 @@ export interface SmartAnnotationResponse {
 export class SmartAnnotationExtractor {
   private annotationService: AnnotationService;
 
+  // Common Zotero annotation colors with their names
+  private static readonly COLOR_MAP: Record<string, string[]> = {
+    '#ffd400': ['yellow', 'question', '黄色'],
+    '#ff6666': ['red', 'error', 'important', '红色'],
+    '#5fb236': ['green', 'agree', '绿色'],
+    '#2ea8e5': ['blue', 'info', '蓝色'],
+    '#a28ae5': ['purple', 'definition', '紫色'],
+    '#e56eee': ['magenta', 'pink', '粉色'],
+    '#f19837': ['orange', 'todo', '橙色'],
+    '#aaaaaa': ['gray', 'grey', '灰色'],
+  };
+
   constructor() {
     this.annotationService = new AnnotationService();
+  }
+
+  /**
+   * Match color by hex code or name
+   */
+  private matchColor(annotationColor: string, filterColor: string): boolean {
+    if (!annotationColor) return false;
+
+    const normalizedAnnotationColor = annotationColor.toLowerCase();
+    const normalizedFilter = filterColor.toLowerCase();
+
+    // Direct hex match
+    if (normalizedAnnotationColor === normalizedFilter) {
+      return true;
+    }
+
+    // Name-based matching
+    for (const [hexColor, names] of Object.entries(SmartAnnotationExtractor.COLOR_MAP)) {
+      if (normalizedAnnotationColor === hexColor) {
+        // Check if filter matches any name for this color
+        if (names.some(name => name.includes(normalizedFilter) || normalizedFilter.includes(name))) {
+          return true;
+        }
+      }
+      // Also check if filter is a hex code that matches
+      if (normalizedFilter === hexColor && normalizedAnnotationColor === hexColor) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Get human-readable color name from hex code
+   */
+  private getColorName(hexColor: string): string {
+    if (!hexColor) return '';
+    const normalizedHex = hexColor.toLowerCase();
+    const names = SmartAnnotationExtractor.COLOR_MAP[normalizedHex];
+    return names ? names[0] : hexColor;
   }
 
   /**
@@ -78,6 +136,8 @@ export class SmartAnnotationExtractor {
     annotationId?: string;
     annotationIds?: string[];
     types?: string[];
+    colors?: string[];      // Filter by colors (e.g., ['#ffd400', 'yellow'])
+    tags?: string[];        // Filter by tags
     maxTokens?: number;
     outputMode?: string;
     limit?: number;
@@ -95,6 +155,8 @@ export class SmartAnnotationExtractor {
         maxTokens: params.maxTokens || effectiveSettings.maxTokens,
         outputMode: params.outputMode || MCPSettingsService.get('content.mode'),
         types: params.types || ['note', 'highlight', 'annotation'],
+        colors: params.colors,  // Color filter (hex codes or names)
+        tags: params.tags,      // Tag filter
         limit: params.limit || (MCPSettingsService.get('content.mode') === 'complete' ? effectiveSettings.maxAnnotationsPerRequest : 20),
         offset: params.offset || 0
       };
@@ -117,6 +179,26 @@ export class SmartAnnotationExtractor {
       // Apply type filtering
       if (options.types && options.types.length > 0) {
         annotations = annotations.filter(ann => options.types!.includes(ann.type));
+      }
+
+      // Apply color filtering
+      if (options.colors && options.colors.length > 0) {
+        annotations = annotations.filter(ann => {
+          if (!ann.color) return false;
+          return options.colors!.some(filterColor =>
+            this.matchColor(ann.color, filterColor)
+          );
+        });
+      }
+
+      // Apply tag filtering
+      if (options.tags && options.tags.length > 0) {
+        annotations = annotations.filter(ann => {
+          if (!ann.tags || ann.tags.length === 0) return false;
+          return options.tags!.some(filterTag =>
+            ann.tags.some((tag: string) => tag.toLowerCase().includes(filterTag.toLowerCase()))
+          );
+        });
       }
 
       // Apply pagination before processing (for performance)
@@ -179,6 +261,8 @@ export class SmartAnnotationExtractor {
   async searchAnnotations(query: string, options: {
     itemKeys?: string[];
     types?: string[];
+    colors?: string[];      // Filter by colors
+    tags?: string[];        // Filter by tags
     maxTokens?: number;
     outputMode?: string;
     minRelevance?: number;
@@ -188,38 +272,111 @@ export class SmartAnnotationExtractor {
     const startTime = Date.now();
 
     try {
-      ztoolkit.log(`[SmartAnnotationExtractor] searchAnnotations called: "${query}"`);
+      ztoolkit.log(`[SmartAnnotationExtractor] searchAnnotations called: "${query || '(filter only)'}"`);
 
       const effectiveSettings = MCPSettingsService.getEffectiveSettings();
+      const hasQuery = query && query.trim().length > 0;
 
       const searchOptions: SmartAnnotationOptions = {
         maxTokens: options.maxTokens || effectiveSettings.maxTokens,
         outputMode: options.outputMode || MCPSettingsService.get('content.mode'),
         types: options.types || ['note', 'highlight', 'annotation'],
-        minRelevance: options.minRelevance || 0.1,
+        colors: options.colors,  // Color filter
+        tags: options.tags,      // Tag filter
+        minRelevance: hasQuery ? (options.minRelevance || 0.1) : 0, // No relevance filter when no query
         limit: options.limit || (MCPSettingsService.get('content.mode') === 'complete' ? effectiveSettings.maxAnnotationsPerRequest : 15),
         offset: options.offset || 0
       };
 
-      // Search using AnnotationService
-      const searchParams = {
-        q: query,
-        itemKey: options.itemKeys?.[0], // For now, use first itemKey if provided
-        type: searchOptions.types,
-        detailed: false, // We'll handle detail level ourselves
-        limit: '100', // Get more results to score and filter
-        offset: '0'
-      };
+      let annotations: any[] = [];
 
-      const searchResult = await this.annotationService.searchAnnotations(searchParams);
-      let annotations = searchResult.results || [];
+      if (hasQuery) {
+        // Search using AnnotationService with query
+        const searchParams = {
+          q: query,
+          itemKey: options.itemKeys?.[0], // For now, use first itemKey if provided
+          type: searchOptions.types,
+          detailed: false, // We'll handle detail level ourselves
+          limit: '100', // Get more results to score and filter
+          offset: '0'
+        };
 
-      // Apply relevance scoring and filtering
-      const scoredAnnotations = annotations.map(ann => ({
+        const searchResult = await this.annotationService.searchAnnotations(searchParams);
+        annotations = searchResult.results || [];
+      } else {
+        // No query - get ALL annotations for filtering by colors/tags
+        // Paginate through all results to ensure complete coverage
+        const batchSize = 100;
+        let currentOffset = 0;
+        let hasMore = true;
+
+        ztoolkit.log(`[SmartAnnotationExtractor] Fetching all annotations for color/tag filtering...`);
+
+        while (hasMore) {
+          const allParams = {
+            type: searchOptions.types,
+            detailed: false,
+            limit: String(batchSize),
+            offset: String(currentOffset)
+          };
+          const batchResult = await this.annotationService.searchAnnotations(allParams);
+          const batchAnnotations = batchResult.results || [];
+          annotations.push(...batchAnnotations);
+
+          // Check if there are more results
+          hasMore = batchResult.pagination?.hasMore || false;
+          currentOffset += batchSize;
+
+          // Safety limit to prevent infinite loops
+          if (currentOffset > 10000) {
+            ztoolkit.log(`[SmartAnnotationExtractor] Reached safety limit of 10000 annotations`);
+            break;
+          }
+        }
+
+        ztoolkit.log(`[SmartAnnotationExtractor] Fetched total ${annotations.length} annotations for filtering`);
+      }
+
+      // Debug: log annotation colors
+      ztoolkit.log(`[SmartAnnotationExtractor] Got ${annotations.length} annotations, checking colors...`);
+      const colorCounts: Record<string, number> = {};
+      annotations.forEach(ann => {
+        const c = ann.color || '(no color)';
+        colorCounts[c] = (colorCounts[c] || 0) + 1;
+      });
+      ztoolkit.log(`[SmartAnnotationExtractor] Color distribution: ${JSON.stringify(colorCounts)}`);
+
+      // Apply relevance scoring and filtering (only when query exists)
+      let scoredAnnotations = annotations.map(ann => ({
         ...ann,
-        relevance: this.calculateRelevance(ann, query),
+        relevance: hasQuery ? this.calculateRelevance(ann, query) : 1.0, // All relevant when no query
         importance: this.calculateImportance(ann)
       })).filter(ann => ann.relevance >= searchOptions.minRelevance!);
+
+      // Apply color filtering
+      if (searchOptions.colors && searchOptions.colors.length > 0) {
+        ztoolkit.log(`[SmartAnnotationExtractor] Filtering by colors: ${JSON.stringify(searchOptions.colors)}`);
+        const beforeCount = scoredAnnotations.length;
+        scoredAnnotations = scoredAnnotations.filter(ann => {
+          const color = ann.color;
+          if (!color) return false;
+          const matches = searchOptions.colors!.some(filterColor =>
+            this.matchColor(color, filterColor)
+          );
+          return matches;
+        });
+        ztoolkit.log(`[SmartAnnotationExtractor] Color filter: ${beforeCount} -> ${scoredAnnotations.length} annotations`);
+      }
+
+      // Apply tag filtering
+      if (searchOptions.tags && searchOptions.tags.length > 0) {
+        scoredAnnotations = scoredAnnotations.filter(ann => {
+          if (!ann.tags || ann.tags.length === 0) return false;
+          return searchOptions.tags!.some(filterTag =>
+            ann.tags.some((tag: string) => tag.toLowerCase().includes(filterTag.toLowerCase()))
+          );
+        });
+      }
 
       // Sort by combined relevance and importance
       scoredAnnotations.sort((a, b) => {
@@ -268,7 +425,7 @@ export class SmartAnnotationExtractor {
             nextOffset
           },
           stats: {
-            foundCount: searchResult.results?.length || 0,
+            foundCount: annotations.length,
             filteredCount: totalCount, // 已过滤过相关性的数量
             returnedCount: processed.includedCount,
             skippedCount: processed.originalCount ? processed.originalCount - processed.includedCount : undefined
@@ -547,6 +704,9 @@ export class SmartAnnotationExtractor {
       id: annotation.id,
       type: annotation.type,
       content: '',
+      color: annotation.color,
+      colorName: this.getColorName(annotation.color),
+      tags: annotation.tags || [],
       itemKey: annotation.itemKey,
       parentKey: annotation.parentKey,
       page: annotation.page,

@@ -4,6 +4,41 @@ import { testMCPIntegration } from "./mcpTest";
 
 declare let ztoolkit: ZToolkit;
 
+/**
+ * Helper to get UTF-8 byte length of a string
+ */
+function getByteLength(str: string): number {
+  // Use TextEncoder for accurate UTF-8 byte count
+  try {
+    return new TextEncoder().encode(str).length;
+  } catch {
+    // Fallback for environments without TextEncoder
+    let bytes = 0;
+    for (let i = 0; i < str.length; i++) {
+      const charCode = str.charCodeAt(i);
+      if (charCode < 0x80) bytes += 1;
+      else if (charCode < 0x800) bytes += 2;
+      else if (charCode < 0xd800 || charCode >= 0xe000) bytes += 3;
+      else { // surrogate pair
+        i++;
+        bytes += 4;
+      }
+    }
+    return bytes;
+  }
+}
+
+/**
+ * Write string to output stream with correct UTF-8 encoding
+ */
+function writeStringToStream(output: any, str: string): void {
+  const converterStream = Cc["@mozilla.org/intl/converter-output-stream;1"]
+    .createInstance(Ci.nsIConverterOutputStream);
+  (converterStream as any).init(output, "UTF-8", 0, 0);
+  converterStream.writeString(str);
+  converterStream.flush();
+}
+
 export class HttpServer {
   public static testServer() {
     Zotero.debug("Static testServer method called.");
@@ -465,34 +500,30 @@ export class HttpServer {
           }
 
           const body = result.body || "";
-          const storageStream = Cc[
-            "@mozilla.org/storagestream;1"
-          ].createInstance(Ci.nsIStorageStream);
-          storageStream.init(8192, 0xffffffff);
-          const storageConverter = Cc[
-            "@mozilla.org/intl/converter-output-stream;1"
-          ].createInstance(Ci.nsIConverterOutputStream);
-          (storageConverter as any).init(
-            storageStream.getOutputStream(0),
-            "UTF-8",
-            0,
-            0x003f,
-          );
-          storageConverter.writeString(body);
-          storageConverter.close();
-          const byteLength = storageStream.length;
-          
+
+          // Calculate UTF-8 byte length for Content-Length header
+          const byteLength = getByteLength(body);
+
           // Build headers with session and connection management
           const finalHeaders = this.buildHttpHeaders(result, keepAlive, sessionId) +
             `Content-Length: ${byteLength}\r\n` +
             "\r\n";
-          
-          ztoolkit.log(`[HttpServer] Sending response with headers: ${finalHeaders.split('\r\n').slice(0, -2).join(', ')}`);
-          
+
+          ztoolkit.log(`[HttpServer] Sending response: ${byteLength} bytes (chars: ${body.length})`);
+
+          // Write headers (ASCII only, so length is safe)
           output.write(finalHeaders, finalHeaders.length);
+
+          // Write body using converter stream for proper UTF-8 encoding
           if (byteLength > 0) {
-            const inputStream = storageStream.newInputStream(0);
-            output.writeFrom(inputStream, byteLength);
+            writeStringToStream(output, body);
+          }
+
+          // Ensure data is flushed
+          try {
+            output.flush();
+          } catch (flushError) {
+            // Some streams don't support flush, ignore
           }
         } catch (e) {
           const error = e instanceof Error ? e : new Error(String(e));
@@ -501,16 +532,18 @@ export class HttpServer {
             "error",
           );
           const errorBody = JSON.stringify({ error: error.message });
+          // Use getByteLength for accurate Content-Length with non-ASCII characters
+          const errorByteLength = getByteLength(errorBody);
           const errorResult = {
             status: 500,
             statusText: "Internal Server Error",
             headers: { "Content-Type": "application/json; charset=utf-8" }
           };
           const errorHeaders = this.buildHttpHeaders(errorResult, false) +
-            `Content-Length: ${errorBody.length}\r\n` +
+            `Content-Length: ${errorByteLength}\r\n` +
             "\r\n";
-          const errorResponse = errorHeaders + errorBody;
-          output.write(errorResponse, errorResponse.length);
+          output.write(errorHeaders, errorHeaders.length);
+          writeStringToStream(output, errorBody);
         }
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));

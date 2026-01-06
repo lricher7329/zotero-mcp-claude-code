@@ -494,11 +494,11 @@ export class StreamableMCPServer {
       },
       {
         name: 'search_annotations',
-        description: 'Search annotations and notes with intelligent ranking and content management',
+        description: 'Search and filter annotations by query, colors, or tags. Supports intelligent ranking and content management.',
         inputSchema: {
           type: 'object',
           properties: {
-            q: { type: 'string', description: 'Search query' },
+            q: { type: 'string', description: 'Search query (optional if colors or tags provided)' },
             itemKeys: {
               type: 'array',
               items: { type: 'string' },
@@ -506,11 +506,21 @@ export class StreamableMCPServer {
             },
             types: {
               type: 'array',
-              items: { 
+              items: {
                 type: 'string',
                 enum: ['note', 'highlight', 'annotation', 'ink', 'text', 'image']
               },
               description: 'Types of annotations to search'
+            },
+            colors: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by colors. Use hex codes (#ffd400) or names (yellow, red, green, blue, purple, orange). Common mappings: yellow=question, red=error/important, green=agree, blue=info, purple=definition'
+            },
+            tags: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by tags attached to annotations'
             },
             mode: {
               type: 'string',
@@ -526,12 +536,12 @@ export class StreamableMCPServer {
               minimum: 0,
               maximum: 1,
               default: 0.1,
-              description: 'Minimum relevance threshold'
+              description: 'Minimum relevance threshold (only applies when q is provided)'
             },
             limit: { type: 'number', default: 15, description: 'Maximum results' },
             offset: { type: 'number', default: 0, description: 'Pagination offset' }
           },
-          required: ['q']
+          description: 'Requires at least one of: q (query), colors, or tags'
         },
       },
       {
@@ -552,25 +562,35 @@ export class StreamableMCPServer {
       },
       {
         name: 'get_annotations',
-        description: 'Get annotations and notes with intelligent content management (PDF annotations, highlights, notes)',
+        description: 'Get annotations and notes with intelligent content management, color/tag filtering (PDF annotations, highlights, notes)',
         inputSchema: {
           type: 'object',
           properties: {
             itemKey: { type: 'string', description: 'Get all annotations for this item' },
             annotationId: { type: 'string', description: 'Get specific annotation by ID' },
-            annotationIds: { 
-              type: 'array', 
+            annotationIds: {
+              type: 'array',
               items: { type: 'string' },
               description: 'Get multiple annotations by IDs'
             },
             types: {
               type: 'array',
-              items: { 
+              items: {
                 type: 'string',
                 enum: ['note', 'highlight', 'annotation', 'ink', 'text', 'image']
               },
               default: ['note', 'highlight', 'annotation'],
               description: 'Types of annotations to include'
+            },
+            colors: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by colors. Use hex codes (#ffd400) or names (yellow, red, green, blue, purple, orange). Example: ["yellow", "red"] to get question and error annotations'
+            },
+            tags: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by tags attached to annotations'
             },
             mode: {
               type: 'string',
@@ -754,8 +774,9 @@ export class StreamableMCPServer {
           break;
 
         case 'search_annotations':
-          if (!args?.q) {
-            throw new Error('q (query) is required');
+          // q is optional when colors or tags filters are provided
+          if (!args?.q && !args?.colors && !args?.tags) {
+            throw new Error('Either q (query), colors, or tags filter is required');
           }
           result = await this.callSearchAnnotations(args);
           break;

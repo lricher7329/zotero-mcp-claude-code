@@ -302,22 +302,50 @@ export class AnnotationService {
           const pdfAnnotations = await this.getPDFAnnotations(params.itemKey);
           allAnnotations.push(...pdfAnnotations);
         } else {
-          // 获取所有文献的PDF注释（可能较慢）
-          const allItems = await Zotero.Items.getAll(
-            Zotero.Libraries.userLibraryID,
-          );
-          for (const item of allItems.slice(0, 50)) {
-            // 限制数量避免性能问题
-            if (
-              item.isRegularItem() &&
-              !item.isNote() &&
-              !item.isAttachment()
-            ) {
+          // 直接搜索所有 annotation 类型的 items（更快更准确）
+          ztoolkit.log(`[AnnotationService] Searching for all annotation items directly`);
+          try {
+            const search = new Zotero.Search();
+            (search as any).libraryID = Zotero.Libraries.userLibraryID;
+            search.addCondition("itemType", "is", "annotation");
+            const annotationIds = await search.search();
+            ztoolkit.log(`[AnnotationService] Found ${annotationIds.length} annotation items via search`);
+
+            const annotationItems = await Zotero.Items.getAsync(annotationIds);
+            for (const annotationItem of annotationItems) {
               try {
-                const pdfAnnotations = await this.getPDFAnnotations(item.key);
-                allAnnotations.push(...pdfAnnotations);
+                // Get parent attachment key for context
+                const parentItem = annotationItem.parentItem;
+                const parentKey = parentItem ? parentItem.key : '';
+
+                const annotationContent = this.formatAnnotationItem(
+                  annotationItem,
+                  parentKey
+                );
+                if (annotationContent) {
+                  allAnnotations.push(annotationContent);
+                }
               } catch (e) {
-                // 忽略单个文献的错误
+                // 忽略单个批注的错误
+              }
+            }
+            ztoolkit.log(`[AnnotationService] Processed ${allAnnotations.length} PDF annotations`);
+          } catch (searchError) {
+            ztoolkit.log(`[AnnotationService] Direct annotation search failed: ${searchError}, falling back to item iteration`, "warn");
+            // Fallback to old method
+            const allItems = await Zotero.Items.getAll(Zotero.Libraries.userLibraryID);
+            const itemLimit = 100;
+            let processedCount = 0;
+            for (const item of allItems) {
+              if (processedCount >= itemLimit) break;
+              if (item.isRegularItem() && !item.isNote() && !item.isAttachment()) {
+                try {
+                  const pdfAnnotations = await this.getPDFAnnotations(item.key);
+                  allAnnotations.push(...pdfAnnotations);
+                  processedCount++;
+                } catch (e) {
+                  // 忽略单个文献的错误
+                }
               }
             }
           }

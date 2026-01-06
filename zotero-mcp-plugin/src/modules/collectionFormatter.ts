@@ -1,5 +1,51 @@
 import { formatItem, formatItems } from "./itemFormatter";
 
+declare let Zotero: any;
+
+/**
+ * Get the full hierarchical path of a collection
+ * @param collection - The Zotero.Collection object
+ * @returns Full path like "Parent > Child > Grandchild"
+ */
+export function getCollectionPath(collection: Zotero.Collection): string {
+  const pathParts: string[] = [];
+  let current: Zotero.Collection | null = collection;
+
+  while (current) {
+    pathParts.unshift(current.name);
+    if (current.parentKey) {
+      current = Zotero.Collections.getByLibraryAndKey(
+        current.libraryID,
+        current.parentKey
+      );
+    } else {
+      current = null;
+    }
+  }
+
+  return pathParts.join(" > ");
+}
+
+/**
+ * Get the depth level of a collection in the hierarchy
+ * @param collection - The Zotero.Collection object
+ * @returns Depth level (0 for root, 1 for first-level child, etc.)
+ */
+export function getCollectionDepth(collection: Zotero.Collection): number {
+  let depth = 0;
+  let current: Zotero.Collection | null = collection;
+
+  while (current && current.parentKey) {
+    depth++;
+    current = Zotero.Collections.getByLibraryAndKey(
+      current.libraryID,
+      current.parentKey
+    );
+  }
+
+  return depth;
+}
+
 /**
  * Formats a single Zotero collection object into a detailed JSON format.
  * @param collection - The Zotero.Collection object.
@@ -14,6 +60,8 @@ export function formatCollection(collection: Zotero.Collection) {
     version: collection.version,
     libraryID: collection.libraryID,
     name: collection.name,
+    path: getCollectionPath(collection),
+    depth: getCollectionDepth(collection),
     parentCollection: collection.parentKey,
     relations: collection.getRelations(),
   };
@@ -22,7 +70,7 @@ export function formatCollection(collection: Zotero.Collection) {
 /**
  * Formats a single Zotero collection object into a brief JSON format.
  * @param collection - The Zotero.Collection object.
- * @returns A formatted brief collection object.
+ * @returns A formatted brief collection object with full path.
  */
 export function formatCollectionBrief(collection: Zotero.Collection) {
   if (!collection) {
@@ -31,6 +79,8 @@ export function formatCollectionBrief(collection: Zotero.Collection) {
   return {
     key: collection.key,
     name: collection.name,
+    path: getCollectionPath(collection),
+    depth: getCollectionDepth(collection),
     parentCollection: collection.parentKey,
   };
 }

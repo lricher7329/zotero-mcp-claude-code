@@ -381,8 +381,8 @@ export class UnifiedContentExtractor {
     try {
       // Unified extraction logic based on file type
       if (this.isPDF(attachment, contentType)) {
-        content = await this.extractPDFText(filePath);
-        extractionMethod = 'pdf_processor';
+        content = await this.extractPDFText(filePath, attachment.id);
+        extractionMethod = 'pdf_cached_or_extracted';
       } else if (this.isHTML(contentType)) {
         content = await this.extractHTMLText(filePath);
         extractionMethod = 'html_parsing';
@@ -445,20 +445,71 @@ export class UnifiedContentExtractor {
       return result;
 
     } catch (error) {
-      ztoolkit.log(`[UnifiedContentExtractor] Error processing attachment ${attachment.key}: ${error}`, "error");
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      ztoolkit.log(`[UnifiedContentExtractor] Error processing attachment ${attachment.key}: ${errorMsg}`, "error");
+
+      // Return partial result with error info instead of null
+      return {
+        attachmentKey: attachment.key,
+        filename,
+        filePath,
+        contentType,
+        type: this.categorizeAttachmentType(contentType),
+        content: `[Error extracting content: ${errorMsg}]`,
+        length: 0,
+        originalLength: 0,
+        truncated: false,
+        extractionMethod: 'error',
+        extractedAt: new Date().toISOString(),
+        error: errorMsg
+      };
+    }
+  }
+
+  /**
+   * Try to get cached fulltext from Zotero's index (much faster than extraction)
+   */
+  private async getZoteroCachedFulltext(attachmentId: number): Promise<string | null> {
+    try {
+      if (Zotero.Fulltext && Zotero.Fulltext.getItemContent) {
+        const content = await Zotero.Fulltext.getItemContent(attachmentId);
+        if (content && content.content && content.content.trim().length > 0) {
+          ztoolkit.log(`[UnifiedContentExtractor] Using Zotero cached fulltext (${content.content.length} chars)`);
+          return content.content;
+        }
+      }
+      return null;
+    } catch (error) {
+      ztoolkit.log(`[UnifiedContentExtractor] Zotero fulltext cache not available: ${error}`, "warn");
       return null;
     }
   }
 
   /**
-   * Extract text from PDF using PDFProcessor with formatting
+   * Extract text from PDF - first try Zotero cache, then fallback to PDFProcessor
    */
-  private async extractPDFText(filePath: string): Promise<string> {
+  private async extractPDFText(filePath: string, attachmentId?: number): Promise<string> {
+    // First try Zotero's cached fulltext (much faster)
+    if (attachmentId) {
+      const cachedText = await this.getZoteroCachedFulltext(attachmentId);
+      if (cachedText) {
+        return TextFormatter.formatPDFText(cachedText);
+      }
+    }
+
+    // Fallback to PDFProcessor (slower, but works for new/unindexed PDFs)
     const processor = new PDFProcessor(ztoolkit);
     try {
+      ztoolkit.log(`[UnifiedContentExtractor] Fallback to PDFProcessor for: ${filePath}`);
       const rawText = await processor.extractText(filePath);
-      // Apply PDF-specific text formatting
       return TextFormatter.formatPDFText(rawText);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      ztoolkit.log(`[UnifiedContentExtractor] PDF extraction failed: ${errorMsg}`, "warn");
+      if (errorMsg.includes('timed out')) {
+        return `[PDF extraction timed out - file may be too large. Try indexing the PDF in Zotero first.]`;
+      }
+      throw error;
     } finally {
       processor.terminate();
     }
