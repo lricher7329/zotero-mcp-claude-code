@@ -219,4 +219,239 @@ function bindPrefEvents() {
       generateButton?.click();
     }
   });
+
+  // ============ Embedding API Settings ============
+  bindEmbeddingSettings(doc);
+
+  // ============ Semantic Index Stats ============
+  bindSemanticStatsSettings(doc);
+}
+
+/**
+ * Bind embedding API settings handlers
+ */
+function bindEmbeddingSettings(doc: Document) {
+  const apiBaseInput = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-embedding-api-base`) as HTMLInputElement;
+  const apiKeyInput = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-embedding-api-key`) as HTMLInputElement;
+  const modelInput = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-embedding-model`) as HTMLInputElement;
+  const dimensionsInput = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-embedding-dimensions`) as HTMLInputElement;
+  const testButton = doc?.querySelector("#test-embedding-button") as HTMLButtonElement;
+  const testResult = doc?.querySelector("#embedding-test-result") as HTMLSpanElement;
+
+  // Initialize input values from preferences
+  const initValue = (input: HTMLInputElement, prefKey: string, defaultValue: string) => {
+    if (input) {
+      const value = Zotero.Prefs.get(prefKey, true);
+      input.value = value ? String(value) : defaultValue;
+    }
+  };
+
+  initValue(apiBaseInput, "extensions.zotero.zotero-mcp-plugin.embedding.apiBase", "https://api.openai.com/v1");
+  initValue(apiKeyInput, "extensions.zotero.zotero-mcp-plugin.embedding.apiKey", "");
+  initValue(modelInput, "extensions.zotero.zotero-mcp-plugin.embedding.model", "text-embedding-3-small");
+  initValue(dimensionsInput, "extensions.zotero.zotero-mcp-plugin.embedding.dimensions", "512");
+
+  // Save preference on change
+  const bindSave = (input: HTMLInputElement, prefKey: string, isNumber = false) => {
+    input?.addEventListener("change", () => {
+      const value = isNumber ? parseInt(input.value, 10) : input.value;
+      Zotero.Prefs.set(prefKey, value, true);
+      ztoolkit.log(`[PreferenceScript] Saved embedding pref: ${prefKey} = ${value}`);
+
+      // Update embedding service config
+      updateEmbeddingServiceConfig();
+    });
+  };
+
+  bindSave(apiBaseInput, "extensions.zotero.zotero-mcp-plugin.embedding.apiBase");
+  bindSave(apiKeyInput, "extensions.zotero.zotero-mcp-plugin.embedding.apiKey");
+  bindSave(modelInput, "extensions.zotero.zotero-mcp-plugin.embedding.model");
+  bindSave(dimensionsInput, "extensions.zotero.zotero-mcp-plugin.embedding.dimensions", true);
+
+  // Test connection button
+  testButton?.addEventListener("click", async () => {
+    testResult.textContent = "Testing...";
+    testResult.style.color = "#666";
+    testButton.disabled = true;
+
+    try {
+      // Get current values from inputs (not saved prefs) for testing
+      const apiBase = apiBaseInput?.value?.trim() || "";
+      const apiKey = apiKeyInput?.value || "";
+      const model = modelInput?.value?.trim() || "";
+
+      if (!apiBase || !model) {
+        testResult.textContent = getString("pref-embedding-test-failed" as any) + ": Missing API Base or Model";
+        testResult.style.color = "#d32f2f";
+        testButton.disabled = false;
+        return;
+      }
+
+      // Test the connection using Zotero.HTTP
+      const url = `${apiBase}/embeddings`;
+      const response = await Zotero.HTTP.request('POST', url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
+        },
+        body: JSON.stringify({
+          model: model,
+          input: ["test"]
+        }),
+        timeout: 30000,
+        responseType: 'json'
+      });
+
+      const data = response.response;
+      if (data && data.data && data.data.length > 0) {
+        const dims = data.data[0].embedding?.length || 0;
+        testResult.textContent = getString("pref-embedding-test-success" as any) + ` (${dims} dims)`;
+        testResult.style.color = "#2e7d32";
+
+        // Auto-update dimensions if detected
+        if (dims > 0 && dimensionsInput) {
+          dimensionsInput.value = String(dims);
+          Zotero.Prefs.set("extensions.zotero.zotero-mcp-plugin.embedding.dimensions", dims, true);
+        }
+      } else {
+        testResult.textContent = getString("pref-embedding-test-failed" as any) + ": Invalid response";
+        testResult.style.color = "#d32f2f";
+      }
+    } catch (error: any) {
+      const errorMsg = error.message || error.status || String(error);
+      testResult.textContent = getString("pref-embedding-test-failed" as any) + `: ${errorMsg.substring(0, 50)}`;
+      testResult.style.color = "#d32f2f";
+      ztoolkit.log(`[PreferenceScript] Embedding test failed: ${error}`, "warn");
+    } finally {
+      testButton.disabled = false;
+    }
+  });
+}
+
+/**
+ * Update embedding service configuration from preferences
+ */
+function updateEmbeddingServiceConfig() {
+  try {
+    // Import and update embedding service
+    const { getEmbeddingService } = require("./semantic/embeddingService");
+    const embeddingService = getEmbeddingService();
+
+    const apiBase = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.embedding.apiBase", true) || "";
+    const apiKey = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.embedding.apiKey", true) || "";
+    const model = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.embedding.model", true) || "";
+    const dimensions = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.embedding.dimensions", true);
+
+    embeddingService.updateConfig({
+      apiBase: apiBase as string,
+      apiKey: apiKey as string,
+      model: model as string,
+      dimensions: dimensions ? parseInt(String(dimensions), 10) : undefined
+    });
+
+    ztoolkit.log(`[PreferenceScript] Updated embedding service config`);
+  } catch (error) {
+    ztoolkit.log(`[PreferenceScript] Failed to update embedding service: ${error}`, "warn");
+  }
+}
+
+/**
+ * Bind semantic stats display handlers
+ */
+function bindSemanticStatsSettings(doc: Document) {
+  const loadingEl = doc?.querySelector("#semantic-stats-loading") as HTMLElement;
+  const contentEl = doc?.querySelector("#semantic-stats-content") as HTMLElement;
+  const refreshButton = doc?.querySelector("#refresh-semantic-stats-button") as HTMLButtonElement;
+
+  const totalItemsEl = doc?.querySelector("#semantic-stats-total-items") as HTMLElement;
+  const totalVectorsEl = doc?.querySelector("#semantic-stats-total-vectors") as HTMLElement;
+  const zhVectorsEl = doc?.querySelector("#semantic-stats-zh-vectors") as HTMLElement;
+  const enVectorsEl = doc?.querySelector("#semantic-stats-en-vectors") as HTMLElement;
+  const cachedItemsEl = doc?.querySelector("#semantic-stats-cached-items") as HTMLElement;
+  const cacheSizeEl = doc?.querySelector("#semantic-stats-cache-size") as HTMLElement;
+  const statusEl = doc?.querySelector("#semantic-stats-status") as HTMLElement;
+  const progressRowEl = doc?.querySelector("#semantic-stats-progress-row") as HTMLElement;
+  const progressEl = doc?.querySelector("#semantic-stats-progress") as HTMLElement;
+
+  // Load stats on page load
+  loadSemanticStats();
+
+  // Refresh button
+  refreshButton?.addEventListener("click", () => {
+    loadSemanticStats();
+  });
+
+  async function loadSemanticStats() {
+    if (!loadingEl || !contentEl) return;
+
+    // Show loading, hide content
+    loadingEl.style.display = "block";
+    contentEl.style.display = "none";
+
+    try {
+      // Import semantic search service
+      const { getSemanticSearchService } = require("./semantic");
+      const semanticService = getSemanticSearchService();
+
+      // Initialize if needed
+      await semanticService.initialize();
+
+      // Get stats
+      const stats = await semanticService.getStats();
+
+      // Format size nicely
+      const formatSize = (bytes: number) => {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+      };
+
+      // Get status text
+      const getStatusText = (status: string) => {
+        const statusMap: Record<string, string> = {
+          'idle': getString("pref-semantic-stats-status-idle" as any) || 'Idle',
+          'indexing': getString("pref-semantic-stats-status-indexing" as any) || 'Indexing',
+          'paused': getString("pref-semantic-stats-status-paused" as any) || 'Paused',
+          'completed': getString("pref-semantic-stats-status-completed" as any) || 'Completed',
+          'error': getString("pref-semantic-stats-status-error" as any) || 'Error',
+          'aborted': 'Aborted'
+        };
+        return statusMap[status] || status;
+      };
+
+      // Update UI
+      if (totalItemsEl) totalItemsEl.textContent = String(stats.indexStats.totalItems);
+      if (totalVectorsEl) totalVectorsEl.textContent = String(stats.indexStats.totalVectors);
+      if (zhVectorsEl) zhVectorsEl.textContent = String(stats.indexStats.zhVectors);
+      if (enVectorsEl) enVectorsEl.textContent = String(stats.indexStats.enVectors);
+      if (cachedItemsEl) cachedItemsEl.textContent = String(stats.indexStats.cachedContentItems || 0);
+      if (cacheSizeEl) cacheSizeEl.textContent = formatSize(stats.indexStats.cachedContentSizeBytes || 0);
+      if (statusEl) statusEl.textContent = getStatusText(stats.indexProgress.status);
+
+      // Show progress if indexing
+      if (progressRowEl && progressEl) {
+        if (stats.indexProgress.status === 'indexing' || stats.indexProgress.status === 'paused') {
+          progressRowEl.style.display = "flex";
+          const progressText = `${stats.indexProgress.processed}/${stats.indexProgress.total}`;
+          progressEl.textContent = progressText;
+        } else {
+          progressRowEl.style.display = "none";
+        }
+      }
+
+      // Hide loading, show content
+      loadingEl.style.display = "none";
+      contentEl.style.display = "block";
+
+      ztoolkit.log(`[PreferenceScript] Loaded semantic stats: ${stats.indexStats.totalItems} items, ${stats.indexStats.totalVectors} vectors`);
+
+    } catch (error) {
+      ztoolkit.log(`[PreferenceScript] Failed to load semantic stats: ${error}`, "warn");
+
+      // Show error message
+      loadingEl.textContent = getString("pref-semantic-stats-not-initialized" as any) || "Semantic search service not initialized";
+      loadingEl.style.display = "block";
+      contentEl.style.display = "none";
+    }
+  }
 }

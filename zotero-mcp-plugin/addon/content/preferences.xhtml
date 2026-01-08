@@ -18,6 +18,11 @@
     <preference id="extensions.zotero.zotero-mcp-plugin.custom.includeWebpage" name="extensions.zotero.zotero-mcp-plugin.custom.includeWebpage" type="bool" />
     <preference id="extensions.zotero.zotero-mcp-plugin.custom.enableCompression" name="extensions.zotero.zotero-mcp-plugin.custom.enableCompression" type="bool" />
     <preference id="extensions.zotero.zotero-mcp-plugin.ui.includeMetadata" name="extensions.zotero.zotero-mcp-plugin.ui.includeMetadata" type="bool" />
+    <!-- Embedding API settings -->
+    <preference id="extensions.zotero.zotero-mcp-plugin.embedding.apiBase" name="extensions.zotero.zotero-mcp-plugin.embedding.apiBase" type="string" />
+    <preference id="extensions.zotero.zotero-mcp-plugin.embedding.apiKey" name="extensions.zotero.zotero-mcp-plugin.embedding.apiKey" type="string" />
+    <preference id="extensions.zotero.zotero-mcp-plugin.embedding.model" name="extensions.zotero.zotero-mcp-plugin.embedding.model" type="string" />
+    <preference id="extensions.zotero.zotero-mcp-plugin.embedding.dimensions" name="extensions.zotero.zotero-mcp-plugin.embedding.dimensions" type="int" />
   </preferences>
 
   <vbox flex="1" style="padding: 10px;">
@@ -230,7 +235,142 @@
         ></checkbox>
       </vbox>
     </groupbox>
-    
+
+    <groupbox style="margin-bottom: 15px;">
+      <label><html:h2 data-l10n-id="pref-embedding-title"></html:h2></label>
+      <html:p data-l10n-id="pref-embedding-description"></html:p>
+
+      <vbox>
+        <hbox align="center" style="margin-bottom: 10px;">
+          <html:label
+            for="zotero-prefpane-__addonRef__-embedding-api-base"
+            data-l10n-id="pref-embedding-api-base-label"
+            style="min-width: 120px;"
+          ></html:label>
+          <html:input
+            type="text"
+            id="zotero-prefpane-__addonRef__-embedding-api-base"
+            preference="extensions.zotero.zotero-mcp-plugin.embedding.apiBase"
+            placeholder="http://127.0.0.1:1234/v1"
+            style="flex: 1; max-width: 300px;"
+          ></html:input>
+        </hbox>
+
+        <hbox align="center" style="margin-bottom: 10px;">
+          <html:label
+            for="zotero-prefpane-__addonRef__-embedding-api-key"
+            data-l10n-id="pref-embedding-api-key-label"
+            style="min-width: 120px;"
+          ></html:label>
+          <html:input
+            type="password"
+            id="zotero-prefpane-__addonRef__-embedding-api-key"
+            preference="extensions.zotero.zotero-mcp-plugin.embedding.apiKey"
+            placeholder="sk-..."
+            style="flex: 1; max-width: 300px;"
+          ></html:input>
+        </hbox>
+
+        <hbox align="center" style="margin-bottom: 10px;">
+          <html:label
+            for="zotero-prefpane-__addonRef__-embedding-model"
+            data-l10n-id="pref-embedding-model-label"
+            style="min-width: 120px;"
+          ></html:label>
+          <html:input
+            type="text"
+            id="zotero-prefpane-__addonRef__-embedding-model"
+            preference="extensions.zotero.zotero-mcp-plugin.embedding.model"
+            placeholder="text-embedding-3-small"
+            style="flex: 1; max-width: 300px;"
+          ></html:input>
+        </hbox>
+
+        <hbox align="center" style="margin-bottom: 15px;">
+          <html:label
+            for="zotero-prefpane-__addonRef__-embedding-dimensions"
+            data-l10n-id="pref-embedding-dimensions-label"
+            style="min-width: 120px;"
+          ></html:label>
+          <html:input
+            type="number"
+            id="zotero-prefpane-__addonRef__-embedding-dimensions"
+            preference="extensions.zotero.zotero-mcp-plugin.embedding.dimensions"
+            min="64"
+            max="4096"
+            placeholder="512"
+            style="max-width: 100px;"
+          ></html:input>
+        </hbox>
+
+        <hbox style="margin-bottom: 10px;">
+          <button
+            id="test-embedding-button"
+            data-l10n-id="pref-embedding-test-button"
+            style="margin-right: 10px;"
+          ></button>
+          <html:span id="embedding-test-result" style="line-height: 28px; font-size: 12px;"></html:span>
+        </hbox>
+
+        <html:div style="font-size: 11px; color: #666; font-style: italic; margin-top: 5px;" data-l10n-id="pref-embedding-hint">
+        </html:div>
+      </vbox>
+    </groupbox>
+
+    <groupbox style="margin-bottom: 15px;">
+      <label><html:h2 data-l10n-id="pref-semantic-stats-title"></html:h2></label>
+
+      <vbox id="semantic-stats-container">
+        <html:div id="semantic-stats-loading" data-l10n-id="pref-semantic-stats-loading" style="color: #666; font-style: italic;"></html:div>
+
+        <vbox id="semantic-stats-content" style="display: none;">
+          <hbox style="margin-bottom: 8px;">
+            <html:label data-l10n-id="pref-semantic-stats-total-items" style="min-width: 120px; font-weight: bold;"></html:label>
+            <html:span id="semantic-stats-total-items" style="color: #333;">-</html:span>
+          </hbox>
+
+          <hbox style="margin-bottom: 8px;">
+            <html:label data-l10n-id="pref-semantic-stats-total-vectors" style="min-width: 120px;"></html:label>
+            <html:span id="semantic-stats-total-vectors" style="color: #333;">-</html:span>
+          </hbox>
+
+          <hbox style="margin-bottom: 8px;">
+            <html:label data-l10n-id="pref-semantic-stats-zh-vectors" style="min-width: 120px;"></html:label>
+            <html:span id="semantic-stats-zh-vectors" style="color: #333;">-</html:span>
+          </hbox>
+
+          <hbox style="margin-bottom: 8px;">
+            <html:label data-l10n-id="pref-semantic-stats-en-vectors" style="min-width: 120px;"></html:label>
+            <html:span id="semantic-stats-en-vectors" style="color: #333;">-</html:span>
+          </hbox>
+
+          <hbox style="margin-bottom: 8px;">
+            <html:label data-l10n-id="pref-semantic-stats-cached-items" style="min-width: 120px;"></html:label>
+            <html:span id="semantic-stats-cached-items" style="color: #333;">-</html:span>
+          </hbox>
+
+          <hbox style="margin-bottom: 8px;">
+            <html:label data-l10n-id="pref-semantic-stats-cache-size" style="min-width: 120px;"></html:label>
+            <html:span id="semantic-stats-cache-size" style="color: #333;">-</html:span>
+          </hbox>
+
+          <hbox style="margin-bottom: 8px;">
+            <html:label data-l10n-id="pref-semantic-stats-status" style="min-width: 120px;"></html:label>
+            <html:span id="semantic-stats-status" style="color: #333;">-</html:span>
+          </hbox>
+
+          <hbox id="semantic-stats-progress-row" style="margin-bottom: 8px; display: none;">
+            <html:label data-l10n-id="pref-semantic-stats-progress" style="min-width: 120px;"></html:label>
+            <html:span id="semantic-stats-progress" style="color: #333;">-</html:span>
+          </hbox>
+        </vbox>
+
+        <hbox style="margin-top: 10px;">
+          <button id="refresh-semantic-stats-button" data-l10n-id="pref-semantic-stats-refresh-button"></button>
+        </hbox>
+      </vbox>
+    </groupbox>
+
     <groupbox style="margin-bottom: 15px;">
       <label><html:h2 data-l10n-id="pref-client-config-title"></html:h2></label>
     <html:p data-l10n-id="pref-client-config-description"></html:p>

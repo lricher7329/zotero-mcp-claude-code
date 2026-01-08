@@ -1,0 +1,946 @@
+/**
+ * Semantic Search Service for Zotero MCP Plugin
+ *
+ * Main service that orchestrates:
+ * - Embedding generation (EmbeddingService)
+ * - Vector storage and search (VectorStore)
+ * - Text processing (TextChunker)
+ * - Integration with existing Zotero services
+ */
+
+import { getEmbeddingService, EmbeddingService } from './embeddingService';
+import { getVectorStore, VectorStore } from './vectorStore';
+import { getTextChunker, TextChunker } from './textChunker';
+import { TextFormatter } from '../textFormatter';
+import { PDFProcessor } from '../pdfProcessor';
+
+declare let Zotero: any;
+declare let ztoolkit: ZToolkit;
+
+// ============ Interfaces ============
+
+export interface SemanticSearchOptions {
+  topK?: number;              // Number of results
+  minScore?: number;          // Minimum similarity threshold
+  language?: 'zh' | 'en' | 'all';  // Language filter
+  itemKeys?: string[];        // Limit to specific items
+}
+
+export interface SemanticSearchResult {
+  itemKey: string;
+  parentKey?: string;
+  title: string;
+  creators?: string;
+  year?: number;
+  itemType?: string;
+  score: number;
+  matchedChunks: Array<{
+    chunkId: number;
+    text: string;
+    score: number;
+  }>;
+}
+
+export interface IndexProgress {
+  total: number;
+  processed: number;
+  currentItem?: string;
+  status: 'idle' | 'indexing' | 'paused' | 'completed' | 'error' | 'aborted';
+  error?: string;
+  startTime?: number;
+  estimatedRemaining?: number;
+}
+
+export interface SemanticServiceStats {
+  indexStats: {
+    totalVectors: number;
+    totalItems: number;
+    zhVectors: number;
+    enVectors: number;
+    cachedContentItems?: number;
+    cachedContentSizeBytes?: number;
+    dbSizeBytes?: number;
+  };
+  serviceStatus: {
+    initialized: boolean;
+    embeddingReady: boolean;
+    fallbackMode: boolean;
+  };
+  indexProgress: IndexProgress;
+}
+
+// ============ Service Implementation ============
+
+export class SemanticSearchService {
+  private embeddingService: EmbeddingService;
+  private vectorStore: VectorStore;
+  private textChunker: TextChunker;
+
+  private initialized = false;
+  private initPromise: Promise<void> | null = null;
+
+  private indexProgress: IndexProgress = {
+    total: 0,
+    processed: 0,
+    status: 'idle'
+  };
+
+  // Pause/Resume control flags
+  private _paused = false;
+  private _aborted = false;
+  private _pauseResolve: (() => void) | null = null;
+
+  constructor() {
+    ztoolkit.log(`[SemanticSearch] Constructor called`);
+    this.embeddingService = getEmbeddingService();
+    this.vectorStore = getVectorStore();
+    this.textChunker = getTextChunker();
+    ztoolkit.log(`[SemanticSearch] Obtained VectorStore instance`);
+  }
+
+  /**
+   * Initialize the semantic search service
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = this._initialize();
+    return this.initPromise;
+  }
+
+  private async _initialize(): Promise<void> {
+    const startTime = Date.now();
+    ztoolkit.log('[SemanticSearch] Initializing...');
+
+    try {
+      // Initialize vector store first (faster)
+      await this.vectorStore.initialize();
+
+      // Initialize embedding service (may take longer due to model loading)
+      await this.embeddingService.initialize();
+
+      this.initialized = true;
+      const elapsed = Date.now() - startTime;
+      ztoolkit.log(`[SemanticSearch] Initialized in ${elapsed}ms`);
+
+    } catch (error) {
+      ztoolkit.log(`[SemanticSearch] Initialization failed: ${error}`, 'error');
+      throw error;
+    }
+  }
+
+  // ============ Search Methods ============
+
+  /**
+   * Semantic search
+   */
+  async search(
+    query: string,
+    options: SemanticSearchOptions = {}
+  ): Promise<SemanticSearchResult[]> {
+    await this.initialize();
+
+    const {
+      topK = 10,
+      minScore = 0.1,  // Lowered from 0.3 to allow more results through
+      language = 'all',
+      itemKeys
+    } = options;
+
+    const startTime = Date.now();
+    ztoolkit.log(`[SemanticSearch] Searching: "${query.substring(0, 50)}..."`);
+
+    try {
+      // 1. Generate query embedding (isQuery=true for BGE instruction prefix)
+      ztoolkit.log(`[SemanticSearch] Step 1: Generating query embedding...`);
+      const queryEmbedding = await this.embeddingService.embed(query, 'auto', true);
+      ztoolkit.log(`[SemanticSearch] Query embedding: lang=${queryEmbedding.language}, dims=${queryEmbedding.dimensions}`);
+
+      // 2. Vector search - use detected language when language option is 'all' for better performance
+      // This significantly reduces search space (up to 50% reduction)
+      const searchLanguage = language === 'all' ? queryEmbedding.language : language;
+      ztoolkit.log(`[SemanticSearch] Step 2: Vector search (topK=${topK * 3}, minScore=${minScore}, lang=${searchLanguage})...`);
+      const vectorResults = await this.vectorStore.search(queryEmbedding.embedding, {
+        topK: topK * 3,  // Get more for deduplication
+        language: searchLanguage,
+        itemKeys,
+        minScore
+      });
+      ztoolkit.log(`[SemanticSearch] Vector search returned ${vectorResults.length} results`);
+
+      // 3. Aggregate by item
+      const itemResultsMap = new Map<string, {
+        itemKey: string;
+        chunks: Array<{ chunkId: number; text: string; score: number }>;
+        maxScore: number;
+      }>();
+
+      for (const result of vectorResults) {
+        const existing = itemResultsMap.get(result.itemKey);
+        if (existing) {
+          existing.chunks.push({
+            chunkId: result.chunkId,
+            text: result.chunkText,
+            score: result.score
+          });
+          existing.maxScore = Math.max(existing.maxScore, result.score);
+        } else {
+          itemResultsMap.set(result.itemKey, {
+            itemKey: result.itemKey,
+            chunks: [{
+              chunkId: result.chunkId,
+              text: result.chunkText,
+              score: result.score
+            }],
+            maxScore: result.score
+          });
+        }
+      }
+
+      // 4. Pure semantic search (no hybrid)
+      ztoolkit.log(`[SemanticSearch] Step 3: Aggregated into ${itemResultsMap.size} unique items`);
+
+      const finalResults: SemanticSearchResult[] = Array.from(itemResultsMap.values())
+        .sort((a, b) => b.maxScore - a.maxScore)
+        .slice(0, topK)
+        .map(r => ({
+          itemKey: r.itemKey,
+          title: '',
+          score: r.maxScore,
+          matchedChunks: r.chunks.sort((a, b) => b.score - a.score).slice(0, 3)
+        }));
+
+      // 5. Fill in item metadata
+      await this.fillItemMetadata(finalResults);
+
+      const searchTime = Date.now() - startTime;
+      ztoolkit.log(`[SemanticSearch] Found ${finalResults.length} results in ${searchTime}ms`);
+
+      return finalResults.slice(0, topK);
+
+    } catch (error) {
+      ztoolkit.log(`[SemanticSearch] Search error: ${error}`, 'error');
+      throw error;
+    }
+  }
+
+  /**
+   * Find similar items
+   */
+  async findSimilar(
+    itemKey: string,
+    options: { topK?: number; minScore?: number } = {}
+  ): Promise<SemanticSearchResult[]> {
+    await this.initialize();
+
+    const { topK = 5, minScore = 0.3 } = options;  // Lowered from 0.5
+
+    try {
+      // Get item's vectors
+      const itemVectors = await this.vectorStore.getItemVectors(itemKey);
+
+      if (itemVectors.length === 0) {
+        ztoolkit.log(`[SemanticSearch] Item ${itemKey} not indexed`);
+        return [];
+      }
+
+      // Use first chunk vector as query (or could average all)
+      const queryVector = itemVectors[0].vector;
+
+      // Search for similar
+      const results = await this.vectorStore.search(queryVector, {
+        topK: topK + 1,
+        minScore
+      });
+
+      // Filter out the source item and map results
+      const filteredResults = results
+        .filter(r => r.itemKey !== itemKey)
+        .slice(0, topK)
+        .map(r => ({
+          itemKey: r.itemKey,
+          title: '',
+          score: r.score,
+          matchedChunks: [{
+            chunkId: r.chunkId,
+            text: r.chunkText,
+            score: r.score
+          }]
+        }));
+
+      // Fill metadata
+      await this.fillItemMetadata(filteredResults);
+
+      return filteredResults;
+
+    } catch (error) {
+      ztoolkit.log(`[SemanticSearch] findSimilar error: ${error}`, 'error');
+      throw error;
+    }
+  }
+
+  // ============ Indexing Methods ============
+
+  /**
+   * Build or update the semantic index
+   */
+  async buildIndex(options: {
+    itemKeys?: string[];
+    rebuild?: boolean;
+    onProgress?: (progress: IndexProgress) => void;
+  } = {}): Promise<IndexProgress> {
+    await this.initialize();
+
+    const { itemKeys, rebuild = false, onProgress } = options;
+
+    try {
+      // Reset control flags
+      this._paused = false;
+      this._aborted = false;
+      this._pauseResolve = null;
+
+      this.indexProgress = {
+        total: 0,
+        processed: 0,
+        status: 'indexing',
+        startTime: Date.now()
+      };
+
+      // Get items to index
+      let items: any[];
+      if (itemKeys && itemKeys.length > 0) {
+        items = await this.getItemsByKeys(itemKeys);
+      } else {
+        items = await this.getItemsWithContent();
+      }
+
+      // Filter already indexed items (unless rebuild)
+      if (!rebuild) {
+        const indexedItems = await this.vectorStore.getIndexedItems();
+        items = items.filter(item => !indexedItems.has(item.key));
+      }
+
+      this.indexProgress.total = items.length;
+      onProgress?.(this.indexProgress);
+
+      if (items.length === 0) {
+        this.indexProgress.status = 'completed';
+        return this.indexProgress;
+      }
+
+      ztoolkit.log(`[SemanticSearch] Indexing ${items.length} items...`);
+
+      // Create a pool of PDFProcessors for true parallel processing
+      const concurrency = 5;  // Process 5 items in parallel
+      const processorPool: PDFProcessor[] = [];
+      for (let p = 0; p < concurrency; p++) {
+        processorPool.push(new PDFProcessor(ztoolkit));
+      }
+      ztoolkit.log(`[SemanticSearch] Created ${concurrency} PDFProcessor workers for parallel processing`);
+
+      try {
+        // Process in parallel batches for better throughput
+        for (let i = 0; i < items.length; i += concurrency) {
+          // Check for abort
+          if (this._aborted) {
+            this.indexProgress.status = 'aborted';
+            ztoolkit.log(`[SemanticSearch] Indexing aborted at ${this.indexProgress.processed}/${this.indexProgress.total}`);
+            break;
+          }
+
+          // Check for pause - wait until resumed
+          if (this._paused) {
+            ztoolkit.log(`[SemanticSearch] Indexing paused at ${this.indexProgress.processed}/${this.indexProgress.total}`);
+            onProgress?.(this.indexProgress);
+            await this.waitWhilePaused();
+            // After resume, check if aborted while paused
+            if (this._aborted) {
+              this.indexProgress.status = 'aborted';
+              ztoolkit.log(`[SemanticSearch] Indexing aborted after pause`);
+              break;
+            }
+            this.indexProgress.status = 'indexing';
+            ztoolkit.log(`[SemanticSearch] Indexing resumed`);
+          }
+
+          const batch = items.slice(i, i + concurrency);
+
+          // Process batch items in parallel, each with its own processor
+          const results = await Promise.allSettled(
+            batch.map(async (item, batchIndex) => {
+              this.indexProgress.currentItem = item.key;
+              // Each item gets its own processor from the pool
+              const processor = processorPool[batchIndex % processorPool.length];
+              await this.indexItemWithProcessor(item, processor);
+            })
+          );
+
+          // Count processed items
+          for (const result of results) {
+            this.indexProgress.processed++;
+            if (result.status === 'rejected') {
+              ztoolkit.log(`[SemanticSearch] Failed to index item: ${result.reason}`, 'warn');
+            }
+          }
+
+          // Update estimated remaining time
+          const elapsed = Date.now() - (this.indexProgress.startTime || 0);
+          const avgTime = elapsed / this.indexProgress.processed;
+          this.indexProgress.estimatedRemaining =
+            avgTime * (this.indexProgress.total - this.indexProgress.processed);
+
+          onProgress?.(this.indexProgress);
+
+          // Yield to UI periodically
+          if (i % 10 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+          }
+        }
+      } finally {
+        // Clean up all processors in the pool
+        for (const processor of processorPool) {
+          processor.terminate();
+        }
+        ztoolkit.log(`[SemanticSearch] Terminated ${processorPool.length} PDFProcessor workers`);
+      }
+
+      // Only set completed if not aborted
+      if (this.indexProgress.status !== 'aborted') {
+        this.indexProgress.status = 'completed';
+      }
+      onProgress?.(this.indexProgress);
+
+      ztoolkit.log(`[SemanticSearch] Indexing finished: ${this.indexProgress.processed} items, status=${this.indexProgress.status}`);
+      return this.indexProgress;
+
+    } catch (error) {
+      this.indexProgress.status = 'error';
+      this.indexProgress.error = String(error);
+      ztoolkit.log(`[SemanticSearch] Indexing failed: ${error}`, 'error');
+      throw error;
+    }
+  }
+
+  /**
+   * Index a single item (creates its own PDFProcessor)
+   */
+  async indexItem(item: any): Promise<void> {
+    return this.indexItemWithProcessor(item, null);
+  }
+
+  /**
+   * Index a single item with optional shared PDFProcessor
+   */
+  async indexItemWithProcessor(item: any, sharedProcessor: PDFProcessor | null): Promise<void> {
+    const startTime = Date.now();
+    const itemTitle = item.getDisplayTitle?.() || item.key;
+    ztoolkit.log(`[SemanticSearch] indexItem() start: ${item.key} "${itemTitle.substring(0, 30)}..."`);
+
+    // Get timestamps for fast change detection
+    const itemModified = item.dateModified || '';
+    let attachmentModified = '';
+
+    // Get latest attachment modification time
+    if (item.isRegularItem?.()) {
+      const attachmentIds = item.getAttachments?.() || [];
+      for (const attId of attachmentIds) {
+        try {
+          const att = await Zotero.Items.getAsync(attId);
+          if (att?.dateModified && att.dateModified > attachmentModified) {
+            attachmentModified = att.dateModified;
+          }
+        } catch (e) {
+          // Skip failed attachments
+        }
+      }
+    }
+
+    // Fast check: if timestamps haven't changed, skip entirely (no content extraction needed)
+    const needsCheckByTimestamp = await this.vectorStore.needsReindexByTimestamp(
+      item.key, itemModified, attachmentModified
+    );
+    if (!needsCheckByTimestamp) {
+      ztoolkit.log(`[SemanticSearch] indexItem() skip: timestamps unchanged for ${item.key}`);
+      return;
+    }
+
+    // Timestamps changed - try to use cached content first (avoid PDF re-extraction)
+    let content: string;
+    let contentHash: string;
+
+    const cached = await this.vectorStore.getCachedContent(item.key);
+    if (cached) {
+      // Check if cached content hash matches stored index hash
+      const needsIndex = await this.vectorStore.needsReindex(item.key, cached.hash);
+      if (!needsIndex) {
+        // Content unchanged, just update timestamps
+        const status = await this.vectorStore.getIndexStatus(item.key);
+        if (status) {
+          await this.vectorStore.updateIndexStatus(
+            item.key, status.chunkCount, cached.hash, itemModified, attachmentModified
+          );
+        }
+        ztoolkit.log(`[SemanticSearch] indexItem() skip: cached content unchanged, updated timestamps`);
+        return;
+      }
+      // Cache exists but hash indicates content may have changed - re-extract to verify
+      ztoolkit.log(`[SemanticSearch] indexItem() cache hash mismatch, re-extracting content`);
+    }
+
+    // Extract content (PDF extraction happens here)
+    content = await this.extractItemContent(item, sharedProcessor);
+    if (!content.trim()) {
+      ztoolkit.log(`[SemanticSearch] indexItem() skip: no content for ${item.key}`);
+      return;
+    }
+    ztoolkit.log(`[SemanticSearch] indexItem() extracted content: ${content.length} chars`);
+
+    // Calculate content hash
+    contentHash = this.hashContent(content);
+
+    // Cache the extracted content for future use
+    await this.vectorStore.setCachedContent(item.key, content, contentHash);
+    ztoolkit.log(`[SemanticSearch] indexItem() cached content: ${content.length} chars`);
+
+    // Check if content actually changed (compare with stored hash)
+    const needsIndex = await this.vectorStore.needsReindex(item.key, contentHash);
+    if (!needsIndex) {
+      // Content hash unchanged, just update timestamps
+      const status = await this.vectorStore.getIndexStatus(item.key);
+      if (status) {
+        await this.vectorStore.updateIndexStatus(
+          item.key, status.chunkCount, contentHash, itemModified, attachmentModified
+        );
+      }
+      ztoolkit.log(`[SemanticSearch] indexItem() skip: content unchanged, updated timestamps`);
+      return;
+    }
+
+    // Delete existing vectors
+    await this.vectorStore.deleteItemVectors(item.key);
+
+    // Chunk the content
+    const chunks = this.textChunker.chunk(content);
+    if (chunks.length === 0) {
+      ztoolkit.log(`[SemanticSearch] indexItem() skip: no chunks generated`);
+      return;
+    }
+    ztoolkit.log(`[SemanticSearch] indexItem() chunked into ${chunks.length} chunks`);
+
+    // Generate embeddings
+    const batchItems = chunks.map((chunk, idx) => ({
+      id: `${item.key}_${idx}`,
+      text: chunk
+    }));
+
+    const embeddings = await this.embeddingService.embedBatch(batchItems);
+    ztoolkit.log(`[SemanticSearch] indexItem() generated ${embeddings.size} embeddings`);
+
+    // Store vectors
+    const records = chunks.map((chunk, idx) => {
+      const embedding = embeddings.get(`${item.key}_${idx}`);
+      if (!embedding) return null;
+
+      return {
+        itemKey: item.key,
+        chunkId: idx,
+        vector: embedding.embedding,
+        language: embedding.language,
+        chunkText: chunk  // Store full chunk (max ~450 chars from TextChunker)
+      };
+    }).filter(r => r !== null) as any[];
+
+    await this.vectorStore.insertVectorsBatch(records);
+    await this.vectorStore.updateIndexStatus(item.key, chunks.length, contentHash, itemModified, attachmentModified);
+
+    const elapsed = Date.now() - startTime;
+    ztoolkit.log(`[SemanticSearch] indexItem() completed: ${item.key} (${records.length} vectors) in ${elapsed}ms`);
+  }
+
+  /**
+   * Delete index for an item
+   */
+  async deleteItemIndex(itemKey: string): Promise<void> {
+    await this.initialize();
+    await this.vectorStore.deleteItemVectors(itemKey);
+    ztoolkit.log(`[SemanticSearch] Deleted index for item: ${itemKey}`);
+  }
+
+  /**
+   * Clear all indexes
+   */
+  async clearIndex(): Promise<void> {
+    await this.initialize();
+    await this.vectorStore.clear();
+    ztoolkit.log('[SemanticSearch] Index cleared');
+  }
+
+  // ============ Status Methods ============
+
+  /**
+   * Get service statistics
+   */
+  async getStats(): Promise<SemanticServiceStats> {
+    await this.initialize();
+
+    const indexStats = await this.vectorStore.getStats();
+    const embeddingStatus = this.embeddingService.getStatus();
+
+    return {
+      indexStats,
+      serviceStatus: {
+        initialized: this.initialized,
+        embeddingReady: embeddingStatus.initialized,
+        fallbackMode: this.embeddingService.isFallbackMode()
+      },
+      indexProgress: this.indexProgress
+    };
+  }
+
+  /**
+   * Get current index progress
+   */
+  getIndexProgress(): IndexProgress {
+    return { ...this.indexProgress };
+  }
+
+  /**
+   * Pause the indexing process
+   */
+  pauseIndex(): void {
+    if (this.indexProgress.status === 'indexing') {
+      this._paused = true;
+      this.indexProgress.status = 'paused';
+      ztoolkit.log('[SemanticSearch] Index paused');
+    }
+  }
+
+  /**
+   * Resume the indexing process
+   */
+  resumeIndex(): void {
+    if (this.indexProgress.status === 'paused' && this._paused) {
+      this._paused = false;
+      this.indexProgress.status = 'indexing';
+      if (this._pauseResolve) {
+        this._pauseResolve();
+        this._pauseResolve = null;
+      }
+      ztoolkit.log('[SemanticSearch] Index resumed');
+    }
+  }
+
+  /**
+   * Abort the indexing process
+   */
+  abortIndex(): void {
+    if (this.indexProgress.status === 'indexing' || this.indexProgress.status === 'paused') {
+      this._aborted = true;
+      this._paused = false;
+      // Release pause lock if paused
+      if (this._pauseResolve) {
+        this._pauseResolve();
+        this._pauseResolve = null;
+      }
+      ztoolkit.log('[SemanticSearch] Index aborted');
+    }
+  }
+
+  /**
+   * Check if indexing is paused
+   */
+  isPaused(): boolean {
+    return this._paused;
+  }
+
+  /**
+   * Wait while paused
+   */
+  private async waitWhilePaused(): Promise<void> {
+    if (this._paused) {
+      await new Promise<void>(resolve => {
+        this._pauseResolve = resolve;
+      });
+    }
+  }
+
+  /**
+   * Check if service is ready
+   */
+  async isReady(): Promise<boolean> {
+    try {
+      await this.initialize();
+      return await this.embeddingService.isReady();
+    } catch {
+      return false;
+    }
+  }
+
+  // ============ Private Methods ============
+
+  /**
+   * Extract content from item for indexing
+   * @param item The Zotero item
+   * @param sharedProcessor Optional shared PDFProcessor for better performance
+   */
+  private async extractItemContent(item: any, sharedProcessor?: PDFProcessor | null): Promise<string> {
+    const parts: string[] = [];
+    ztoolkit.log(`[SemanticSearch] extractItemContent() start: ${item.key}, type=${item.itemType}`);
+
+    try {
+      // Title
+      const title = item.getDisplayTitle?.() || item.getField?.('title');
+      if (title) {
+        parts.push(title);
+        ztoolkit.log(`[SemanticSearch] extractItemContent() got title: "${title.substring(0, 50)}..."`);
+      }
+
+      // Abstract
+      const abstract = item.getField?.('abstractNote');
+      if (abstract) {
+        parts.push(TextFormatter.htmlToText(abstract));
+        ztoolkit.log(`[SemanticSearch] extractItemContent() got abstract: ${abstract.length} chars`);
+      }
+
+      // Get content from attachments (full text + annotations)
+      if (item.isRegularItem?.()) {
+        const attachmentIds = item.getAttachments?.() || [];
+        ztoolkit.log(`[SemanticSearch] extractItemContent() checking ${attachmentIds.length} attachments`);
+        let annotationCount = 0;
+        let fullTextCount = 0;
+
+        for (const attachmentId of attachmentIds) {
+          try {
+            const attachment = await Zotero.Items.getAsync(attachmentId);
+            if (!attachment) continue;
+
+            // Extract full text from PDF attachments using PDFProcessor
+            if (attachment.isPDFAttachment?.()) {
+              try {
+                const filePath = await attachment.getFilePathAsync?.();
+                if (filePath) {
+                  ztoolkit.log(`[SemanticSearch] extractItemContent() extracting PDF: ${filePath}`);
+                  // Use shared processor if provided (much faster for batch processing)
+                  const processor = sharedProcessor || new PDFProcessor(ztoolkit);
+                  const shouldTerminate = !sharedProcessor;  // Only terminate if we created it
+                  try {
+                    const textContent = await processor.extractText(filePath);
+                    if (textContent && textContent.length > 0) {
+                      const maxFullTextLength = 50000;
+                      const finalContent = textContent.length > maxFullTextLength
+                        ? textContent.substring(0, maxFullTextLength)
+                        : textContent;
+                      if (textContent.length > maxFullTextLength) {
+                        ztoolkit.log(`[SemanticSearch] extractItemContent() truncated to ${maxFullTextLength} chars`);
+                      }
+                      parts.push(finalContent);
+                      fullTextCount++;
+                      ztoolkit.log(`[SemanticSearch] extractItemContent() got PDF text: ${finalContent.length} chars`);
+                    } else {
+                      ztoolkit.log(`[SemanticSearch] extractItemContent() PDF extraction returned empty`);
+                    }
+                  } finally {
+                    if (shouldTerminate) {
+                      processor.terminate();
+                    }
+                  }
+                } else {
+                  ztoolkit.log(`[SemanticSearch] extractItemContent() no file path for attachment ${attachmentId}`);
+                }
+              } catch (pdfError) {
+                ztoolkit.log(`[SemanticSearch] extractItemContent() PDF extraction failed: ${pdfError}`, 'warn');
+              }
+            }
+
+            // Extract text from plain text attachments
+            if (attachment.attachmentContentType === 'text/plain') {
+              try {
+                const filePath = await attachment.getFilePathAsync?.();
+                if (filePath) {
+                  const textContent = await Zotero.File.getContentsAsync(filePath);
+                  if (textContent && textContent.length > 0) {
+                    parts.push(textContent);
+                    fullTextCount++;
+                    ztoolkit.log(`[SemanticSearch] extractItemContent() got plain text: ${textContent.length} chars`);
+                  }
+                }
+              } catch (e) {
+                ztoolkit.log(`[SemanticSearch] extractItemContent() plain text extraction failed: ${e}`, 'warn');
+              }
+            }
+
+            // Get annotations from PDF attachments
+            if (attachment.isPDFAttachment?.()) {
+              const annotations = attachment.getAnnotations?.() || [];
+              for (const ann of annotations) {
+                const text = ann.annotationText;
+                const comment = ann.annotationComment;
+                if (text) {
+                  parts.push(TextFormatter.htmlToText(text));
+                  annotationCount++;
+                }
+                if (comment) {
+                  parts.push(TextFormatter.htmlToText(comment));
+                  annotationCount++;
+                }
+              }
+            }
+          } catch (e) {
+            // Skip failed attachments
+            ztoolkit.log(`[SemanticSearch] extractItemContent() attachment error: ${e}`, 'warn');
+          }
+        }
+
+        if (fullTextCount > 0) {
+          ztoolkit.log(`[SemanticSearch] extractItemContent() got ${fullTextCount} full text contents`);
+        }
+        if (annotationCount > 0) {
+          ztoolkit.log(`[SemanticSearch] extractItemContent() got ${annotationCount} annotations`);
+        }
+      }
+
+      // If it's an annotation item itself
+      if (item.isAnnotation?.()) {
+        const text = item.annotationText;
+        const comment = item.annotationComment;
+        if (text) parts.push(TextFormatter.htmlToText(text));
+        if (comment) parts.push(TextFormatter.htmlToText(comment));
+      }
+
+      // Notes
+      if (item.isNote?.()) {
+        const noteText = item.getNote?.();
+        if (noteText) parts.push(TextFormatter.htmlToText(noteText));
+      }
+
+    } catch (error) {
+      ztoolkit.log(`[SemanticSearch] extractItemContent() error: ${error}`, 'warn');
+    }
+
+    const result = parts.join('\n\n');
+    ztoolkit.log(`[SemanticSearch] extractItemContent() done: ${parts.length} parts, total ${result.length} chars`);
+    return result;
+  }
+
+  /**
+   * Fill in item metadata for search results
+   */
+  private async fillItemMetadata(results: SemanticSearchResult[]): Promise<void> {
+    for (const result of results) {
+      try {
+        const item = await Zotero.Items.getByLibraryAndKeyAsync(
+          Zotero.Libraries.userLibraryID,
+          result.itemKey
+        );
+
+        if (item) {
+          result.title = item.getDisplayTitle() || '';
+          result.parentKey = item.parentItemKey || undefined;
+          result.itemType = item.itemType || undefined;
+
+          // Get creators
+          const creators = item.getCreators?.() || [];
+          if (creators.length > 0) {
+            result.creators = creators
+              .map((c: any) => c.lastName || c.name || '')
+              .filter((n: string) => n)
+              .join(', ');
+          }
+
+          // Get year
+          const date = item.getField?.('date');
+          if (date) {
+            const yearMatch = String(date).match(/\d{4}/);
+            if (yearMatch) {
+              result.year = parseInt(yearMatch[0], 10);
+            }
+          }
+        }
+      } catch (e) {
+        // Skip failed items
+      }
+    }
+  }
+
+  /**
+   * Get items by keys
+   */
+  private async getItemsByKeys(keys: string[]): Promise<any[]> {
+    const items: any[] = [];
+    for (const key of keys) {
+      try {
+        const item = await Zotero.Items.getByLibraryAndKeyAsync(
+          Zotero.Libraries.userLibraryID,
+          key
+        );
+        if (item) items.push(item);
+      } catch (e) {
+        // Skip failed items
+      }
+    }
+    return items;
+  }
+
+  /**
+   * Get all items with content (regular items with attachments)
+   */
+  private async getItemsWithContent(): Promise<any[]> {
+    try {
+      // Get all regular items
+      const search = new Zotero.Search();
+      search.libraryID = Zotero.Libraries.userLibraryID;
+      search.addCondition('itemType', 'isNot', 'attachment');
+      search.addCondition('itemType', 'isNot', 'note');
+      search.addCondition('itemType', 'isNot', 'annotation');
+
+      const ids = await search.search();
+      return Zotero.Items.getAsync(ids);
+    } catch (error) {
+      ztoolkit.log(`[SemanticSearch] Error getting items: ${error}`, 'warn');
+      return [];
+    }
+  }
+
+  /**
+   * Hash content for change detection
+   */
+  private hashContent(content: string): string {
+    // Simple hash using Zotero's utility
+    try {
+      return Zotero.Utilities.Internal.md5(content);
+    } catch {
+      // Fallback: simple hash
+      let hash = 0;
+      for (let i = 0; i < content.length; i++) {
+        const char = content.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      return hash.toString(16);
+    }
+  }
+
+  /**
+   * Destroy the service
+   */
+  destroy(): void {
+    this.embeddingService.destroy();
+    this.initialized = false;
+    this.initPromise = null;
+    ztoolkit.log('[SemanticSearch] Service destroyed');
+  }
+}
+
+// Singleton instance
+let semanticSearchInstance: SemanticSearchService | null = null;
+
+export function getSemanticSearchService(): SemanticSearchService {
+  if (!semanticSearchInstance) {
+    ztoolkit.log(`[SemanticSearch] getSemanticSearchService() creating new singleton instance`);
+    semanticSearchInstance = new SemanticSearchService();
+  } else {
+    ztoolkit.log(`[SemanticSearch] getSemanticSearchService() returning existing instance`);
+  }
+  return semanticSearchInstance;
+}

@@ -157,7 +157,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   win.MozXULElement.insertFTLIfNeeded(
     `${addon.data.config.addonRef}-mainWindow.ftl`,
   );
-  
+
   // Also load addon.ftl and preferences.ftl
   win.MozXULElement.insertFTLIfNeeded(
     `${addon.data.config.addonRef}-addon.ftl`,
@@ -165,6 +165,9 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   win.MozXULElement.insertFTLIfNeeded(
     `${addon.data.config.addonRef}-preferences.ftl`,
   );
+
+  // Register context menu for semantic indexing
+  registerSemanticIndexMenu(win);
 }
 
 async function onMainWindowUnload(win: Window): Promise<void> {
@@ -343,6 +346,169 @@ function openPreferencesWindow() {
     } catch (fallbackError) {
       ztoolkit.log(`[MCP Plugin] Fallback preferences open failed: ${fallbackError}`, "error");
     }
+  }
+}
+
+/**
+ * Register semantic index context menu
+ */
+function registerSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
+  try {
+    const doc = win.document;
+
+    // Find the item context menu
+    const itemMenu = doc.getElementById("zotero-itemmenu");
+    if (!itemMenu) {
+      ztoolkit.log("[MCP Plugin] Item menu not found, skipping context menu registration");
+      return;
+    }
+
+    // Create menu separator
+    const separator = doc.createXULElement("menuseparator");
+    separator.id = "zotero-mcp-semantic-separator";
+
+    // Create parent menu
+    const parentMenu = doc.createXULElement("menu");
+    parentMenu.id = "zotero-mcp-semantic-menu";
+    parentMenu.setAttribute("label", getString("menu-semantic-index" as any) || "Update Semantic Index");
+
+    // Create popup for submenu
+    const popup = doc.createXULElement("menupopup");
+    popup.id = "zotero-mcp-semantic-popup";
+
+    // Create "Index Selected Items" menu item
+    const indexSelectedItem = doc.createXULElement("menuitem");
+    indexSelectedItem.id = "zotero-mcp-index-selected";
+    indexSelectedItem.setAttribute("label", getString("menu-semantic-index-selected" as any) || "Index Selected Items");
+    indexSelectedItem.addEventListener("command", () => {
+      handleIndexSelected(win);
+    });
+
+    // Create "Index All Items" menu item
+    const indexAllItem = doc.createXULElement("menuitem");
+    indexAllItem.id = "zotero-mcp-index-all";
+    indexAllItem.setAttribute("label", getString("menu-semantic-index-all" as any) || "Index All Items");
+    indexAllItem.addEventListener("command", () => {
+      handleIndexAll(win);
+    });
+
+    // Assemble menu
+    popup.appendChild(indexSelectedItem);
+    popup.appendChild(indexAllItem);
+    parentMenu.appendChild(popup);
+
+    // Add to item menu
+    itemMenu.appendChild(separator);
+    itemMenu.appendChild(parentMenu);
+
+    ztoolkit.log("[MCP Plugin] Semantic index context menu registered");
+  } catch (error) {
+    ztoolkit.log(`[MCP Plugin] Error registering context menu: ${error}`, "error");
+  }
+}
+
+/**
+ * Handle indexing selected items
+ */
+async function handleIndexSelected(win: _ZoteroTypes.MainWindow) {
+  try {
+    const ZoteroPane = win.ZoteroPane;
+    if (!ZoteroPane) {
+      ztoolkit.log("[MCP Plugin] ZoteroPane not available", "error");
+      return;
+    }
+
+    const selectedItems = ZoteroPane.getSelectedItems();
+    if (!selectedItems || selectedItems.length === 0) {
+      ztoolkit.log("[MCP Plugin] No items selected");
+      return;
+    }
+
+    // Get item keys
+    const itemKeys = selectedItems
+      .filter((item: any) => item.isRegularItem?.())
+      .map((item: any) => item.key);
+
+    if (itemKeys.length === 0) {
+      ztoolkit.log("[MCP Plugin] No regular items selected");
+      return;
+    }
+
+    ztoolkit.log(`[MCP Plugin] Indexing ${itemKeys.length} selected items...`);
+
+    // Import and use semantic search service
+    const { getSemanticSearchService } = await import("./modules/semantic");
+    const semanticService = getSemanticSearchService();
+    await semanticService.initialize();
+
+    // Build index for selected items
+    semanticService.buildIndex({
+      itemKeys,
+      rebuild: false,
+      onProgress: (progress) => {
+        ztoolkit.log(`[MCP Plugin] Index progress: ${progress.processed}/${progress.total}`);
+      }
+    }).then((result) => {
+      ztoolkit.log(`[MCP Plugin] Indexing completed: ${result.processed}/${result.total} items`);
+    }).catch((error) => {
+      ztoolkit.log(`[MCP Plugin] Indexing failed: ${error}`, "error");
+    });
+
+    // Show notification
+    showNotification(win, getString("menu-semantic-index-started" as any) || "Semantic indexing started");
+
+  } catch (error) {
+    ztoolkit.log(`[MCP Plugin] Error handling index selected: ${error}`, "error");
+    showNotification(win, getString("menu-semantic-index-error" as any) || "Semantic indexing failed");
+  }
+}
+
+/**
+ * Handle indexing all items
+ */
+async function handleIndexAll(win: _ZoteroTypes.MainWindow) {
+  try {
+    ztoolkit.log("[MCP Plugin] Indexing all items...");
+
+    // Import and use semantic search service
+    const { getSemanticSearchService } = await import("./modules/semantic");
+    const semanticService = getSemanticSearchService();
+    await semanticService.initialize();
+
+    // Build index for all items
+    semanticService.buildIndex({
+      rebuild: false,
+      onProgress: (progress) => {
+        ztoolkit.log(`[MCP Plugin] Index progress: ${progress.processed}/${progress.total}`);
+      }
+    }).then((result) => {
+      ztoolkit.log(`[MCP Plugin] Indexing completed: ${result.processed}/${result.total} items`);
+    }).catch((error) => {
+      ztoolkit.log(`[MCP Plugin] Indexing failed: ${error}`, "error");
+    });
+
+    // Show notification
+    showNotification(win, getString("menu-semantic-index-started" as any) || "Semantic indexing started");
+
+  } catch (error) {
+    ztoolkit.log(`[MCP Plugin] Error handling index all: ${error}`, "error");
+    showNotification(win, getString("menu-semantic-index-error" as any) || "Semantic indexing failed");
+  }
+}
+
+/**
+ * Show a simple notification
+ */
+function showNotification(win: _ZoteroTypes.MainWindow, message: string) {
+  try {
+    // Use Zotero's progress window for notification
+    const progressWin = new Zotero.ProgressWindow({ closeOnClick: true });
+    progressWin.changeHeadline("Zotero MCP");
+    progressWin.addDescription(message);
+    progressWin.show();
+    progressWin.startCloseTimer(3000);
+  } catch (error) {
+    ztoolkit.log(`[MCP Plugin] Error showing notification: ${error}`, "warn");
   }
 }
 
