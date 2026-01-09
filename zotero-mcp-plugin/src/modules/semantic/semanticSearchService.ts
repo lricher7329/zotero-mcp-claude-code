@@ -8,7 +8,7 @@
  * - Integration with existing Zotero services
  */
 
-import { getEmbeddingService, EmbeddingService } from './embeddingService';
+import { getEmbeddingService, EmbeddingService, EmbeddingAPIError, EmbeddingErrorType } from './embeddingService';
 import { getVectorStore, VectorStore } from './vectorStore';
 import { getTextChunker, TextChunker } from './textChunker';
 import { TextFormatter } from '../textFormatter';
@@ -16,6 +16,9 @@ import { PDFProcessor } from '../pdfProcessor';
 
 declare let Zotero: any;
 declare let ztoolkit: ZToolkit;
+
+// Preference key for persisting index progress
+const PREF_INDEX_PROGRESS = 'extensions.zotero.zotero-mcp-plugin.semantic.indexProgress';
 
 // ============ Interfaces ============
 
@@ -47,8 +50,11 @@ export interface IndexProgress {
   currentItem?: string;
   status: 'idle' | 'indexing' | 'paused' | 'completed' | 'error' | 'aborted';
   error?: string;
+  errorType?: EmbeddingErrorType;  // Type of error for UI display
+  errorRetryable?: boolean;        // Whether the error can be retried
   startTime?: number;
   estimatedRemaining?: number;
+  failedCount?: number;            // Number of failed items
 }
 
 export interface SemanticServiceStats {
@@ -82,13 +88,18 @@ export class SemanticSearchService {
   private indexProgress: IndexProgress = {
     total: 0,
     processed: 0,
-    status: 'idle'
+    status: 'idle',
+    failedCount: 0
   };
 
   // Pause/Resume control flags
   private _paused = false;
   private _aborted = false;
   private _pauseResolve: (() => void) | null = null;
+
+  // Error handling
+  private _onErrorCallback?: (error: EmbeddingAPIError) => void;
+  private _failedItems: Map<string, { error: string; errorType: EmbeddingErrorType; timestamp: number }> = new Map();
 
   constructor() {
     ztoolkit.log(`[SemanticSearch] Constructor called`);
@@ -114,6 +125,9 @@ export class SemanticSearchService {
     ztoolkit.log('[SemanticSearch] Initializing...');
 
     try {
+      // Load persisted index progress (for resuming after restart)
+      this.loadIndexProgress();
+
       // Initialize vector store first (faster)
       await this.vectorStore.initialize();
 
@@ -127,6 +141,63 @@ export class SemanticSearchService {
     } catch (error) {
       ztoolkit.log(`[SemanticSearch] Initialization failed: ${error}`, 'error');
       throw error;
+    }
+  }
+
+  /**
+   * Load persisted index progress from preferences
+   */
+  private loadIndexProgress(): void {
+    try {
+      const progressJson = Zotero.Prefs.get(PREF_INDEX_PROGRESS, true);
+      if (progressJson) {
+        const saved = JSON.parse(String(progressJson));
+        // Only restore if it was paused or indexing (not completed/idle)
+        if (saved.status === 'paused' || saved.status === 'indexing') {
+          this.indexProgress = {
+            total: saved.total || 0,
+            processed: saved.processed || 0,
+            status: 'paused',  // Always show as paused after restart
+            currentItem: saved.currentItem,
+            startTime: saved.startTime,
+            estimatedRemaining: saved.estimatedRemaining
+          };
+          this._paused = true;  // Mark as paused so it can be resumed
+          ztoolkit.log(`[SemanticSearch] Restored paused index progress: ${this.indexProgress.processed}/${this.indexProgress.total}`);
+        }
+      }
+    } catch (e) {
+      ztoolkit.log(`[SemanticSearch] Failed to load index progress: ${e}`, 'warn');
+    }
+  }
+
+  /**
+   * Save index progress to preferences
+   */
+  private saveIndexProgress(): void {
+    try {
+      const toSave = {
+        total: this.indexProgress.total,
+        processed: this.indexProgress.processed,
+        status: this.indexProgress.status,
+        currentItem: this.indexProgress.currentItem,
+        startTime: this.indexProgress.startTime,
+        estimatedRemaining: this.indexProgress.estimatedRemaining
+      };
+      Zotero.Prefs.set(PREF_INDEX_PROGRESS, JSON.stringify(toSave), true);
+    } catch (e) {
+      ztoolkit.log(`[SemanticSearch] Failed to save index progress: ${e}`, 'warn');
+    }
+  }
+
+  /**
+   * Clear persisted index progress
+   */
+  private clearSavedIndexProgress(): void {
+    try {
+      Zotero.Prefs.clear(PREF_INDEX_PROGRESS, true);
+    } catch (e) {
+      // Ignore errors
     }
   }
 
@@ -319,6 +390,25 @@ export class SemanticSearchService {
       if (!rebuild) {
         const indexedItems = await this.vectorStore.getIndexedItems();
         items = items.filter(item => !indexedItems.has(item.key));
+      } else {
+        // For rebuild: clear all existing index data first
+        ztoolkit.log(`[SemanticSearch] Rebuild mode: clearing existing index data...`);
+
+        // Get stats before clear for verification
+        const statsBefore = await this.vectorStore.getStats();
+        ztoolkit.log(`[SemanticSearch] Before clear: ${statsBefore.totalVectors} vectors, ${statsBefore.totalItems} items`);
+
+        await this.vectorStore.clear();
+
+        // Verify clear worked
+        const statsAfter = await this.vectorStore.getStats();
+        ztoolkit.log(`[SemanticSearch] After clear: ${statsAfter.totalVectors} vectors, ${statsAfter.totalItems} items`);
+
+        if (statsAfter.totalVectors > 0) {
+          ztoolkit.log(`[SemanticSearch] WARNING: clear() did not remove all vectors!`, 'warn');
+        }
+
+        ztoolkit.log(`[SemanticSearch] Existing index data cleared`);
       }
 
       this.indexProgress.total = items.length;
@@ -373,15 +463,81 @@ export class SemanticSearchService {
               // Each item gets its own processor from the pool
               const processor = processorPool[batchIndex % processorPool.length];
               await this.indexItemWithProcessor(item, processor);
+              return item.key; // Return item key for tracking
             })
           );
 
-          // Count processed items
-          for (const result of results) {
-            this.indexProgress.processed++;
-            if (result.status === 'rejected') {
-              ztoolkit.log(`[SemanticSearch] Failed to index item: ${result.reason}`, 'warn');
+          // Count processed items and handle errors
+          let hasAPIError = false;
+          let apiError: EmbeddingAPIError | null = null;
+
+          for (let j = 0; j < results.length; j++) {
+            const result = results[j];
+            const item = batch[j];
+
+            if (result.status === 'fulfilled') {
+              this.indexProgress.processed++;
+            } else {
+              // Check if this is an EmbeddingAPIError
+              const error = result.reason;
+              if (error instanceof EmbeddingAPIError) {
+                hasAPIError = true;
+                apiError = error;
+
+                // Record failed item
+                this._failedItems.set(item.key, {
+                  error: error.getUserMessage(),
+                  errorType: error.type,
+                  timestamp: Date.now()
+                });
+                this.indexProgress.failedCount = this._failedItems.size;
+
+                ztoolkit.log(`[SemanticSearch] API error for item ${item.key}: ${error.type} - ${error.message}`, 'error');
+              } else {
+                // Other errors (PDF extraction, etc.) - just log and continue
+                this.indexProgress.processed++;
+                ztoolkit.log(`[SemanticSearch] Failed to index item ${item.key}: ${error}`, 'warn');
+              }
             }
+          }
+
+          // If there was an API error, auto-pause and notify
+          if (hasAPIError && apiError) {
+            ztoolkit.log(`[SemanticSearch] API error detected, auto-pausing indexing...`, 'warn');
+
+            // Set error info in progress
+            this.indexProgress.error = apiError.getUserMessage();
+            this.indexProgress.errorType = apiError.type;
+            this.indexProgress.errorRetryable = apiError.retryable;
+
+            // Auto-pause
+            this._paused = true;
+            this.indexProgress.status = 'paused';
+            this.saveIndexProgress();
+
+            // Notify via callback
+            if (this._onErrorCallback) {
+              this._onErrorCallback(apiError);
+            }
+
+            onProgress?.(this.indexProgress);
+
+            // Wait for user to resume or abort
+            await this.waitWhilePaused();
+
+            // After resume, check if aborted
+            if (this._aborted) {
+              this.indexProgress.status = 'aborted';
+              ztoolkit.log(`[SemanticSearch] Indexing aborted after API error`);
+              break;
+            }
+
+            // Clear error state and continue
+            this.indexProgress.error = undefined;
+            this.indexProgress.errorType = undefined;
+            this.indexProgress.errorRetryable = undefined;
+            this.indexProgress.status = 'indexing';
+            ztoolkit.log(`[SemanticSearch] Indexing resumed after API error`);
           }
 
           // Update estimated remaining time
@@ -391,6 +547,11 @@ export class SemanticSearchService {
             avgTime * (this.indexProgress.total - this.indexProgress.processed);
 
           onProgress?.(this.indexProgress);
+
+          // Save progress periodically (every 5 batches) for resume after restart
+          if (Math.floor(i / concurrency) % 5 === 0) {
+            this.saveIndexProgress();
+          }
 
           // Yield to UI periodically
           if (i % 10 === 0) {
@@ -408,6 +569,7 @@ export class SemanticSearchService {
       // Only set completed if not aborted
       if (this.indexProgress.status !== 'aborted') {
         this.indexProgress.status = 'completed';
+        this.clearSavedIndexProgress();  // Clear persisted state on completion
       }
       onProgress?.(this.indexProgress);
 
@@ -612,6 +774,7 @@ export class SemanticSearchService {
     if (this.indexProgress.status === 'indexing') {
       this._paused = true;
       this.indexProgress.status = 'paused';
+      this.saveIndexProgress();  // Persist paused state
       ztoolkit.log('[SemanticSearch] Index paused');
     }
   }
@@ -623,6 +786,7 @@ export class SemanticSearchService {
     if (this.indexProgress.status === 'paused' && this._paused) {
       this._paused = false;
       this.indexProgress.status = 'indexing';
+      this.saveIndexProgress();  // Update persisted state
       if (this._pauseResolve) {
         this._pauseResolve();
         this._pauseResolve = null;
@@ -638,6 +802,8 @@ export class SemanticSearchService {
     if (this.indexProgress.status === 'indexing' || this.indexProgress.status === 'paused') {
       this._aborted = true;
       this._paused = false;
+      this.indexProgress.status = 'aborted';
+      this.clearSavedIndexProgress();  // Clear persisted state on abort
       // Release pause lock if paused
       if (this._pauseResolve) {
         this._pauseResolve();
@@ -655,10 +821,61 @@ export class SemanticSearchService {
   }
 
   /**
+   * Set callback for indexing errors
+   * Called when an error occurs during indexing (auto-pauses)
+   */
+  setOnIndexError(callback: (error: EmbeddingAPIError) => void): void {
+    this._onErrorCallback = callback;
+  }
+
+  /**
+   * Get failed items list
+   */
+  getFailedItems(): Array<{ itemKey: string; error: string; errorType: EmbeddingErrorType; timestamp: number }> {
+    return Array.from(this._failedItems.entries()).map(([itemKey, info]) => ({
+      itemKey,
+      ...info
+    }));
+  }
+
+  /**
+   * Clear failed items list
+   */
+  clearFailedItems(): void {
+    this._failedItems.clear();
+    this.indexProgress.failedCount = 0;
+  }
+
+  /**
+   * Retry failed items
+   */
+  async retryFailedItems(onProgress?: (progress: IndexProgress) => void): Promise<IndexProgress> {
+    const failedItemKeys = Array.from(this._failedItems.keys());
+    if (failedItemKeys.length === 0) {
+      ztoolkit.log('[SemanticSearch] No failed items to retry');
+      return this.indexProgress;
+    }
+
+    ztoolkit.log(`[SemanticSearch] Retrying ${failedItemKeys.length} failed items`);
+
+    // Clear failed items before retry
+    this._failedItems.clear();
+
+    // Build index for failed items only
+    return this.buildIndex({
+      itemKeys: failedItemKeys,
+      rebuild: false,
+      onProgress
+    });
+  }
+
+  /**
    * Wait while paused
+   * Uses a while loop to handle race conditions where resume might be called
+   * before the loop enters this function, or if the promise is resolved unexpectedly
    */
   private async waitWhilePaused(): Promise<void> {
-    if (this._paused) {
+    while (this._paused && !this._aborted) {
       await new Promise<void>(resolve => {
         this._pauseResolve = resolve;
       });

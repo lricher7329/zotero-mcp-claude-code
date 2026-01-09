@@ -29,6 +29,7 @@ export {
   VectorStore,
   getVectorStore,
   type VectorRecord,
+  type QuantizedVector,
   type SearchResult,
   type IndexStatus,
   type VectorStoreStats

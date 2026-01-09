@@ -324,46 +324,21 @@ function getToolSpecificGuidance(toolName: string): any {
         ]
       };
 
-    case 'build_semantic_index':
     case 'semantic_status':
-    case 'pause_semantic_index':
-    case 'resume_semantic_index':
-    case 'abort_semantic_index':
       return {
         ...baseGuidance,
         dataStructure: {
           type: 'index_status',
-          format: 'Index build progress and statistics'
+          format: 'Index statistics and status'
         },
         interpretation: {
-          purpose: 'Manage semantic search index',
-          content: 'Index status, progress, and statistics'
+          purpose: 'Check semantic search index status',
+          content: 'Index status, coverage, and statistics'
         },
         usage: [
           'Check if semantic search is available',
-          'Monitor index building progress',
-          'Verify index coverage of library',
-          'Use pause_semantic_index to temporarily stop indexing',
-          'Use resume_semantic_index to continue from where it stopped',
-          'Use abort_semantic_index to stop indexing completely (progress is saved)'
-        ]
-      };
-
-    case 'configure_embedding':
-      return {
-        ...baseGuidance,
-        dataStructure: {
-          type: 'embedding_config',
-          format: 'API configuration and connection test results'
-        },
-        interpretation: {
-          purpose: 'Configure embedding API for semantic search',
-          content: 'API settings, model info, and connection status'
-        },
-        usage: [
-          'Set up OpenAI-compatible embedding API',
-          'Configure custom API endpoints',
-          'Test API connectivity'
+          'View index coverage of library',
+          'Index management is done through Zotero preferences'
         ]
       };
 
@@ -372,27 +347,20 @@ function getToolSpecificGuidance(toolName: string): any {
         ...baseGuidance,
         dataStructure: {
           type: 'fulltext_database',
-          format: 'Extracted PDF text content database',
-          actions: 'extract, list, search, get, stats, delete, pause, resume, abort, status'
+          format: 'Extracted PDF text content database (read-only access)',
+          actions: 'list, search, get, stats'
         },
         interpretation: {
-          purpose: 'Access and manage persistent full-text content database',
-          content: 'Extracted PDF text stored independently of vector index',
+          purpose: 'Access full-text content database',
+          content: 'Extracted PDF text stored in database',
           reliability: 'Cached extraction - faster than re-extracting from Zotero'
         },
         usage: [
-          'Use extract to batch extract PDF content (by itemKeys, collectionKey, or all items)',
           'Use stats to check database size and item count',
           'Use list to see which items have cached content',
           'Use search to find items containing specific text',
           'Use get to retrieve full content for specific items',
-          'Use delete to remove specific items from cache',
-          'Use status to check extraction progress',
-          'Use pause to temporarily stop extraction',
-          'Use resume to continue paused extraction',
-          'Use abort to stop extraction (progress is saved)',
-          'Content persists across vector index rebuilds',
-          'Extract is async - use status to monitor progress'
+          'Database management is done through Zotero preferences'
         ]
       };
 
@@ -421,25 +389,13 @@ export interface MCPNotification {
 
 /**
  * Streamable HTTP-based MCP Server integrated into Zotero Plugin
- * 
+ *
  * This provides a complete MCP (Model Context Protocol) server implementation
  * that runs directly within the Zotero plugin. AI clients can connect using
  * streamable HTTP requests for real-time bidirectional communication.
- * 
+ *
  * Architecture: AI Client (streamable HTTP) ↔ Zotero Plugin (integrated MCP server)
  */
-// Full-text extraction progress tracking
-interface ExtractionProgress {
-  total: number;
-  processed: number;
-  extracted: number;
-  failed: number;
-  currentItem?: string;
-  status: 'idle' | 'extracting' | 'paused' | 'completed' | 'aborted' | 'error';
-  startTime?: number;
-  error?: string;
-}
-
 export class StreamableMCPServer {
   private isInitialized: boolean = false;
   private serverInfo = {
@@ -447,18 +403,6 @@ export class StreamableMCPServer {
     version: '1.1.0',
   };
   private clientSessions: Map<string, { initTime: Date; lastActivity: Date; clientInfo?: any }> = new Map();
-
-  // Full-text extraction control
-  private extractionProgress: ExtractionProgress = {
-    total: 0,
-    processed: 0,
-    extracted: 0,
-    failed: 0,
-    status: 'idle'
-  };
-  private _extractionPaused = false;
-  private _extractionAborted = false;
-  private _extractionPauseResolve: (() => void) | null = null;
 
   constructor() {
     // No initialization needed - using direct function calls
@@ -965,95 +909,24 @@ export class StreamableMCPServer {
         }
       },
       {
-        name: 'build_semantic_index',
-        description: 'Start building/updating the semantic search index (async). Returns immediately after starting. Use semantic_status to check progress, pause_semantic_index/resume_semantic_index to control, abort_semantic_index to stop.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            rebuild: {
-              type: 'boolean',
-              description: 'Rebuild entire index (default: false, only indexes new/changed items)'
-            },
-            itemKeys: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Specific items to index (optional, indexes all if not provided)'
-            }
-          }
-        }
-      },
-      {
         name: 'semantic_status',
-        description: 'Get the status of the semantic search service including index statistics and progress.',
+        description: 'Get the status of the semantic search service including index statistics.',
         inputSchema: {
           type: 'object',
           properties: {}
         }
       },
-      {
-        name: 'configure_embedding',
-        description: 'Configure the embedding API for semantic search. Supports OpenAI-compatible APIs.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            apiBase: {
-              type: 'string',
-              description: 'API base URL (e.g., https://api.openai.com/v1 or custom endpoint)'
-            },
-            apiKey: {
-              type: 'string',
-              description: 'API key for authentication'
-            },
-            model: {
-              type: 'string',
-              description: 'Model name (e.g., text-embedding-3-small, text-embedding-ada-002)'
-            },
-            dimensions: {
-              type: 'number',
-              description: 'Output embedding dimensions (optional, 512 default)'
-            },
-            test: {
-              type: 'boolean',
-              description: 'Test the connection after configuring (default: true)'
-            }
-          }
-        }
-      },
-      {
-        name: 'pause_semantic_index',
-        description: 'Pause the currently running semantic indexing process. Can be resumed later.',
-        inputSchema: {
-          type: 'object',
-          properties: {}
-        }
-      },
-      {
-        name: 'resume_semantic_index',
-        description: 'Resume a paused semantic indexing process.',
-        inputSchema: {
-          type: 'object',
-          properties: {}
-        }
-      },
-      {
-        name: 'abort_semantic_index',
-        description: 'Abort the semantic indexing process. Progress will be saved, but indexing will stop.',
-        inputSchema: {
-          type: 'object',
-          properties: {}
-        }
-      },
-      // Full-text Database Tool
+      // Full-text Database Tool (read-only operations)
       {
         name: 'fulltext_database',
-        description: 'Access the full-text content database. Can extract PDF content, list cached items, search within cached content, or get full content. Extraction supports pause/resume/abort. This is a persistent database of extracted PDF text.',
+        description: 'Access the full-text content database (read-only). Can list cached items, search within cached content, get full content, or view statistics. Use Zotero preferences to manage the database.',
         inputSchema: {
           type: 'object',
           properties: {
             action: {
               type: 'string',
-              enum: ['extract', 'list', 'search', 'get', 'stats', 'delete', 'pause', 'resume', 'abort', 'status'],
-              description: 'Action: extract (extract PDF content), list (show cached items), search (search within content), get (get full content), stats (database statistics), delete (remove cached content), pause (pause extraction), resume (resume extraction), abort (stop extraction), status (get extraction progress)'
+              enum: ['list', 'search', 'get', 'stats'],
+              description: 'Action: list (show cached items), search (search within content), get (get full content), stats (database statistics)'
             },
             query: {
               type: 'string',
@@ -1062,23 +935,15 @@ export class StreamableMCPServer {
             itemKeys: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Item keys for extract/get/delete actions. If not provided for extract, extracts all items.'
-            },
-            collectionKey: {
-              type: 'string',
-              description: 'Collection key to extract items from (optional for extract action)'
+              description: 'Item keys for get action'
             },
             limit: {
               type: 'number',
-              description: 'Maximum results to return (default: 20 for list/search), or max items to extract'
+              description: 'Maximum results to return (default: 20 for list/search)'
             },
             caseSensitive: {
               type: 'boolean',
               description: 'Case sensitive search (default: false)'
-            },
-            skipExisting: {
-              type: 'boolean',
-              description: 'Skip items already in cache (default: true for extract action)'
             }
           },
           required: ['action']
@@ -1187,28 +1052,8 @@ export class StreamableMCPServer {
           result = await this.callFindSimilar(args);
           break;
 
-        case 'build_semantic_index':
-          result = await this.callBuildSemanticIndex(args);
-          break;
-
         case 'semantic_status':
           result = await this.callSemanticStatus();
-          break;
-
-        case 'configure_embedding':
-          result = await this.callConfigureEmbedding(args);
-          break;
-
-        case 'pause_semantic_index':
-          result = await this.callPauseSemanticIndex();
-          break;
-
-        case 'resume_semantic_index':
-          result = await this.callResumeSemanticIndex();
-          break;
-
-        case 'abort_semantic_index':
-          result = await this.callAbortSemanticIndex();
           break;
 
         case 'fulltext_database':
@@ -1550,54 +1395,6 @@ export class StreamableMCPServer {
     }
   }
 
-  private async callBuildSemanticIndex(args: any): Promise<any> {
-    try {
-      const semanticService = getSemanticSearchService();
-      await semanticService.initialize();
-
-      // Check if already indexing
-      const currentProgress = semanticService.getIndexProgress();
-      if (currentProgress.status === 'indexing') {
-        return applyGlobalAIInstructions({
-          status: 'already_running',
-          total: currentProgress.total,
-          processed: currentProgress.processed,
-          message: `Indexing already in progress: ${currentProgress.processed}/${currentProgress.total}. Use semantic_status to check progress, pause_semantic_index to pause, or abort_semantic_index to stop.`
-        }, 'build_semantic_index');
-      }
-
-      // Start indexing in background (don't await)
-      const indexPromise = semanticService.buildIndex({
-        itemKeys: args.itemKeys,
-        rebuild: args.rebuild || false
-      });
-
-      // Store promise for potential future reference (optional)
-      // Don't await - let it run in background
-
-      // Log when indexing completes (for debugging)
-      indexPromise.then(progress => {
-        ztoolkit.log(`[StreamableMCP] Background indexing completed: ${progress.processed}/${progress.total}, status=${progress.status}`);
-      }).catch(error => {
-        ztoolkit.log(`[StreamableMCP] Background indexing failed: ${error}`, 'error');
-      });
-
-      // Wait a short time to get initial progress
-      await new Promise(resolve => setTimeout(resolve, 100));
-      const initialProgress = semanticService.getIndexProgress();
-
-      return applyGlobalAIInstructions({
-        status: 'started',
-        total: initialProgress.total,
-        processed: initialProgress.processed,
-        message: `Indexing started for ${initialProgress.total} items. Use semantic_status to check progress, pause_semantic_index to pause, or abort_semantic_index to stop.`
-      }, 'build_semantic_index');
-    } catch (error) {
-      ztoolkit.log(`[StreamableMCP] Build index error: ${error}`, 'error');
-      throw error;
-    }
-  }
-
   private async callSemanticStatus(): Promise<any> {
     try {
       const semanticService = getSemanticSearchService();
@@ -1605,17 +1402,36 @@ export class StreamableMCPServer {
       const stats = isReady ? await semanticService.getStats() : null;
       const progress = semanticService.getIndexProgress();
 
+      // Check Int8 migration status
+      let int8Status = null;
+      try {
+        const { getVectorStore } = await import('./semantic/vectorStore');
+        const vectorStore = getVectorStore();
+        await vectorStore.initialize();
+        int8Status = await vectorStore.needsInt8Migration();
+      } catch (e) {
+        // Ignore if vector store not available
+      }
+
+      let message = !isReady
+        ? 'Semantic search service not initialized'
+        : stats?.serviceStatus.fallbackMode
+          ? 'Running in fallback mode (API not configured)'
+          : `Semantic search ready with ${stats?.indexStats.totalItems || 0} indexed items`;
+
+      // Add Int8 migration suggestion if needed
+      if (int8Status?.needed) {
+        message += `. WARNING: ${int8Status.count}/${int8Status.total} vectors need Int8 migration for ~6x faster search. Run migrate_int8 to optimize.`;
+      }
+
       return applyGlobalAIInstructions({
         ready: isReady,
         initialized: stats?.serviceStatus.initialized || false,
         fallbackMode: stats?.serviceStatus.fallbackMode || false,
         indexProgress: progress,
         indexStats: stats?.indexStats || null,
-        message: !isReady
-          ? 'Semantic search service not initialized'
-          : stats?.serviceStatus.fallbackMode
-            ? 'Running in fallback mode (API not configured)'
-            : `Semantic search ready with ${stats?.indexStats.totalItems || 0} indexed items`
+        int8Migration: int8Status,
+        message
       }, 'semantic_status');
     } catch (error) {
       ztoolkit.log(`[StreamableMCP] Semantic status error: ${error}`, 'error');
@@ -1626,168 +1442,15 @@ export class StreamableMCPServer {
     }
   }
 
-  private async callConfigureEmbedding(args: any): Promise<any> {
-    try {
-      const { getEmbeddingService } = await import('./semantic/embeddingService');
-      const embeddingService = getEmbeddingService();
-
-      // Get current config first
-      const currentConfig = embeddingService.getConfig();
-
-      // Update config if any parameters provided
-      const newConfig: any = {};
-      if (args?.apiBase) newConfig.apiBase = args.apiBase;
-      if (args?.apiKey) newConfig.apiKey = args.apiKey;
-      if (args?.model) newConfig.model = args.model;
-      if (args?.dimensions) newConfig.dimensions = args.dimensions;
-
-      if (Object.keys(newConfig).length > 0) {
-        embeddingService.updateConfig(newConfig);
-        ztoolkit.log(`[StreamableMCP] Embedding config updated: ${JSON.stringify({ ...newConfig, apiKey: newConfig.apiKey ? '***' : undefined })}`);
-      }
-
-      // Test connection if requested (default true) and API key is configured
-      const shouldTest = args?.test !== false;
-      let testResult = null;
-
-      if (shouldTest && (args?.apiKey || currentConfig.apiKeyConfigured)) {
-        testResult = await embeddingService.testConnection();
-      }
-
-      // Get updated config
-      const updatedConfig = embeddingService.getConfig();
-
-      return applyGlobalAIInstructions({
-        success: true,
-        config: {
-          apiBase: updatedConfig.apiBase,
-          model: updatedConfig.model,
-          dimensions: updatedConfig.dimensions,
-          apiKeyConfigured: updatedConfig.apiKeyConfigured
-        },
-        testResult: testResult,
-        message: testResult?.success
-          ? `Embedding API configured and tested successfully. Model: ${updatedConfig.model}, Dimensions: ${testResult.dimensions}`
-          : testResult
-            ? `Configuration saved but connection test failed: ${testResult.message}`
-            : 'Configuration saved. Use test=true to verify connection.'
-      }, 'configure_embedding');
-    } catch (error) {
-      ztoolkit.log(`[StreamableMCP] Configure embedding error: ${error}`, 'error');
-      return applyGlobalAIInstructions({
-        success: false,
-        error: String(error)
-      }, 'configure_embedding');
-    }
-  }
-
-  private async callPauseSemanticIndex(): Promise<any> {
-    try {
-      const semanticService = getSemanticSearchService();
-      const progress = semanticService.getIndexProgress();
-
-      if (progress.status !== 'indexing') {
-        return applyGlobalAIInstructions({
-          success: false,
-          message: `Cannot pause: indexing is not running (current status: ${progress.status})`,
-          progress
-        }, 'pause_semantic_index');
-      }
-
-      semanticService.pauseIndex();
-      const updatedProgress = semanticService.getIndexProgress();
-
-      return applyGlobalAIInstructions({
-        success: true,
-        message: `Indexing paused at ${updatedProgress.processed}/${updatedProgress.total} items`,
-        progress: updatedProgress
-      }, 'pause_semantic_index');
-    } catch (error) {
-      ztoolkit.log(`[StreamableMCP] Pause index error: ${error}`, 'error');
-      return applyGlobalAIInstructions({
-        success: false,
-        error: String(error)
-      }, 'pause_semantic_index');
-    }
-  }
-
-  private async callResumeSemanticIndex(): Promise<any> {
-    try {
-      const semanticService = getSemanticSearchService();
-      const progress = semanticService.getIndexProgress();
-
-      if (progress.status !== 'paused') {
-        return applyGlobalAIInstructions({
-          success: false,
-          message: `Cannot resume: indexing is not paused (current status: ${progress.status})`,
-          progress
-        }, 'resume_semantic_index');
-      }
-
-      semanticService.resumeIndex();
-      const updatedProgress = semanticService.getIndexProgress();
-
-      return applyGlobalAIInstructions({
-        success: true,
-        message: `Indexing resumed from ${updatedProgress.processed}/${updatedProgress.total} items`,
-        progress: updatedProgress
-      }, 'resume_semantic_index');
-    } catch (error) {
-      ztoolkit.log(`[StreamableMCP] Resume index error: ${error}`, 'error');
-      return applyGlobalAIInstructions({
-        success: false,
-        error: String(error)
-      }, 'resume_semantic_index');
-    }
-  }
-
-  private async callAbortSemanticIndex(): Promise<any> {
-    try {
-      const semanticService = getSemanticSearchService();
-      const progress = semanticService.getIndexProgress();
-
-      if (progress.status !== 'indexing' && progress.status !== 'paused') {
-        return applyGlobalAIInstructions({
-          success: false,
-          message: `Cannot abort: no indexing in progress (current status: ${progress.status})`,
-          progress
-        }, 'abort_semantic_index');
-      }
-
-      semanticService.abortIndex();
-
-      // Wait briefly for status to update
-      await new Promise(resolve => setTimeout(resolve, 100));
-      const updatedProgress = semanticService.getIndexProgress();
-
-      return applyGlobalAIInstructions({
-        success: true,
-        message: `Indexing aborted at ${updatedProgress.processed}/${updatedProgress.total} items. Progress has been saved.`,
-        progress: updatedProgress
-      }, 'abort_semantic_index');
-    } catch (error) {
-      ztoolkit.log(`[StreamableMCP] Abort index error: ${error}`, 'error');
-      return applyGlobalAIInstructions({
-        success: false,
-        error: String(error)
-      }, 'abort_semantic_index');
-    }
-  }
-
   private async callFulltextDatabase(args: any): Promise<any> {
     try {
       const { getVectorStore } = await import('./semantic/vectorStore');
       const vectorStore = getVectorStore();
       await vectorStore.initialize();
 
-      const { action, query, itemKeys, collectionKey, limit = 20, caseSensitive = false, skipExisting = true } = args;
+      const { action, query, itemKeys, limit = 20, caseSensitive = false } = args;
 
       switch (action) {
-        case 'extract': {
-          // Extract PDF content and save to database
-          return await this.extractContentToDatabase(vectorStore, { itemKeys, collectionKey, limit, skipExisting });
-        }
-
         case 'list': {
           const cachedItems = await vectorStore.listCachedContent();
           const limitedItems = cachedItems.slice(0, limit);
@@ -1853,27 +1516,6 @@ export class StreamableMCPServer {
           }, 'fulltext_database');
         }
 
-        case 'delete': {
-          if (!itemKeys || itemKeys.length === 0) {
-            throw new Error('itemKeys is required for delete action');
-          }
-
-          let deleted = 0;
-          for (const key of itemKeys) {
-            await vectorStore.deleteCachedContent(key);
-            deleted++;
-          }
-
-          return applyGlobalAIInstructions({
-            action: 'delete',
-            data: { deletedCount: deleted, itemKeys },
-            metadata: {
-              extractedAt: new Date().toISOString(),
-              message: `Deleted ${deleted} items from full-text database`
-            }
-          }, 'fulltext_database');
-        }
-
         case 'stats': {
           const stats = await vectorStore.getStats();
 
@@ -1893,8 +1535,7 @@ export class StreamableMCPServer {
               indexedItems: stats.totalItems,
               totalVectors: stats.totalVectors,
               zhVectors: stats.zhVectors,
-              enVectors: stats.enVectors,
-              extractionProgress: this.extractionProgress
+              enVectors: stats.enVectors
             },
             metadata: {
               extractedAt: new Date().toISOString(),
@@ -1903,120 +1544,8 @@ export class StreamableMCPServer {
           }, 'fulltext_database');
         }
 
-        case 'status': {
-          return applyGlobalAIInstructions({
-            action: 'status',
-            data: {
-              ...this.extractionProgress,
-              elapsedTime: this.extractionProgress.startTime
-                ? Math.floor((Date.now() - this.extractionProgress.startTime) / 1000)
-                : 0
-            },
-            metadata: {
-              extractedAt: new Date().toISOString(),
-              message: this.extractionProgress.status === 'idle'
-                ? 'No extraction in progress'
-                : `Extraction ${this.extractionProgress.status}: ${this.extractionProgress.processed}/${this.extractionProgress.total} items`
-            }
-          }, 'fulltext_database');
-        }
-
-        case 'pause': {
-          if (this.extractionProgress.status !== 'extracting') {
-            return applyGlobalAIInstructions({
-              action: 'pause',
-              success: false,
-              data: this.extractionProgress,
-              metadata: {
-                extractedAt: new Date().toISOString(),
-                message: `Cannot pause: extraction is not running (current status: ${this.extractionProgress.status})`
-              }
-            }, 'fulltext_database');
-          }
-
-          this._extractionPaused = true;
-          this.extractionProgress.status = 'paused';
-
-          return applyGlobalAIInstructions({
-            action: 'pause',
-            success: true,
-            data: this.extractionProgress,
-            metadata: {
-              extractedAt: new Date().toISOString(),
-              message: `Extraction paused at ${this.extractionProgress.processed}/${this.extractionProgress.total} items`
-            }
-          }, 'fulltext_database');
-        }
-
-        case 'resume': {
-          if (this.extractionProgress.status !== 'paused') {
-            return applyGlobalAIInstructions({
-              action: 'resume',
-              success: false,
-              data: this.extractionProgress,
-              metadata: {
-                extractedAt: new Date().toISOString(),
-                message: `Cannot resume: extraction is not paused (current status: ${this.extractionProgress.status})`
-              }
-            }, 'fulltext_database');
-          }
-
-          this._extractionPaused = false;
-          this.extractionProgress.status = 'extracting';
-
-          // Resolve the pause promise to continue extraction
-          if (this._extractionPauseResolve) {
-            this._extractionPauseResolve();
-            this._extractionPauseResolve = null;
-          }
-
-          return applyGlobalAIInstructions({
-            action: 'resume',
-            success: true,
-            data: this.extractionProgress,
-            metadata: {
-              extractedAt: new Date().toISOString(),
-              message: `Extraction resumed from ${this.extractionProgress.processed}/${this.extractionProgress.total} items`
-            }
-          }, 'fulltext_database');
-        }
-
-        case 'abort': {
-          if (this.extractionProgress.status !== 'extracting' && this.extractionProgress.status !== 'paused') {
-            return applyGlobalAIInstructions({
-              action: 'abort',
-              success: false,
-              data: this.extractionProgress,
-              metadata: {
-                extractedAt: new Date().toISOString(),
-                message: `Cannot abort: no extraction in progress (current status: ${this.extractionProgress.status})`
-              }
-            }, 'fulltext_database');
-          }
-
-          this._extractionAborted = true;
-          this._extractionPaused = false;
-          this.extractionProgress.status = 'aborted';
-
-          // Resolve the pause promise if we were paused
-          if (this._extractionPauseResolve) {
-            this._extractionPauseResolve();
-            this._extractionPauseResolve = null;
-          }
-
-          return applyGlobalAIInstructions({
-            action: 'abort',
-            success: true,
-            data: this.extractionProgress,
-            metadata: {
-              extractedAt: new Date().toISOString(),
-              message: `Extraction aborted at ${this.extractionProgress.processed}/${this.extractionProgress.total} items. Progress has been saved.`
-            }
-          }, 'fulltext_database');
-        }
-
         default:
-          throw new Error(`Unknown action: ${action}. Use extract, list, search, get, delete, stats, status, pause, resume, or abort.`);
+          throw new Error(`Unknown action: ${action}. Use list, search, get, or stats. Database management is done through Zotero preferences.`);
       }
     } catch (error) {
       ztoolkit.log(`[StreamableMCP] Fulltext database error: ${error}`, 'error');
@@ -2025,207 +1554,6 @@ export class StreamableMCPServer {
         error: String(error)
       }, 'fulltext_database');
     }
-  }
-
-  /**
-   * Extract content from items and save to full-text database
-   */
-  private async extractContentToDatabase(
-    vectorStore: any,
-    options: { itemKeys?: string[]; collectionKey?: string; limit?: number; skipExisting?: boolean }
-  ): Promise<any> {
-    const { itemKeys, collectionKey, limit = 100, skipExisting = true } = options;
-
-    // Check if already extracting
-    if (this.extractionProgress.status === 'extracting' || this.extractionProgress.status === 'paused') {
-      return applyGlobalAIInstructions({
-        action: 'extract',
-        status: 'already_running',
-        data: this.extractionProgress,
-        metadata: {
-          extractedAt: new Date().toISOString(),
-          message: `Extraction already in progress: ${this.extractionProgress.processed}/${this.extractionProgress.total}. Use action=status to check progress, action=pause to pause, or action=abort to stop.`
-        }
-      }, 'fulltext_database');
-    }
-
-    // Get items to extract
-    let items: any[] = [];
-
-    if (itemKeys && itemKeys.length > 0) {
-      // Extract specific items
-      for (const key of itemKeys) {
-        try {
-          const item = await Zotero.Items.getByLibraryAndKeyAsync(1, key);
-          if (item && item.isRegularItem?.()) {
-            items.push(item);
-          }
-        } catch (e) {
-          ztoolkit.log(`[FulltextDB] Failed to get item ${key}: ${e}`, 'warn');
-        }
-      }
-    } else if (collectionKey) {
-      // Extract items from collection
-      const collection = await Zotero.Collections.getByLibraryAndKeyAsync(1, collectionKey);
-      if (collection) {
-        const childItems = collection.getChildItems();
-        items = childItems.filter((item: any) => item.isRegularItem?.());
-      }
-    } else {
-      // Extract all items in library
-      const allItems = await Zotero.Items.getAll(1);
-      items = allItems.filter((item: any) => item.isRegularItem?.());
-    }
-
-    // Apply limit
-    if (limit && items.length > limit) {
-      items = items.slice(0, limit);
-    }
-
-    // Get existing cached keys if skipExisting
-    let existingKeys = new Set<string>();
-    if (skipExisting) {
-      const cachedList = await vectorStore.listCachedContent();
-      existingKeys = new Set(cachedList.map((c: any) => c.itemKey));
-    }
-
-    // Filter out existing items
-    const itemsToExtract = skipExisting
-      ? items.filter(item => !existingKeys.has(item.key))
-      : items;
-
-    ztoolkit.log(`[FulltextDB] Extracting ${itemsToExtract.length} items (${items.length - itemsToExtract.length} skipped)`);
-
-    // Initialize extraction progress
-    this._extractionPaused = false;
-    this._extractionAborted = false;
-    this._extractionPauseResolve = null;
-    this.extractionProgress = {
-      total: itemsToExtract.length,
-      processed: 0,
-      extracted: 0,
-      failed: 0,
-      status: 'extracting',
-      startTime: Date.now()
-    };
-
-    // Start extraction in background
-    const extractPromise = this.doExtractContent(vectorStore, itemsToExtract);
-
-    // Don't await - let it run in background
-    extractPromise.then(result => {
-      ztoolkit.log(`[FulltextDB] Extraction completed: ${result.extracted}/${result.total} items`);
-    }).catch(error => {
-      ztoolkit.log(`[FulltextDB] Extraction failed: ${error}`, 'error');
-      this.extractionProgress.status = 'error';
-      this.extractionProgress.error = String(error);
-    });
-
-    return applyGlobalAIInstructions({
-      action: 'extract',
-      status: 'started',
-      data: {
-        totalItems: items.length,
-        toExtract: itemsToExtract.length,
-        skipped: items.length - itemsToExtract.length
-      },
-      metadata: {
-        extractedAt: new Date().toISOString(),
-        message: `Started extracting ${itemsToExtract.length} items. Use action=status to check progress, action=pause to pause, or action=abort to stop.`
-      }
-    }, 'fulltext_database');
-  }
-
-  /**
-   * Wait while extraction is paused
-   */
-  private async waitWhileExtractionPaused(): Promise<void> {
-    if (!this._extractionPaused) return;
-
-    ztoolkit.log('[FulltextDB] Extraction paused, waiting for resume...');
-
-    return new Promise<void>((resolve) => {
-      this._extractionPauseResolve = resolve;
-    });
-  }
-
-  /**
-   * Actually extract content (runs in background)
-   */
-  private async doExtractContent(vectorStore: any, items: any[]): Promise<{ total: number; extracted: number; failed: number }> {
-    const { getSemanticSearchService } = await import('./semantic');
-    const semanticService = getSemanticSearchService();
-    await semanticService.initialize();
-
-    let extracted = 0;
-    let failed = 0;
-
-    for (const item of items) {
-      // Check if aborted
-      if (this._extractionAborted) {
-        ztoolkit.log('[FulltextDB] Extraction aborted by user');
-        break;
-      }
-
-      // Wait if paused
-      await this.waitWhileExtractionPaused();
-
-      // Check again after resuming (might have been aborted while paused)
-      if (this._extractionAborted) {
-        ztoolkit.log('[FulltextDB] Extraction aborted after pause');
-        break;
-      }
-
-      // Update current item
-      this.extractionProgress.currentItem = item.key;
-
-      try {
-        // Use semanticSearchService's extractItemContent method
-        const content = await (semanticService as any).extractItemContent(item, null);
-
-        if (content && content.trim()) {
-          // Calculate hash
-          const hash = this.hashContent(content);
-
-          // Save to cache
-          await vectorStore.setCachedContent(item.key, content, hash);
-          extracted++;
-          this.extractionProgress.extracted = extracted;
-
-          ztoolkit.log(`[FulltextDB] Extracted: ${item.key} (${content.length} chars)`);
-        }
-      } catch (error) {
-        failed++;
-        this.extractionProgress.failed = failed;
-        ztoolkit.log(`[FulltextDB] Failed to extract ${item.key}: ${error}`, 'warn');
-      }
-
-      // Update progress
-      this.extractionProgress.processed++;
-    }
-
-    // Update final status
-    if (this._extractionAborted) {
-      this.extractionProgress.status = 'aborted';
-    } else {
-      this.extractionProgress.status = 'completed';
-    }
-    this.extractionProgress.currentItem = undefined;
-
-    return { total: items.length, extracted, failed };
-  }
-
-  /**
-   * Simple hash function for content
-   */
-  private hashContent(content: string): string {
-    let hash = 0;
-    for (let i = 0; i < content.length; i++) {
-      const char = content.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    return Math.abs(hash).toString(16);
   }
 
   /**
@@ -2424,16 +1752,11 @@ export class StreamableMCPServer {
         'get_collection_items',
         'search_fulltext',
         'get_item_abstract',
-        // Semantic Search Tools
+        // Semantic Search Tools (read-only)
         'semantic_search',
         'find_similar',
-        'build_semantic_index',
         'semantic_status',
-        'configure_embedding',
-        'pause_semantic_index',
-        'resume_semantic_index',
-        'abort_semantic_index',
-        // Full-text Database Tool
+        // Full-text Database Tool (read-only)
         'fulltext_database'
       ],
       transport: {

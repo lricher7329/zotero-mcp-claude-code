@@ -50,6 +50,7 @@ export class HttpServer {
   private activeSessions: Map<string, { createdAt: Date; lastActivity: Date; }> = new Map();
   private keepAliveTimeout: number = 30000; // 30 seconds
   private sessionTimeout: number = 300000; // 5 minutes
+  private sessionCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   public isServerRunning(): boolean {
     return this.isRunning;
@@ -125,6 +126,12 @@ export class HttpServer {
       Zotero.debug(`[HttpServer] Error stopping server: ${e}`);
     }
 
+    // Stop session cleanup timer
+    this.stopSessionCleanup();
+
+    // Clear active sessions
+    this.activeSessions.clear();
+
     // Clean up MCP server
     this.cleanupMCPServer();
   }
@@ -147,7 +154,10 @@ export class HttpServer {
    * Start session cleanup timer to remove expired sessions
    */
   private startSessionCleanup(): void {
-    setInterval(() => {
+    // Clear any existing interval first
+    this.stopSessionCleanup();
+
+    this.sessionCleanupInterval = setInterval(() => {
       const now = new Date();
       for (const [sessionId, session] of this.activeSessions.entries()) {
         if (now.getTime() - session.lastActivity.getTime() > this.sessionTimeout) {
@@ -156,6 +166,17 @@ export class HttpServer {
         }
       }
     }, 60000); // Check every minute
+  }
+
+  /**
+   * Stop session cleanup timer
+   */
+  private stopSessionCleanup(): void {
+    if (this.sessionCleanupInterval) {
+      clearInterval(this.sessionCleanupInterval);
+      this.sessionCleanupInterval = null;
+      ztoolkit.log(`[HttpServer] Session cleanup timer stopped`);
+    }
   }
 
   /**
@@ -235,55 +256,96 @@ export class HttpServer {
         );
         sin.init(input);
 
-        // 改进请求读取逻辑 - 读取完整的HTTP请求
+        // 改进请求读取逻辑 - 读取完整的HTTP请求（包括body）
         let requestText = "";
         let totalBytesRead = 0;
-        const maxRequestSize = 4096; // 增加最大请求大小
+        const maxRequestSize = 1024 * 1024; // 1MB max request size
         let waitAttempts = 0;
-        const maxWaitAttempts = 10;
+        const maxWaitAttempts = 50; // Increase wait attempts for larger requests
+        let headersComplete = false;
+        let contentLength = 0;
+        let bodyStartIndex = -1;
 
         try {
-          // 尝试读取完整的HTTP请求直到遇到空行
-          while (totalBytesRead < maxRequestSize) {
-            const bytesToRead = Math.min(1024, maxRequestSize - totalBytesRead);
+          // Step 1: Read headers until we find \r\n\r\n
+          while (totalBytesRead < maxRequestSize && !headersComplete) {
+            const bytesToRead = Math.min(4096, maxRequestSize - totalBytesRead);
             const available = input.available();
-            
+
             if (available === 0) {
-              // 等待数据到达
               waitAttempts++;
               if (waitAttempts > maxWaitAttempts) {
-                ztoolkit.log(`[HttpServer] Timeout waiting for data after ${waitAttempts} attempts, TotalBytes: ${totalBytesRead}`, "warn");
+                ztoolkit.log(`[HttpServer] Timeout waiting for headers after ${waitAttempts} attempts, TotalBytes: ${totalBytesRead}`, "warn");
                 break;
               }
               await new Promise((resolve) => setTimeout(resolve, 10));
-              if (input.available() === 0) {
-                continue; // 继续等待
-              }
+              continue;
             }
 
-            // 尝试使用UTF-8转换流读取
             let chunk = "";
             try {
               const str: { value?: string } = {};
-              const bytesRead = converterStream.readString(bytesToRead, str);
+              const bytesRead = converterStream.readString(Math.min(bytesToRead, available), str);
               chunk = str.value || "";
               if (bytesRead === 0) break;
             } catch (converterError) {
-              // 如果转换器失败，回退到原始方法
-              ztoolkit.log(
-                `[HttpServer] Converter failed, using fallback: ${converterError}`,
-                "error",
-              );
-              chunk = sin.read(bytesToRead);
+              ztoolkit.log(`[HttpServer] Converter failed, using fallback: ${converterError}`, "error");
+              chunk = sin.read(Math.min(bytesToRead, available));
               if (!chunk) break;
             }
 
             requestText += chunk;
             totalBytesRead += chunk.length;
 
-            // 检查是否读取到完整的HTTP头部（以双CRLF结束）
-            if (requestText.includes("\r\n\r\n")) {
-              break;
+            // Check if headers are complete
+            bodyStartIndex = requestText.indexOf("\r\n\r\n");
+            if (bodyStartIndex !== -1) {
+              headersComplete = true;
+              // Parse Content-Length from headers
+              const headersSection = requestText.substring(0, bodyStartIndex);
+              const contentLengthMatch = headersSection.match(/Content-Length:\s*(\d+)/i);
+              if (contentLengthMatch) {
+                contentLength = parseInt(contentLengthMatch[1], 10);
+              }
+            }
+          }
+
+          // Step 2: Read body based on Content-Length (for POST requests)
+          if (headersComplete && contentLength > 0) {
+            const bodyStart = bodyStartIndex + 4; // Skip \r\n\r\n
+            const currentBodyLength = requestText.length - bodyStart;
+            const remainingBodyBytes = contentLength - currentBodyLength;
+
+            ztoolkit.log(`[HttpServer] Reading body: Content-Length=${contentLength}, current=${currentBodyLength}, remaining=${remainingBodyBytes}`);
+
+            waitAttempts = 0; // Reset wait counter for body reading
+            while (remainingBodyBytes > 0 && (requestText.length - bodyStart) < contentLength) {
+              const available = input.available();
+
+              if (available === 0) {
+                waitAttempts++;
+                if (waitAttempts > maxWaitAttempts) {
+                  ztoolkit.log(`[HttpServer] Timeout waiting for body after ${waitAttempts} attempts`, "warn");
+                  break;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 10));
+                continue;
+              }
+
+              const bytesToRead = Math.min(8192, contentLength - (requestText.length - bodyStart), available);
+              let chunk = "";
+              try {
+                const str: { value?: string } = {};
+                const bytesRead = converterStream.readString(bytesToRead, str);
+                chunk = str.value || "";
+                if (bytesRead === 0) break;
+              } catch (converterError) {
+                chunk = sin.read(bytesToRead);
+                if (!chunk) break;
+              }
+
+              requestText += chunk;
+              totalBytesRead += chunk.length;
             }
           }
         } catch (readError) {

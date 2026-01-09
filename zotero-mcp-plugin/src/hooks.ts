@@ -191,6 +191,51 @@ function onShutdown(): void {
     );
   }
 
+  // 停止语义搜索服务
+  try {
+    const { getSemanticSearchService } = require("./modules/semantic");
+    const semanticService = getSemanticSearchService();
+    // Abort any ongoing indexing
+    semanticService.abortIndex();
+    // Destroy the service
+    semanticService.destroy();
+    ztoolkit.log("[MCP Plugin] Semantic search service stopped during shutdown");
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    ztoolkit.log(
+      `[MCP Plugin] Error stopping semantic service during shutdown: ${err.message}`,
+      "error",
+    );
+  }
+
+  // 停止嵌入服务
+  try {
+    const { getEmbeddingService } = require("./modules/semantic/embeddingService");
+    const embeddingService = getEmbeddingService();
+    embeddingService.destroy();
+    ztoolkit.log("[MCP Plugin] Embedding service stopped during shutdown");
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    ztoolkit.log(
+      `[MCP Plugin] Error stopping embedding service during shutdown: ${err.message}`,
+      "error",
+    );
+  }
+
+  // 关闭向量存储数据库
+  try {
+    const { getVectorStore } = require("./modules/semantic/vectorStore");
+    const vectorStore = getVectorStore();
+    vectorStore.close();
+    ztoolkit.log("[MCP Plugin] Vector store closed during shutdown");
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    ztoolkit.log(
+      `[MCP Plugin] Error closing vector store during shutdown: ${err.message}`,
+      "error",
+    );
+  }
+
   serverPreferences.unregister();
   ztoolkit.unregisterAll();
   // Remove addon object
