@@ -128,3 +128,25 @@ config-guide-troubleshooting-list =
     4. 验证配置文件格式正确
 
 config-guide-generated-time = 生成时间: {$time}
+
+# 语义索引右键菜单
+menu-semantic-index = 更新语义索引
+menu-semantic-index-selected = 索引选中条目
+menu-semantic-index-all = 索引所有条目
+menu-semantic-clear-selected = 清除选中条目索引
+menu-semantic-clear-selected-confirm = 确定要清除选中条目的语义索引吗？
+menu-semantic-clear-selected-done = 已清除索引的条目数
+menu-semantic-items = 条
+menu-semantic-index-started = 语义索引已开始
+menu-semantic-index-completed = 索引完成
+menu-semantic-index-error = 语义索引失败
+menu-semantic-index-no-collection = 请选择一个分类
+menu-semantic-index-no-items = 没有可索引的条目
+
+# 分类右键菜单
+menu-collection-semantic-index = 语义索引
+menu-collection-build-index = 构建索引
+menu-collection-rebuild-index = 重建索引
+menu-collection-clear-index = 清除索引
+menu-collection-clear-confirm = 确定要清除该分类的语义索引吗？
+menu-collection-index-cleared = 索引已清除

@@ -6,7 +6,7 @@ _This README is also available in: [:cn: 简体中文](./README-zh.md) | :gb: En
 [![zotero target version](https://img.shields.io/badge/Zotero-7-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-green)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue)](https://www.typescriptlang.org)
-[![Version](https://img.shields.io/badge/Version-1.1.0-brightgreen)]()
+[![Version](https://img.shields.io/badge/Version-1.3.0-brightgreen)]()
 [![EN doc](https://img.shields.io/badge/Document-English-blue.svg)](README.md)
 [![中文文档](https://img.shields.io/badge/文档-中文-blue.svg)](README-zh.md)
 
@@ -159,6 +159,12 @@ Example configuration for Claude Desktop:
 -   **Integrated MCP Server**: Built-in MCP server using Streamable HTTP protocol
 -   **Streamable HTTP Protocol**: Real-time bidirectional communication with AI clients
 -   **Advanced Search Engine**: Full-text search with filtering by title, creator, year, tags, item type, etc.
+-   **🆕 Semantic Search**: AI-powered semantic search using embedding vectors
+    - Supports OpenAI and Ollama embedding APIs (auto-detection)
+    - Vector indexing with SQLite-vec storage
+    - Index status column in main library view
+    - Collection/item context menu for index management
+    - Rate limiting and API usage tracking
 -   **Collection Management**: Browse, search, and retrieve items from specific collections
 -   **Tag Search System**: Powerful tag queries (`any`, `all`, `none` modes) with matching options (`exact`, `contains`, `startsWith`)
 -   **PDF Processing**: Full-text extraction from PDF attachments with page-specific access
@@ -205,6 +211,19 @@ Finds an item by DOI or ISBN.
 -   **`isbn`** (string, optional)
 
 *At least one identifier is required.*
+
+### `semantic_search` 🆕
+
+Performs semantic search on indexed items using embedding vectors.
+-   **`query`** (string, required): Natural language query
+-   **`limit`** (number, optional): Maximum results (default: 10)
+-   **`threshold`** (number, optional): Similarity threshold (0-1)
+
+### `semantic_index` 🆕
+
+Manages the semantic search index.
+-   **`action`** (string, required): `build`, `rebuild`, or `clear`
+-   **`itemKeys`** (array, optional): Specific items to index
 
 ---
 

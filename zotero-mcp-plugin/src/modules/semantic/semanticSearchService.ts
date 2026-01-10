@@ -378,6 +378,20 @@ export class SemanticSearchService {
         startTime: Date.now()
       };
 
+      // Check for dimension mismatch before indexing (unless rebuild)
+      if (!rebuild) {
+        const dimensionCheck = await this.checkDimensionCompatibility();
+        if (!dimensionCheck.compatible) {
+          ztoolkit.log(`[SemanticSearch] Dimension mismatch detected: stored=${dimensionCheck.storedDimensions}, current=${dimensionCheck.currentDimensions}`, 'warn');
+          this.indexProgress.status = 'error';
+          this.indexProgress.error = dimensionCheck.message;
+          this.indexProgress.errorType = 'config';
+          this.indexProgress.errorRetryable = false;
+          onProgress?.(this.indexProgress);
+          return this.indexProgress;
+        }
+      }
+
       // Get items to index
       let items: any[];
       if (itemKeys && itemKeys.length > 0) {
@@ -879,6 +893,71 @@ export class SemanticSearchService {
       await new Promise<void>(resolve => {
         this._pauseResolve = resolve;
       });
+    }
+  }
+
+  /**
+   * Check dimension compatibility between stored vectors and current embedding config
+   * Returns an object indicating if they are compatible and details about the mismatch
+   */
+  async checkDimensionCompatibility(): Promise<{
+    compatible: boolean;
+    storedDimensions: number | null;
+    currentDimensions: number | null;
+    message?: string;
+  }> {
+    try {
+      // Get stored dimensions from vector store
+      const stats = await this.vectorStore.getStats();
+      const storedDimensions = stats.storedDimensions || null;
+
+      // If no stored vectors, any dimension is compatible
+      if (!storedDimensions || stats.totalVectors === 0) {
+        return {
+          compatible: true,
+          storedDimensions: null,
+          currentDimensions: this.embeddingService.getActualDimensions()
+        };
+      }
+
+      // Get current dimensions from embedding service
+      const currentDimensions = this.embeddingService.getActualDimensions();
+
+      // If we don't know current dimensions yet, we need to detect them first
+      // This will happen on first API call, so we can't validate yet
+      if (!currentDimensions) {
+        return {
+          compatible: true,
+          storedDimensions,
+          currentDimensions: null,
+          message: 'Dimensions will be detected on first API call'
+        };
+      }
+
+      // Check if dimensions match
+      if (storedDimensions !== currentDimensions) {
+        return {
+          compatible: false,
+          storedDimensions,
+          currentDimensions,
+          message: `维度不匹配: 已存储=${storedDimensions}, 当前配置=${currentDimensions}。请使用"重建索引"按钮清除旧数据后重新构建。 / Dimension mismatch: stored=${storedDimensions}, current=${currentDimensions}. Please use "Rebuild Index" to clear old data and rebuild.`
+        };
+      }
+
+      return {
+        compatible: true,
+        storedDimensions,
+        currentDimensions
+      };
+    } catch (error) {
+      ztoolkit.log(`[SemanticSearch] Error checking dimension compatibility: ${error}`, 'warn');
+      // If we can't check, assume compatible to avoid blocking
+      return {
+        compatible: true,
+        storedDimensions: null,
+        currentDimensions: null,
+        message: 'Could not verify dimension compatibility'
+      };
     }
   }
 

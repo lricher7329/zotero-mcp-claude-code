@@ -127,6 +127,11 @@ export interface RateLimitConfig {
 }
 
 /**
+ * API provider type for auto-detection
+ */
+export type ApiProviderType = 'auto' | 'openai' | 'ollama' | 'ollama-openai';
+
+/**
  * Configuration for embedding API
  */
 export interface EmbeddingConfig {
@@ -137,6 +142,7 @@ export interface EmbeddingConfig {
   maxBatchSize: number;     // Max texts per API call
   timeout: number;          // Request timeout in ms
   maxRetries: number;       // Max retry attempts
+  apiProvider?: ApiProviderType;  // API provider (auto-detected if 'auto' or not set)
 }
 
 const DEFAULT_CONFIG: EmbeddingConfig = {
@@ -146,7 +152,8 @@ const DEFAULT_CONFIG: EmbeddingConfig = {
   dimensions: 512,  // Smaller dimensions for efficiency
   maxBatchSize: 100,  // OpenAI supports up to 2048
   timeout: 30000,
-  maxRetries: 3
+  maxRetries: 3,
+  apiProvider: 'auto'
 };
 
 // Preference keys for storing API configuration
@@ -154,6 +161,7 @@ const PREF_API_BASE = 'extensions.zotero.zotero-mcp-plugin.embedding.apiBase';
 const PREF_API_KEY = 'extensions.zotero.zotero-mcp-plugin.embedding.apiKey';
 const PREF_MODEL = 'extensions.zotero.zotero-mcp-plugin.embedding.model';
 const PREF_DIMENSIONS = 'extensions.zotero.zotero-mcp-plugin.embedding.dimensions';
+const PREF_DETECTED_DIMENSIONS = 'extensions.zotero.zotero-mcp-plugin.embedding.detectedDimensions';
 
 // Preference keys for rate limit and usage stats
 const PREF_RPM = 'extensions.zotero.zotero-mcp-plugin.embedding.rpm';
@@ -184,8 +192,87 @@ export class EmbeddingService {
   private requestWindow: Array<{ timestamp: number; tokens: number }> = [];
   private onRateLimitCallback?: (info: { type: string; waitMs: number; message: string }) => void;
 
+  // Auto-detected dimensions from API response
+  private detectedDimensions: number | null = null;
+
+  // Auto-detected API provider type
+  private detectedProvider: ApiProviderType | null = null;
+
   constructor(config: Partial<EmbeddingConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+  }
+
+  /**
+   * Auto-detect API provider type from URL
+   */
+  private detectApiProvider(url: string): ApiProviderType {
+    const lowerUrl = url.toLowerCase();
+
+    // Check for Ollama patterns
+    const isOllama = lowerUrl.includes('ollama') ||
+                     lowerUrl.includes(':11434') ||
+                     lowerUrl.includes('localhost:11434') ||
+                     lowerUrl.includes('127.0.0.1:11434');
+
+    if (isOllama) {
+      // Check if using OpenAI-compatible endpoint
+      if (lowerUrl.includes('/v1')) {
+        return 'ollama-openai';
+      }
+      return 'ollama';
+    }
+
+    // Check for OpenAI patterns
+    if (lowerUrl.includes('openai.com') || lowerUrl.includes('/v1')) {
+      return 'openai';
+    }
+
+    // Default to OpenAI-compatible format
+    return 'openai';
+  }
+
+  /**
+   * Get the effective API provider (configured or detected)
+   */
+  getEffectiveProvider(): ApiProviderType {
+    if (this.config.apiProvider && this.config.apiProvider !== 'auto') {
+      return this.config.apiProvider;
+    }
+    if (this.detectedProvider) {
+      return this.detectedProvider;
+    }
+    return this.detectApiProvider(this.config.apiBase);
+  }
+
+  /**
+   * Get the embedding API endpoint URL based on provider
+   */
+  private getEmbeddingEndpoint(): string {
+    const provider = this.getEffectiveProvider();
+    const baseUrl = this.config.apiBase.replace(/\/$/, ''); // Remove trailing slash
+
+    switch (provider) {
+      case 'ollama':
+        // Ollama native API: /api/embeddings
+        // Remove /v1 if present
+        const ollamaBase = baseUrl.replace(/\/v1$/, '');
+        return `${ollamaBase}/api/embeddings`;
+
+      case 'ollama-openai':
+        // Ollama OpenAI-compatible: /v1/embeddings
+        if (baseUrl.endsWith('/v1')) {
+          return `${baseUrl}/embeddings`;
+        }
+        return `${baseUrl}/v1/embeddings`;
+
+      case 'openai':
+      default:
+        // OpenAI format: /v1/embeddings or /embeddings
+        if (baseUrl.endsWith('/v1')) {
+          return `${baseUrl}/embeddings`;
+        }
+        return `${baseUrl}/embeddings`;
+    }
   }
 
   /**
@@ -259,13 +346,15 @@ export class EmbeddingService {
       const apiKey = Zotero.Prefs.get(PREF_API_KEY, true);
       const model = Zotero.Prefs.get(PREF_MODEL, true);
       const dimensions = Zotero.Prefs.get(PREF_DIMENSIONS, true);
+      const detectedDims = Zotero.Prefs.get(PREF_DETECTED_DIMENSIONS, true);
 
       if (apiBase) this.config.apiBase = apiBase;
       if (apiKey) this.config.apiKey = apiKey;
       if (model) this.config.model = model;
       if (dimensions) this.config.dimensions = parseInt(dimensions, 10);
+      if (detectedDims) this.detectedDimensions = parseInt(String(detectedDims), 10);
 
-      ztoolkit.log(`[EmbeddingService] Loaded config from prefs: apiBase=${this.config.apiBase}, model=${this.config.model}, dims=${this.config.dimensions}`);
+      ztoolkit.log(`[EmbeddingService] Loaded config from prefs: apiBase=${this.config.apiBase}, model=${this.config.model}, configDims=${this.config.dimensions}, detectedDims=${this.detectedDimensions}`);
     } catch (e) {
       ztoolkit.log(`[EmbeddingService] Failed to load prefs: ${e}`, 'warn');
     }
@@ -285,6 +374,53 @@ export class EmbeddingService {
       ztoolkit.log('[EmbeddingService] Config saved to prefs');
     } catch (e) {
       ztoolkit.log(`[EmbeddingService] Failed to save prefs: ${e}`, 'warn');
+    }
+  }
+
+  /**
+   * Save detected dimensions to preferences
+   */
+  private saveDetectedDimensions(dims: number): void {
+    try {
+      Zotero.Prefs.set(PREF_DETECTED_DIMENSIONS, dims, true);
+      ztoolkit.log(`[EmbeddingService] Saved detected dimensions: ${dims}`);
+    } catch (e) {
+      ztoolkit.log(`[EmbeddingService] Failed to save detected dimensions: ${e}`, 'warn');
+    }
+  }
+
+  /**
+   * Get the actual dimensions that will be used for embeddings
+   * Returns detected dimensions if available, otherwise configured dimensions
+   */
+  getActualDimensions(): number | null {
+    return this.detectedDimensions || this.config.dimensions || null;
+  }
+
+  /**
+   * Get the detected dimensions from API (null if not yet detected)
+   */
+  getDetectedDimensions(): number | null {
+    return this.detectedDimensions;
+  }
+
+  /**
+   * Check if the model supports custom dimensions parameter
+   */
+  supportsCustomDimensions(): boolean {
+    return this.config.model.includes('text-embedding-3');
+  }
+
+  /**
+   * Clear detected dimensions (useful when changing models)
+   */
+  clearDetectedDimensions(): void {
+    this.detectedDimensions = null;
+    try {
+      Zotero.Prefs.clear(PREF_DETECTED_DIMENSIONS, true);
+      ztoolkit.log('[EmbeddingService] Cleared detected dimensions');
+    } catch (e) {
+      // Ignore errors
     }
   }
 
@@ -737,11 +873,61 @@ export class EmbeddingService {
   }
 
   /**
+   * Call Ollama native API for a single text (helper for batch processing)
+   */
+  private async callEmbeddingAPISingle(text: string, _provider: ApiProviderType, url: string): Promise<number[]> {
+    const requestBody = {
+      model: this.config.model,
+      prompt: text
+    };
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+
+    if (this.config.apiKey) {
+      headers['Authorization'] = `Bearer ${this.config.apiKey}`;
+    }
+
+    const response = await Zotero.HTTP.request('POST', url, {
+      headers,
+      body: JSON.stringify(requestBody),
+      timeout: this.config.timeout,
+      responseType: 'json'
+    });
+
+    const data = response.response;
+
+    if (!data || !data.embedding) {
+      throw new EmbeddingAPIError(
+        `Invalid Ollama response: ${JSON.stringify(data).substring(0, 200)}`,
+        'invalid_request',
+        { retryable: false }
+      );
+    }
+
+    // Record request (estimate 1 token per 4 chars for simplicity)
+    const estimatedTokens = Math.ceil(text.length / 4);
+    this.recordRequest(estimatedTokens, 1);
+
+    // Auto-detect dimensions
+    if (data.embedding.length > 0 && this.detectedDimensions !== data.embedding.length) {
+      this.detectedDimensions = data.embedding.length;
+      this.saveDetectedDimensions(data.embedding.length);
+    }
+
+    return data.embedding;
+  }
+
+  /**
    * Call the embedding API using Zotero.HTTP
    * @throws {EmbeddingAPIError} When API call fails after all retries
    */
   private async callEmbeddingAPI(texts: string[]): Promise<number[][]> {
-    const url = `${this.config.apiBase}/embeddings`;
+    const provider = this.getEffectiveProvider();
+    const url = this.getEmbeddingEndpoint();
+
+    ztoolkit.log(`[EmbeddingService] API call: provider=${provider}, url=${url}`);
 
     // Estimate tokens for rate limit check
     const estimatedTokens = this.estimateTokens(texts);
@@ -752,14 +938,37 @@ export class EmbeddingService {
       await this.waitForRateLimit(rateCheck.waitMs, rateCheck.reason || 'Rate limit');
     }
 
-    const requestBody: any = {
-      model: this.config.model,
-      input: texts
-    };
+    // For Ollama native API, handle texts one by one
+    if (provider === 'ollama' && texts.length > 1) {
+      // Make separate requests for each text
+      const allEmbeddings: number[][] = [];
+      for (const text of texts) {
+        const singleResult = await this.callEmbeddingAPISingle(text, provider, url);
+        allEmbeddings.push(singleResult);
+      }
+      return allEmbeddings;
+    }
 
-    // Add dimensions if supported (OpenAI text-embedding-3-* models support this)
-    if (this.config.dimensions && this.config.model.includes('text-embedding-3')) {
-      requestBody.dimensions = this.config.dimensions;
+    // Build request body based on provider
+    let requestBody: any;
+
+    if (provider === 'ollama') {
+      // Ollama native API format - single text
+      requestBody = {
+        model: this.config.model,
+        prompt: texts[0]  // Ollama native uses 'prompt' not 'input'
+      };
+    } else {
+      // OpenAI-compatible format (OpenAI, ollama-openai, etc.)
+      requestBody = {
+        model: this.config.model,
+        input: texts
+      };
+
+      // Add dimensions if supported (OpenAI text-embedding-3-* models support this)
+      if (this.config.dimensions && this.config.model.includes('text-embedding-3')) {
+        requestBody.dimensions = this.config.dimensions;
+      }
     }
 
     let lastError: EmbeddingAPIError | null = null;
@@ -785,28 +994,63 @@ export class EmbeddingService {
 
         const data = response.response;
 
-        if (!data || !data.data) {
-          throw new EmbeddingAPIError(
-            `Invalid API response: ${JSON.stringify(data).substring(0, 200)}`,
-            'invalid_request',
-            { retryable: false }
-          );
-        }
-
-        // Extract token usage from response
+        // Parse response based on provider
+        let embeddings: number[][];
         let tokensUsed = estimatedTokens; // fallback to estimate
-        if (data.usage && typeof data.usage.total_tokens === 'number') {
-          tokensUsed = data.usage.total_tokens;
-        } else if (data.usage && typeof data.usage.prompt_tokens === 'number') {
-          tokensUsed = data.usage.prompt_tokens;
+
+        if (provider === 'ollama') {
+          // Ollama native response format: { embedding: [...] }
+          if (!data || !data.embedding) {
+            throw new EmbeddingAPIError(
+              `Invalid Ollama response: ${JSON.stringify(data).substring(0, 200)}`,
+              'invalid_request',
+              { retryable: false }
+            );
+          }
+          embeddings = [data.embedding];
+          // Ollama doesn't return token usage in native API
+        } else {
+          // OpenAI-compatible response format: { data: [{ embedding: [...], index: 0 }] }
+          if (!data || !data.data) {
+            throw new EmbeddingAPIError(
+              `Invalid API response: ${JSON.stringify(data).substring(0, 200)}`,
+              'invalid_request',
+              { retryable: false }
+            );
+          }
+
+          // Extract token usage from response
+          if (data.usage && typeof data.usage.total_tokens === 'number') {
+            tokensUsed = data.usage.total_tokens;
+          } else if (data.usage && typeof data.usage.prompt_tokens === 'number') {
+            tokensUsed = data.usage.prompt_tokens;
+          }
+
+          // Sort by index to ensure correct order
+          const sortedData = data.data.sort((a: any, b: any) => a.index - b.index);
+          embeddings = sortedData.map((item: any) => item.embedding);
         }
 
         // Record the request in usage stats
         this.recordRequest(tokensUsed, texts.length);
 
-        // Sort by index to ensure correct order
-        const sortedData = data.data.sort((a: any, b: any) => a.index - b.index);
-        return sortedData.map((item: any) => item.embedding);
+        // Auto-detect and save actual dimensions from first embedding
+        if (embeddings.length > 0 && embeddings[0].length > 0) {
+          const actualDims = embeddings[0].length;
+          if (this.detectedDimensions !== actualDims) {
+            this.detectedDimensions = actualDims;
+            this.saveDetectedDimensions(actualDims);
+            ztoolkit.log(`[EmbeddingService] Auto-detected dimensions: ${actualDims}, provider: ${provider}`);
+          }
+        }
+
+        // Store detected provider for future requests
+        if (!this.detectedProvider) {
+          this.detectedProvider = provider;
+          ztoolkit.log(`[EmbeddingService] Auto-detected provider: ${provider}`);
+        }
+
+        return embeddings;
 
       } catch (error: any) {
         // If already an EmbeddingAPIError, use it directly
@@ -904,17 +1148,24 @@ export class EmbeddingService {
   /**
    * Test API connection
    */
-  async testConnection(): Promise<{ success: boolean; message: string; dimensions?: number }> {
+  async testConnection(): Promise<{ success: boolean; message: string; dimensions?: number; provider?: string }> {
     if (!this.config.apiBase || !this.config.model) {
       return { success: false, message: 'API base or model not configured' };
     }
 
+    // Clear detected provider to force re-detection
+    this.detectedProvider = null;
+
     try {
       const result = await this.embed('test', 'en');
+      const provider = this.getEffectiveProvider();
+      const providerLabel = this.getProviderLabel(provider);
+
       return {
         success: true,
-        message: `Connection successful. Model: ${this.config.model}`,
-        dimensions: result.dimensions
+        message: `Connection successful. Provider: ${providerLabel}, Model: ${this.config.model}`,
+        dimensions: result.dimensions,
+        provider: provider
       };
     } catch (error: any) {
       return {
@@ -922,6 +1173,25 @@ export class EmbeddingService {
         message: `Connection failed: ${error.message}`
       };
     }
+  }
+
+  /**
+   * Get human-readable label for provider type
+   */
+  private getProviderLabel(provider: ApiProviderType): string {
+    switch (provider) {
+      case 'ollama': return 'Ollama (Native API)';
+      case 'ollama-openai': return 'Ollama (OpenAI Compatible)';
+      case 'openai': return 'OpenAI Compatible';
+      default: return provider;
+    }
+  }
+
+  /**
+   * Get detected provider (null if not yet detected)
+   */
+  getDetectedProvider(): ApiProviderType | null {
+    return this.detectedProvider;
   }
 
   /**

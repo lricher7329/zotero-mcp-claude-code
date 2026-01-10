@@ -238,6 +238,7 @@ function bindEmbeddingSettings(doc: Document) {
   const apiKeyInput = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-embedding-api-key`) as HTMLInputElement;
   const modelInput = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-embedding-model`) as HTMLInputElement;
   const dimensionsInput = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-embedding-dimensions`) as HTMLInputElement;
+  const dimensionsRow = dimensionsInput?.closest('hbox') || dimensionsInput?.parentElement;
   const testButton = doc?.querySelector("#test-embedding-button") as HTMLButtonElement;
   const testResult = doc?.querySelector("#embedding-test-result") as HTMLSpanElement;
 
@@ -254,6 +255,39 @@ function bindEmbeddingSettings(doc: Document) {
   initValue(modelInput, "extensions.zotero.zotero-mcp-plugin.embedding.model", "text-embedding-3-small");
   initValue(dimensionsInput, "extensions.zotero.zotero-mcp-plugin.embedding.dimensions", "512");
 
+  // Check if model supports custom dimensions
+  const supportsCustomDimensions = (model: string) => model.includes('text-embedding-3');
+
+  // Update dimensions input visibility based on model
+  const updateDimensionsVisibility = () => {
+    const model = modelInput?.value || "";
+    const supportsCustom = supportsCustomDimensions(model);
+
+    if (dimensionsInput) {
+      dimensionsInput.disabled = !supportsCustom;
+      if (!supportsCustom) {
+        dimensionsInput.placeholder = getString("pref-embedding-dimensions-auto" as any) || "Auto";
+      } else {
+        dimensionsInput.placeholder = "";
+      }
+    }
+
+    // Show hint text about dimensions
+    if (dimensionsRow && testResult) {
+      if (!supportsCustom) {
+        // For non-supporting models, show info about auto-detection
+        const detectedDims = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.embedding.detectedDimensions", true);
+        if (detectedDims) {
+          testResult.textContent = `${getString("pref-embedding-detected-dims" as any) || "Detected dimensions"}: ${detectedDims}`;
+          testResult.style.color = "#666";
+        }
+      }
+    }
+  };
+
+  // Initial visibility update
+  updateDimensionsVisibility();
+
   // Save preference on change
   const bindSave = (input: HTMLInputElement, prefKey: string, isNumber = false) => {
     input?.addEventListener("change", () => {
@@ -268,12 +302,50 @@ function bindEmbeddingSettings(doc: Document) {
 
   bindSave(apiBaseInput, "extensions.zotero.zotero-mcp-plugin.embedding.apiBase");
   bindSave(apiKeyInput, "extensions.zotero.zotero-mcp-plugin.embedding.apiKey");
-  bindSave(modelInput, "extensions.zotero.zotero-mcp-plugin.embedding.model");
   bindSave(dimensionsInput, "extensions.zotero.zotero-mcp-plugin.embedding.dimensions", true);
+
+  // Model change handler - update dimensions visibility and clear detected dimensions
+  modelInput?.addEventListener("change", async () => {
+    const model = modelInput.value;
+    Zotero.Prefs.set("extensions.zotero.zotero-mcp-plugin.embedding.model", model, true);
+    ztoolkit.log(`[PreferenceScript] Saved embedding pref: model = ${model}`);
+
+    // Clear detected dimensions when model changes
+    try {
+      const { getEmbeddingService } = require("./semantic/embeddingService");
+      const embeddingService = getEmbeddingService();
+      embeddingService.clearDetectedDimensions();
+    } catch (e) {
+      // Ignore
+    }
+
+    // Check if there are existing indexed vectors - warn user about potential incompatibility
+    try {
+      const { getVectorStore } = require("./semantic/vectorStore");
+      const vectorStore = getVectorStore();
+      await vectorStore.initialize();
+      const stats = await vectorStore.getStats();
+      if (stats.totalVectors > 0) {
+        // Show warning alert
+        addon.data.prefs!.window.alert(
+          getString("pref-embedding-model-change-warning" as any) ||
+          "模型已更改，已有索引可能不兼容。请测试连接后重建索引。\n\nModel changed. Existing index may be incompatible. Please test connection and rebuild index."
+        );
+      }
+    } catch (e) {
+      ztoolkit.log(`[PreferenceScript] Failed to check existing index: ${e}`, 'warn');
+    }
+
+    // Update visibility
+    updateDimensionsVisibility();
+
+    // Update embedding service config
+    updateEmbeddingServiceConfig();
+  });
 
   // Test connection button
   testButton?.addEventListener("click", async () => {
-    testResult.textContent = "Testing...";
+    testResult.textContent = getString("pref-embedding-testing" as any) || "Testing...";
     testResult.style.color = "#666";
     testButton.disabled = true;
 
@@ -308,27 +380,53 @@ function bindEmbeddingSettings(doc: Document) {
       const data = response.response;
       if (data && data.data && data.data.length > 0) {
         const dims = data.data[0].embedding?.length || 0;
-        testResult.textContent = getString("pref-embedding-test-success" as any) + ` (${dims} dims)`;
-        testResult.style.color = "#2e7d32";
 
-        // Auto-update dimensions if detected
-        if (dims > 0 && dimensionsInput) {
-          dimensionsInput.value = String(dims);
-          Zotero.Prefs.set("extensions.zotero.zotero-mcp-plugin.embedding.dimensions", dims, true);
+        // Check if stored vectors have different dimensions
+        let storedDims: number | null = null;
+        let hasStoredVectors = false;
+        try {
+          const { getVectorStore } = require("./semantic/vectorStore");
+          const vectorStore = getVectorStore();
+          await vectorStore.initialize();
+          const stats = await vectorStore.getStats();
+          storedDims = stats.storedDimensions || null;
+          hasStoredVectors = stats.totalVectors > 0;
+        } catch (e) {
+          // Ignore errors checking stored dimensions
+        }
 
-          // Check if stored vectors have different dimensions - warn user to rebuild index
-          try {
-            const { getVectorStore } = require("./semantic/vectorStore");
-            const vectorStore = getVectorStore();
-            await vectorStore.initialize();
-            const stats = await vectorStore.getStats();
-            if (stats.storedDimensions && stats.storedDimensions !== dims) {
-              testResult.textContent = getString("pref-embedding-test-success" as any) +
-                ` (${dims} dims) - ⚠️ ${getString("pref-embedding-rebuild-warning" as any) || "Index has different dimensions, please rebuild"}`;
-              testResult.style.color = "#ef6c00";
+        // Decide whether to update dimensions based on stored vectors
+        if (hasStoredVectors && storedDims && storedDims !== dims) {
+          // Dimension mismatch with existing index - warn but don't auto-update
+          testResult.textContent = `${getString("pref-embedding-test-success" as any)} (${dims} dims) - ⚠️ ${getString("pref-embedding-dimension-mismatch" as any) || `Index has ${storedDims} dims, API returns ${dims} dims. Rebuild index to use new dimensions.`}`;
+          testResult.style.color = "#ef6c00";
+
+          // Save detected dimensions but don't update config dimensions
+          Zotero.Prefs.set("extensions.zotero.zotero-mcp-plugin.embedding.detectedDimensions", dims, true);
+        } else {
+          // No mismatch or no existing vectors - safe to update
+          testResult.textContent = getString("pref-embedding-test-success" as any) + ` (${dims} dims)`;
+          testResult.style.color = "#2e7d32";
+
+          // Update dimensions
+          if (dims > 0) {
+            // Save detected dimensions
+            Zotero.Prefs.set("extensions.zotero.zotero-mcp-plugin.embedding.detectedDimensions", dims, true);
+
+            // Only update config dimensions for models that support custom dimensions
+            if (supportsCustomDimensions(model) && dimensionsInput) {
+              dimensionsInput.value = String(dims);
+              Zotero.Prefs.set("extensions.zotero.zotero-mcp-plugin.embedding.dimensions", dims, true);
             }
-          } catch (e) {
-            // Ignore errors checking stored dimensions
+
+            // Update embedding service
+            try {
+              const { getEmbeddingService } = require("./semantic/embeddingService");
+              const embeddingService = getEmbeddingService();
+              embeddingService.updateConfig({ dimensions: dims });
+            } catch (e) {
+              // Ignore
+            }
           }
         }
       } else {
@@ -560,6 +658,7 @@ function bindSemanticStatsSettings(doc: Document) {
   let isIndexing = false;
   let progressUpdateInterval: ReturnType<typeof setInterval> | null = null;
   let lastErrorInfo: { message: string; type: string; retryable: boolean } | null = null;
+  let messageTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Load stats on page load
   loadSemanticStats();
@@ -853,6 +952,12 @@ function bindSemanticStatsSettings(doc: Document) {
   function showMessage(text: string, type: 'info' | 'success' | 'warning' | 'error') {
     if (!messageEl) return;
 
+    // Clear any pending timeout to prevent previous messages from hiding this one
+    if (messageTimeout) {
+      clearTimeout(messageTimeout);
+      messageTimeout = null;
+    }
+
     messageEl.textContent = text;
     messageEl.style.display = "block";
 
@@ -869,9 +974,11 @@ function bindSemanticStatsSettings(doc: Document) {
     messageEl.style.color = color.text;
 
     // Auto-hide after 5 seconds for non-error messages
+    // Error messages persist until manually cleared or another message is shown
     if (type !== 'error') {
-      setTimeout(() => {
+      messageTimeout = setTimeout(() => {
         if (messageEl) messageEl.style.display = "none";
+        messageTimeout = null;
       }, 5000);
     }
   }
@@ -993,10 +1100,16 @@ function bindSemanticStatsSettings(doc: Document) {
           // Show error state - display error message and allow resume
           updateControlButtons('paused');  // Show resume button for retry
           if (statusEl) {
-            statusEl.textContent = getStatusText('error');
+            // Include error message in status if available
+            const errorStatus = getStatusText('error');
+            if (stats.indexProgress.error) {
+              statusEl.textContent = `${errorStatus}: ${stats.indexProgress.error}`;
+            } else {
+              statusEl.textContent = errorStatus;
+            }
             statusEl.style.color = "#c62828";
           }
-          // Show error message if available
+          // Also show error message in message area if available
           if (stats.indexProgress.error) {
             const retryHint = stats.indexProgress.errorRetryable !== false
               ? ` (${getString("pref-semantic-index-error-retry-hint" as any) || "Click Resume to retry"})`
@@ -1061,8 +1174,8 @@ function bindSemanticStatsSettings(doc: Document) {
       semanticService.setOnIndexError((error: any) => {
         ztoolkit.log(`[PreferenceScript] Received indexing error: ${error.type} - ${error.message}`);
 
-        // Get localized error message based on error type
-        const getLocalizedErrorMessage = (errorType: string, fallbackMessage: string): string => {
+        // Get localized error message based on error type, including original error details
+        const getLocalizedErrorMessage = (errorType: string, originalMessage: string): string => {
           const errorTypeMap: Record<string, string> = {
             'network': getString("pref-semantic-index-error-network" as any) || 'Network connection failed, please check your network and click Resume',
             'rate_limit': getString("pref-semantic-index-error-rate-limit" as any) || 'API rate limit exceeded, please try again later',
@@ -1072,7 +1185,16 @@ function bindSemanticStatsSettings(doc: Document) {
             'config': getString("pref-semantic-index-error-config" as any) || 'Configuration error, please check API settings',
             'unknown': getString("pref-semantic-index-error-unknown" as any) || 'Unknown error'
           };
-          return errorTypeMap[errorType] || fallbackMessage;
+          const localizedMsg = errorTypeMap[errorType];
+          // For known error types, append original message if it provides additional details
+          // For unknown errors or when type is not found, always include original message
+          if (localizedMsg) {
+            // Include original message for all errors to provide more context
+            return originalMessage && originalMessage !== errorType
+              ? `${localizedMsg}: ${originalMessage}`
+              : localizedMsg;
+          }
+          return originalMessage || 'Unknown error';
         };
 
         // Store error info for display and potential retry

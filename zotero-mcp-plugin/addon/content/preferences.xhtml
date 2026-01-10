@@ -245,7 +245,7 @@
       <html:p data-l10n-id="pref-embedding-description"></html:p>
 
       <vbox>
-        <hbox align="center" style="margin-bottom: 10px;">
+        <hbox align="center" style="margin-bottom: 5px;">
           <html:label
             for="zotero-prefpane-__addonRef__-embedding-api-base"
             data-l10n-id="pref-embedding-api-base-label"
@@ -255,9 +255,15 @@
             type="text"
             id="zotero-prefpane-__addonRef__-embedding-api-base"
             preference="extensions.zotero.zotero-mcp-plugin.embedding.apiBase"
-            placeholder="http://127.0.0.1:1234/v1"
+            placeholder="https://api.openai.com/v1 or http://localhost:11434"
             style="flex: 1; max-width: 300px;"
           ></html:input>
+        </hbox>
+        <hbox style="margin-bottom: 10px; margin-left: 120px;">
+          <html:span
+            data-l10n-id="pref-embedding-api-base-hint"
+            style="font-size: 11px; color: #666;"
+          ></html:span>
         </hbox>
 
         <hbox align="center" style="margin-bottom: 10px;">
