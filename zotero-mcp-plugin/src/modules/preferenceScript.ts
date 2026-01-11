@@ -1069,7 +1069,8 @@ function bindSemanticStatsSettings(doc: Document) {
         if (stats.indexStats.storedDimensions) {
           // Get configured dimensions from prefs to show comparison
           const configuredDims = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.embedding.dimensions", true);
-          if (configuredDims && configuredDims !== stats.indexStats.storedDimensions) {
+          const configuredDimsNum = configuredDims ? parseInt(String(configuredDims), 10) : null;
+          if (configuredDimsNum && configuredDimsNum !== stats.indexStats.storedDimensions) {
             dimensionsEl.textContent = `${stats.indexStats.storedDimensions} (${getString("pref-semantic-stats-dimensions-mismatch" as any) || "mismatch"}: ${configuredDims})`;
             dimensionsEl.style.color = "#d32f2f";
           } else {

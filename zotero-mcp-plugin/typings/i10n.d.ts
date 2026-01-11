@@ -119,6 +119,7 @@ export type FluentMessageId =
   | 'pref-rate-limit-tpm-label'
   | 'pref-rate-limit-zero-hint'
   | 'pref-search-limit-label'
+  | 'pref-semantic-auto-update'
   | 'pref-semantic-index-abort-button'
   | 'pref-semantic-index-aborted'
   | 'pref-semantic-index-build-button'

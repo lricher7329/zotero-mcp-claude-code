@@ -7,6 +7,281 @@ import { createZToolkit } from "./utils/ztoolkit";
 import { MCPSettingsService } from "./modules/mcpSettingsService";
 import { registerSemanticIndexColumn, unregisterSemanticIndexColumn, refreshSemanticColumn } from "./modules/semanticIndexColumn";
 
+// Preference key for auto-update setting
+const PREF_SEMANTIC_AUTO_UPDATE = 'extensions.zotero.zotero-mcp-plugin.semantic.autoUpdate';
+
+// Store notifier ID for cleanup
+let itemNotifierID: string | null = null;
+
+// Debounce timer for auto-update
+let autoUpdateDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const AUTO_UPDATE_DEBOUNCE_MS = 5000; // Wait 5 seconds after last change before updating
+
+// Queue of item keys to update
+const pendingAutoUpdateKeys = new Set<string>();
+
+// Auto index check interval (10 minutes)
+const AUTO_INDEX_CHECK_INTERVAL_MS = 10 * 60 * 1000;
+let autoIndexCheckTimer: ReturnType<typeof setInterval> | null = null;
+let autoIndexInitialTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Track all setTimeout calls for cleanup on shutdown
+const pendingTimeouts: Set<ReturnType<typeof setTimeout>> = new Set();
+
+// Global flag to prevent new async operations during shutdown
+let isShuttingDown = false;
+
+/**
+ * Create a tracked setTimeout that will be cleaned up on shutdown
+ */
+function trackedSetTimeout(callback: () => void, delay: number): ReturnType<typeof setTimeout> {
+  const timer = setTimeout(() => {
+    pendingTimeouts.delete(timer);
+    if (!isShuttingDown) {
+      callback();
+    }
+  }, delay);
+  pendingTimeouts.add(timer);
+  return timer;
+}
+
+/**
+ * Clear all pending tracked timeouts
+ */
+function clearAllPendingTimeouts(): void {
+  for (const timer of pendingTimeouts) {
+    clearTimeout(timer);
+  }
+  pendingTimeouts.clear();
+  ztoolkit.log(`[MCP Plugin] All pending timeouts cleared`);
+}
+
+/**
+ * Process pending auto-update items
+ */
+async function processPendingAutoUpdates() {
+  if (isShuttingDown) return;
+  if (pendingAutoUpdateKeys.size === 0) return;
+
+  const keysToUpdate = Array.from(pendingAutoUpdateKeys);
+  pendingAutoUpdateKeys.clear();
+
+  ztoolkit.log(`[MCP Plugin] Auto-updating semantic index for ${keysToUpdate.length} items`);
+
+  try {
+    const { getSemanticSearchService } = await import("./modules/semantic");
+    const semanticService = getSemanticSearchService();
+
+    // Check if service is ready
+    const isReady = await semanticService.isReady();
+    if (!isReady) {
+      ztoolkit.log("[MCP Plugin] Semantic service not ready, skipping auto-update");
+      return;
+    }
+
+    // Build index for changed items (rebuild mode to update existing)
+    await semanticService.buildIndex({
+      itemKeys: keysToUpdate,
+      rebuild: true,  // Rebuild to ensure updates
+      onProgress: (progress) => {
+        ztoolkit.log(`[MCP Plugin] Auto-update progress: ${progress.processed}/${progress.total}`);
+      }
+    });
+
+    // Refresh semantic column to show updated status
+    refreshSemanticColumn();
+    ztoolkit.log(`[MCP Plugin] Auto-update completed for ${keysToUpdate.length} items`);
+  } catch (error) {
+    ztoolkit.log(`[MCP Plugin] Auto-update failed: ${error}`, 'error');
+  }
+}
+
+/**
+ * Schedule auto-update with debouncing
+ */
+function scheduleAutoUpdate(itemKey: string) {
+  pendingAutoUpdateKeys.add(itemKey);
+
+  // Clear existing timer
+  if (autoUpdateDebounceTimer) {
+    clearTimeout(autoUpdateDebounceTimer);
+  }
+
+  // Set new timer
+  autoUpdateDebounceTimer = setTimeout(() => {
+    autoUpdateDebounceTimer = null;
+    processPendingAutoUpdates();
+  }, AUTO_UPDATE_DEBOUNCE_MS);
+}
+
+/**
+ * Register Zotero notifier to watch for item changes
+ */
+function registerItemNotifier() {
+  // Check if auto-update is enabled
+  const autoUpdateEnabled = Zotero.Prefs.get(PREF_SEMANTIC_AUTO_UPDATE, true);
+  if (autoUpdateEnabled === undefined) {
+    // Set default value if not set
+    Zotero.Prefs.set(PREF_SEMANTIC_AUTO_UPDATE, false, true);
+  }
+
+  itemNotifierID = Zotero.Notifier.registerObserver({
+    notify: async (event: string, type: string, ids: (string | number)[]) => {
+      // Don't process during shutdown
+      if (isShuttingDown) return;
+
+      // Only process item events
+      if (type !== 'item') return;
+
+      // Check if auto-update is enabled
+      const enabled = Zotero.Prefs.get(PREF_SEMANTIC_AUTO_UPDATE, true);
+      if (!enabled) return;
+
+      // Only process add and modify events
+      if (event !== 'add' && event !== 'modify') return;
+
+      ztoolkit.log(`[MCP Plugin] Item notifier: event=${event}, type=${type}, ids=${ids.length}`);
+
+      // Get items and filter for regular items only
+      const numericIds = ids.map(id => typeof id === 'string' ? parseInt(id, 10) : id);
+      const items = Zotero.Items.get(numericIds);
+      for (const item of items) {
+        // Only index regular items (not attachments, notes, etc.)
+        if (item.isRegularItem?.()) {
+          scheduleAutoUpdate(item.key);
+        }
+      }
+    }
+  }, ['item'], 'zotero-mcp-plugin-auto-update');
+
+  ztoolkit.log(`[MCP Plugin] Item notifier registered: ${itemNotifierID}`);
+
+  // Start periodic auto-index check (every 10 minutes)
+  startAutoIndexCheck();
+}
+
+/**
+ * Start periodic auto-index check timer
+ */
+function startAutoIndexCheck() {
+  // Clear existing timers if any
+  if (autoIndexCheckTimer) {
+    clearInterval(autoIndexCheckTimer);
+    autoIndexCheckTimer = null;
+  }
+  if (autoIndexInitialTimer) {
+    clearTimeout(autoIndexInitialTimer);
+    autoIndexInitialTimer = null;
+  }
+
+  // Run first check after 30 seconds (let Zotero fully initialize)
+  autoIndexInitialTimer = setTimeout(() => {
+    autoIndexInitialTimer = null;
+    triggerAutoIndexBuild();
+  }, 30000);
+
+  // Then run every 10 minutes
+  autoIndexCheckTimer = setInterval(() => {
+    triggerAutoIndexBuild();
+  }, AUTO_INDEX_CHECK_INTERVAL_MS);
+
+  ztoolkit.log(`[MCP Plugin] Auto-index check timer started (interval: ${AUTO_INDEX_CHECK_INTERVAL_MS / 1000}s)`);
+}
+
+/**
+ * Stop periodic auto-index check timer
+ */
+function stopAutoIndexCheck() {
+  if (autoIndexInitialTimer) {
+    clearTimeout(autoIndexInitialTimer);
+    autoIndexInitialTimer = null;
+  }
+  if (autoIndexCheckTimer) {
+    clearInterval(autoIndexCheckTimer);
+    autoIndexCheckTimer = null;
+  }
+  ztoolkit.log("[MCP Plugin] Auto-index check timers stopped");
+}
+
+/**
+ * Trigger automatic index build for unindexed items (when auto-update is enabled)
+ */
+async function triggerAutoIndexBuild() {
+  // Don't start new operations during shutdown
+  if (isShuttingDown) return;
+
+  try {
+    const enabled = Zotero.Prefs.get(PREF_SEMANTIC_AUTO_UPDATE, true);
+    if (!enabled) {
+      ztoolkit.log("[MCP Plugin] Auto-update disabled, skipping auto index check");
+      return;
+    }
+
+    ztoolkit.log("[MCP Plugin] Periodic auto-index check...");
+
+    const { getSemanticSearchService } = await import("./modules/semantic");
+    const semanticService = getSemanticSearchService();
+
+    // Check if service is ready (API configured)
+    const isReady = await semanticService.isReady();
+    if (!isReady) {
+      ztoolkit.log("[MCP Plugin] Semantic service not ready (API not configured), skipping");
+      return;
+    }
+
+    // Check current index status
+    const stats = await semanticService.getStats();
+    if (stats.indexProgress.status === 'indexing') {
+      ztoolkit.log("[MCP Plugin] Indexing already in progress, skipping");
+      return;
+    }
+
+    // Start building index for unindexed items (rebuild=false means only index new items)
+    ztoolkit.log("[MCP Plugin] Starting auto index build for unindexed items...");
+    semanticService.buildIndex({
+      rebuild: false,  // Only index items that haven't been indexed
+      onProgress: (progress) => {
+        if (progress.processed % 10 === 0) {
+          ztoolkit.log(`[MCP Plugin] Auto index progress: ${progress.processed}/${progress.total}`);
+        }
+      }
+    }).then((result) => {
+      if (result.processed > 0) {
+        ztoolkit.log(`[MCP Plugin] Auto index completed: ${result.processed}/${result.total} items`);
+        refreshSemanticColumn();
+      } else {
+        ztoolkit.log("[MCP Plugin] Auto index check: no new items to index");
+      }
+    }).catch((error) => {
+      ztoolkit.log(`[MCP Plugin] Auto index failed: ${error}`, 'error');
+    });
+
+  } catch (error) {
+    ztoolkit.log(`[MCP Plugin] Error in triggerAutoIndexBuild: ${error}`, 'error');
+  }
+}
+
+/**
+ * Unregister item notifier
+ */
+function unregisterItemNotifier() {
+  if (itemNotifierID) {
+    Zotero.Notifier.unregisterObserver(itemNotifierID);
+    ztoolkit.log(`[MCP Plugin] Item notifier unregistered: ${itemNotifierID}`);
+    itemNotifierID = null;
+  }
+
+  // Stop auto-index check timer
+  stopAutoIndexCheck();
+
+  // Clear any pending timer
+  if (autoUpdateDebounceTimer) {
+    clearTimeout(autoUpdateDebounceTimer);
+    autoUpdateDebounceTimer = null;
+  }
+  pendingAutoUpdateKeys.clear();
+}
+
 async function onStartup() {
   await Promise.all([
     Zotero.initializationPromise,
@@ -146,6 +421,9 @@ async function onStartup() {
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),
   );
 
+  // Register item notifier for auto-update semantic index
+  registerItemNotifier();
+
   // Mark initialized as true to confirm plugin loading status
   // outside of the plugin (e.g. scaffold testing process)
   addon.data.initialized = true;
@@ -180,6 +458,21 @@ async function onMainWindowUnload(win: Window): Promise<void> {
 
 function onShutdown(): void {
   ztoolkit.log("[MCP Plugin] Shutting down...");
+
+  // Set shutdown flag to prevent new async operations
+  isShuttingDown = true;
+
+  // Clear all pending timeouts immediately
+  clearAllPendingTimeouts();
+
+  // 取消注册条目变化监听器
+  try {
+    unregisterItemNotifier();
+    ztoolkit.log("[MCP Plugin] Item notifier unregistered during shutdown");
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    ztoolkit.log(`[MCP Plugin] Error unregistering item notifier: ${err.message}`, "error");
+  }
 
   // 注销语义索引状态列
   try {
@@ -298,19 +591,19 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
           ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Current prefs at panel load - enabled: ${currentEnabled}, port: ${currentPort}`);
           
           // 检查preference元素是否存在
-          setTimeout(() => {
+          trackedSetTimeout(() => {
             try {
               const doc = data.window.document;
               const enabledElement = doc?.querySelector('#zotero-prefpane-zotero-mcp-plugin-mcp-server-enabled');
               const portElement = doc?.querySelector('#zotero-prefpane-zotero-mcp-plugin-mcp-server-port');
-              
+
               ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Preference elements - enabled: ${!!enabledElement}, port: ${!!portElement}`);
-              
+
               if (enabledElement) {
                 const hasChecked = enabledElement.hasAttribute('checked');
                 ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Enabled checkbox state: ${hasChecked}`);
               }
-              
+
             } catch (error) {
               ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Error checking preference elements: ${error}`, 'error');
             }
@@ -345,7 +638,7 @@ function checkFirstInstallation() {
       Zotero.Prefs.set("mcp.firstInstallPromptShown", true);
       
       // Show prompt after a short delay to ensure UI is ready
-      setTimeout(() => {
+      trackedSetTimeout(() => {
         showFirstInstallPrompt();
       }, 3000);
     }
@@ -378,7 +671,7 @@ function showFirstInstallPrompt() {
     
     if (result) {
       // User chose to open preferences
-      setTimeout(() => {
+      trackedSetTimeout(() => {
         openPreferencesWindow();
       }, 100);
     }
@@ -548,6 +841,33 @@ function registerCollectionSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
 }
 
 /**
+ * Recursively get all item IDs from a collection and its subcollections
+ */
+function getAllItemIDsFromCollection(collection: any): number[] {
+  const itemIDs = new Set<number>();
+
+  // Get direct child items
+  const directItems = collection.getChildItems(true) || [];
+  for (const id of directItems) {
+    itemIDs.add(id);
+  }
+
+  // Recursively get items from subcollections
+  const childCollectionIDs = collection.getChildCollections(true) || [];
+  for (const childCollectionID of childCollectionIDs) {
+    const childCollection = Zotero.Collections.get(childCollectionID);
+    if (childCollection) {
+      const childItems = getAllItemIDsFromCollection(childCollection);
+      for (const id of childItems) {
+        itemIDs.add(id);
+      }
+    }
+  }
+
+  return Array.from(itemIDs);
+}
+
+/**
  * Handle indexing a collection
  * @param rebuild If true, rebuild index for all items (even if already indexed)
  */
@@ -570,7 +890,7 @@ async function handleIndexCollection(win: _ZoteroTypes.MainWindow, rebuild: bool
     ztoolkit.log(`[MCP Plugin] ${rebuild ? 'Rebuilding' : 'Building'} index for collection: ${collection.name}`);
 
     // Get all items in the collection (including nested subcollections)
-    const itemIDs = collection.getChildItems(true);
+    const itemIDs = getAllItemIDsFromCollection(collection);
     if (!itemIDs || itemIDs.length === 0) {
       ztoolkit.log("[MCP Plugin] Collection has no items");
       showNotification(win, getString("menu-semantic-index-no-items" as any) || "Collection has no items");
@@ -657,8 +977,8 @@ async function handleClearCollectionIndex(win: _ZoteroTypes.MainWindow) {
 
     ztoolkit.log(`[MCP Plugin] Clearing index for collection: ${collection.name}`);
 
-    // Get all items in the collection
-    const itemIDs = collection.getChildItems(true);
+    // Get all items in the collection (including nested subcollections)
+    const itemIDs = getAllItemIDsFromCollection(collection);
     if (!itemIDs || itemIDs.length === 0) {
       ztoolkit.log("[MCP Plugin] Collection has no items");
       showNotification(win, getString("menu-semantic-index-no-items" as any) || "Collection has no items");

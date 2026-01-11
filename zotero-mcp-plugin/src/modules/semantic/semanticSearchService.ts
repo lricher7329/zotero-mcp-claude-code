@@ -495,6 +495,13 @@ export class SemanticSearchService {
               // Check if this is an EmbeddingAPIError
               const error = result.reason;
               if (error instanceof EmbeddingAPIError) {
+                // Special handling for pause - don't record as failed
+                if (error.type === 'paused') {
+                  ztoolkit.log(`[SemanticSearch] Item ${item.key} interrupted by pause`);
+                  // Don't increment processed - will retry after resume
+                  continue;
+                }
+
                 hasAPIError = true;
                 apiError = error;
 
@@ -664,6 +671,12 @@ export class SemanticSearchService {
       ztoolkit.log(`[SemanticSearch] indexItem() cache hash mismatch, re-extracting content`);
     }
 
+    // Check for pause before content extraction
+    if (this._paused || this._aborted) {
+      ztoolkit.log(`[SemanticSearch] indexItem() paused/aborted before content extraction: ${item.key}`);
+      return;
+    }
+
     // Extract content (PDF extraction happens here)
     content = await this.extractItemContent(item, sharedProcessor);
     if (!content.trim()) {
@@ -671,6 +684,14 @@ export class SemanticSearchService {
       return;
     }
     ztoolkit.log(`[SemanticSearch] indexItem() extracted content: ${content.length} chars`);
+
+    // Check for pause after content extraction (before embedding)
+    if (this._paused || this._aborted) {
+      // Save cached content but don't continue
+      await this.vectorStore.setCachedContent(item.key, content, this.hashContent(content));
+      ztoolkit.log(`[SemanticSearch] indexItem() paused/aborted after content extraction: ${item.key}`);
+      return;
+    }
 
     // Calculate content hash
     contentHash = this.hashContent(content);
@@ -704,13 +725,15 @@ export class SemanticSearchService {
     }
     ztoolkit.log(`[SemanticSearch] indexItem() chunked into ${chunks.length} chunks`);
 
-    // Generate embeddings
+    // Generate embeddings with pause check
     const batchItems = chunks.map((chunk, idx) => ({
       id: `${item.key}_${idx}`,
       text: chunk
     }));
 
-    const embeddings = await this.embeddingService.embedBatch(batchItems);
+    const embeddings = await this.embeddingService.embedBatch(batchItems, {
+      onPauseCheck: () => this._paused || this._aborted
+    });
     ztoolkit.log(`[SemanticSearch] indexItem() generated ${embeddings.size} embeddings`);
 
     // Store vectors
@@ -1239,4 +1262,16 @@ export function getSemanticSearchService(): SemanticSearchService {
     ztoolkit.log(`[SemanticSearch] getSemanticSearchService() returning existing instance`);
   }
   return semanticSearchInstance;
+}
+
+/**
+ * Reset the singleton instance (for shutdown cleanup)
+ */
+export function resetSemanticSearchService(): void {
+  if (semanticSearchInstance) {
+    semanticSearchInstance.abortIndex();
+    semanticSearchInstance.destroy();
+    semanticSearchInstance = null;
+    ztoolkit.log('[SemanticSearch] Singleton instance reset');
+  }
 }

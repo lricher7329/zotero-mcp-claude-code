@@ -1575,15 +1575,32 @@ export class VectorStore {
 
   /**
    * Close database connection
+   * This method releases references synchronously and closes DB asynchronously
+   * to ensure shutdown doesn't hang on pending async operations.
    */
-  async close(): Promise<void> {
-    if (this.db) {
-      await this.db.closeDatabase();
-      this.db = null;
-      this.initialized = false;
-    }
+  close(): void {
+    const db = this.db;
+
+    // Release references synchronously to prevent memory leaks
+    this.db = null;
+    this.initialized = false;
+    this.initPromise = null;
     this.vectorCache.clear();
-    ztoolkit.log('[VectorStore] Database closed');
+
+    // Close database asynchronously (fire and forget)
+    if (db) {
+      try {
+        db.closeDatabase().then(() => {
+          ztoolkit.log('[VectorStore] Database closed successfully');
+        }).catch((e: any) => {
+          ztoolkit.log(`[VectorStore] Error closing database: ${e}`, 'warn');
+        });
+      } catch (e) {
+        ztoolkit.log(`[VectorStore] Error initiating database close: ${e}`, 'warn');
+      }
+    }
+
+    ztoolkit.log('[VectorStore] Database references released');
   }
 }
 
@@ -1598,4 +1615,15 @@ export function getVectorStore(): VectorStore {
     ztoolkit.log(`[VectorStore] getVectorStore() returning existing instance, instanceId=${(vectorStoreInstance as any).instanceId}`);
   }
   return vectorStoreInstance;
+}
+
+/**
+ * Reset the singleton instance (for shutdown cleanup)
+ */
+export function resetVectorStore(): void {
+  if (vectorStoreInstance) {
+    vectorStoreInstance.close();
+    vectorStoreInstance = null;
+  }
+  ztoolkit.log('[VectorStore] Singleton instance reset');
 }

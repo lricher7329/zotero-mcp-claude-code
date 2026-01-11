@@ -27,6 +27,8 @@
     <preference id="extensions.zotero.zotero-mcp-plugin.embedding.rpm" name="extensions.zotero.zotero-mcp-plugin.embedding.rpm" type="int" />
     <preference id="extensions.zotero.zotero-mcp-plugin.embedding.tpm" name="extensions.zotero.zotero-mcp-plugin.embedding.tpm" type="int" />
     <preference id="extensions.zotero.zotero-mcp-plugin.embedding.costPer1M" name="extensions.zotero.zotero-mcp-plugin.embedding.costPer1M" type="string" />
+    <!-- Semantic index auto-update setting -->
+    <preference id="extensions.zotero.zotero-mcp-plugin.semantic.autoUpdate" name="extensions.zotero.zotero-mcp-plugin.semantic.autoUpdate" type="bool" />
   </preferences>
 
   <vbox flex="1" style="padding: 10px;">
@@ -255,7 +257,7 @@
             type="text"
             id="zotero-prefpane-__addonRef__-embedding-api-base"
             preference="extensions.zotero.zotero-mcp-plugin.embedding.apiBase"
-            placeholder="https://api.openai.com/v1 or http://localhost:11434"
+            placeholder="https://api.openai.com/v1 or http://localhost:11434/v1"
             style="flex: 1; max-width: 300px;"
           ></html:input>
         </hbox>
@@ -521,6 +523,14 @@
         <!-- Index Control Buttons -->
         <html:hr style="margin: 15px 0; border: none; border-top: 1px solid #ddd;" />
         <html:label style="font-weight: bold; margin-bottom: 10px; display: block;" data-l10n-id="pref-semantic-index-control-title"></html:label>
+
+        <hbox align="center" style="margin-bottom: 10px;">
+          <checkbox
+            id="zotero-prefpane-__addonRef__-semantic-auto-update"
+            preference="extensions.zotero.zotero-mcp-plugin.semantic.autoUpdate"
+            data-l10n-id="pref-semantic-auto-update"
+          ></checkbox>
+        </hbox>
 
         <hbox style="margin-top: 10px; gap: 8px;">
           <button id="build-semantic-index-button" data-l10n-id="pref-semantic-index-build-button" style="min-width: 100px;"></button>

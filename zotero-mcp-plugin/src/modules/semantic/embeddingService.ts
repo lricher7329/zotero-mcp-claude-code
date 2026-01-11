@@ -34,8 +34,10 @@ export type EmbeddingErrorType =
   | 'rate_limit'      // API rate limit exceeded (429)
   | 'auth'            // Authentication error (401, 403)
   | 'invalid_request' // Invalid request (400)
+  | 'payload_too_large' // Payload too large (413)
   | 'server'          // Server error (5xx)
   | 'config'          // Configuration error (API not configured)
+  | 'paused'          // Indexing was paused by user
   | 'unknown';        // Other errors
 
 /**
@@ -63,7 +65,7 @@ export class EmbeddingAPIError extends Error {
     this.name = 'EmbeddingAPIError';
     this.type = type;
     this.statusCode = options.statusCode;
-    this.retryable = options.retryable ?? (type === 'network' || type === 'rate_limit' || type === 'server');
+    this.retryable = options.retryable ?? (type === 'network' || type === 'rate_limit' || type === 'server' || type === 'payload_too_large');
     this.retryAfterMs = options.retryAfterMs;
     this.originalError = options.originalError;
   }
@@ -79,13 +81,20 @@ export class EmbeddingAPIError extends Error {
         const waitSec = this.retryAfterMs ? Math.ceil(this.retryAfterMs / 1000) : 60;
         return `API 频率超限，请等待 ${waitSec} 秒后点击继续 / Rate limit exceeded, please wait ${waitSec}s and click Resume`;
       case 'auth':
-        return 'API 认证失败，请检查 API Key 设置 / Authentication failed, please check API Key';
+        if (this.statusCode === 403) {
+          return 'API 访问被拒绝 (403)，可能原因：1) API Key 无效 2) 账户配额用尽 3) 账户余额不足。请检查 API 服务商后台 / Access denied (403): Invalid API Key, quota exceeded, or insufficient balance. Please check your API provider dashboard';
+        }
+        return 'API 认证失败 (401)，请检查 API Key 设置 / Authentication failed (401), please check API Key';
       case 'invalid_request':
         return 'API 请求无效，请检查配置 / Invalid API request, please check configuration';
+      case 'payload_too_large':
+        return '请求数据过大，正在自动减小批次重试 / Payload too large, auto-reducing batch size and retrying';
       case 'server':
         return 'API 服务器错误，请稍后重试 / API server error, please try again later';
       case 'config':
         return 'API 未配置，请先配置 Embedding API / API not configured, please configure Embedding API first';
+      case 'paused':
+        return '索引已暂停 / Indexing paused by user';
       default:
         return `API 调用失败: ${this.message} / API call failed: ${this.message}`;
     }
@@ -150,7 +159,7 @@ const DEFAULT_CONFIG: EmbeddingConfig = {
   apiKey: '',
   model: 'text-embedding-3-small',
   dimensions: 512,  // Smaller dimensions for efficiency
-  maxBatchSize: 100,  // OpenAI supports up to 2048
+  maxBatchSize: 20,  // Conservative default to avoid 413 errors; will auto-reduce if needed
   timeout: 30000,
   maxRetries: 3,
   apiProvider: 'auto'
@@ -208,26 +217,37 @@ export class EmbeddingService {
   private detectApiProvider(url: string): ApiProviderType {
     const lowerUrl = url.toLowerCase();
 
-    // Check for Ollama patterns
-    const isOllama = lowerUrl.includes('ollama') ||
-                     lowerUrl.includes(':11434') ||
-                     lowerUrl.includes('localhost:11434') ||
-                     lowerUrl.includes('127.0.0.1:11434');
+    ztoolkit.log(`[EmbeddingService] detectApiProvider: url=${lowerUrl}`);
+
+    // Check for Ollama patterns - more robust detection
+    const ollamaPatterns = [
+      'ollama',           // Word 'ollama' in URL
+      ':11434',           // Default Ollama port
+      'localhost:11434',
+      '127.0.0.1:11434',
+      '/api/embed',       // Ollama native embedding endpoint
+    ];
+
+    const isOllama = ollamaPatterns.some(pattern => lowerUrl.includes(pattern));
 
     if (isOllama) {
       // Check if using OpenAI-compatible endpoint
       if (lowerUrl.includes('/v1')) {
+        ztoolkit.log(`[EmbeddingService] detectApiProvider: detected ollama-openai`);
         return 'ollama-openai';
       }
+      ztoolkit.log(`[EmbeddingService] detectApiProvider: detected ollama`);
       return 'ollama';
     }
 
     // Check for OpenAI patterns
     if (lowerUrl.includes('openai.com') || lowerUrl.includes('/v1')) {
+      ztoolkit.log(`[EmbeddingService] detectApiProvider: detected openai`);
       return 'openai';
     }
 
     // Default to OpenAI-compatible format
+    ztoolkit.log(`[EmbeddingService] detectApiProvider: defaulting to openai`);
     return 'openai';
   }
 
@@ -251,28 +271,38 @@ export class EmbeddingService {
     const provider = this.getEffectiveProvider();
     const baseUrl = this.config.apiBase.replace(/\/$/, ''); // Remove trailing slash
 
+    let endpoint: string;
+
     switch (provider) {
       case 'ollama':
-        // Ollama native API: /api/embeddings
+        // Ollama native API: /api/embed (recommended, supports batch input)
         // Remove /v1 if present
         const ollamaBase = baseUrl.replace(/\/v1$/, '');
-        return `${ollamaBase}/api/embeddings`;
+        endpoint = `${ollamaBase}/api/embed`;
+        break;
 
       case 'ollama-openai':
         // Ollama OpenAI-compatible: /v1/embeddings
         if (baseUrl.endsWith('/v1')) {
-          return `${baseUrl}/embeddings`;
+          endpoint = `${baseUrl}/embeddings`;
+        } else {
+          endpoint = `${baseUrl}/v1/embeddings`;
         }
-        return `${baseUrl}/v1/embeddings`;
+        break;
 
       case 'openai':
       default:
         // OpenAI format: /v1/embeddings or /embeddings
         if (baseUrl.endsWith('/v1')) {
-          return `${baseUrl}/embeddings`;
+          endpoint = `${baseUrl}/embeddings`;
+        } else {
+          endpoint = `${baseUrl}/embeddings`;
         }
-        return `${baseUrl}/embeddings`;
+        break;
     }
+
+    ztoolkit.log(`[EmbeddingService] getEmbeddingEndpoint: provider=${provider}, baseUrl=${baseUrl}, endpoint=${endpoint}`);
+    return endpoint;
   }
 
   /**
@@ -323,7 +353,7 @@ export class EmbeddingService {
         this.status.apiConfigured = false;
       } else {
         this.status.apiConfigured = true;
-        ztoolkit.log(`[EmbeddingService] API configured: ${this.config.apiBase}, model: ${this.config.model}, apiKey: ${this.config.apiKey ? 'yes' : 'no'}`);
+        ztoolkit.log(`[EmbeddingService] API configured: apiBase=${this.config.apiBase}, model=${this.config.model}, apiKey=${this.config.apiKey ? 'yes' : 'no'}, maxBatchSize=${this.config.maxBatchSize}, timeout=${this.config.timeout}ms`);
       }
 
       this.initialized = true;
@@ -748,15 +778,23 @@ export class EmbeddingService {
 
   /**
    * Generate embeddings for multiple texts
+   * @param items - Items to embed
+   * @param options - Optional settings including pause check callback
    * @throws {EmbeddingAPIError} When API call fails
    */
-  async embedBatch(items: BatchEmbeddingItem[]): Promise<Map<string, EmbeddingResult>> {
+  async embedBatch(
+    items: BatchEmbeddingItem[],
+    options?: {
+      onPauseCheck?: () => boolean;  // Returns true if should pause/cancel
+    }
+  ): Promise<Map<string, EmbeddingResult>> {
     const startTime = Date.now();
     await this.initialize();
 
     ztoolkit.log(`[EmbeddingService] embedBatch() start: ${items.length} items`);
 
     const results = new Map<string, EmbeddingResult>();
+    const pauseCheck = options?.onPauseCheck;
 
     // Check API configuration
     if (!this.config.apiBase || !this.config.model) {
@@ -770,34 +808,69 @@ export class EmbeddingService {
       throw error;
     }
 
-    // Process in batches
-    const batches: BatchEmbeddingItem[][] = [];
-    for (let i = 0; i < items.length; i += this.config.maxBatchSize) {
-      batches.push(items.slice(i, i + this.config.maxBatchSize));
-    }
+    // Adaptive batch size - start with configured size, reduce on 413 errors
+    let currentBatchSize = this.config.maxBatchSize;
+    let itemIndex = 0;
 
-    ztoolkit.log(`[EmbeddingService] Processing ${batches.length} batches (maxBatchSize=${this.config.maxBatchSize})`);
-
-    for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
-      const batch = batches[batchIdx];
-      const texts = batch.map(item => item.text);
-
-      // Call API - errors will be thrown and propagate up
-      const embeddings = await this.callEmbeddingAPI(texts);
-
-      for (let i = 0; i < batch.length; i++) {
-        const item = batch[i];
-        const embedding = embeddings[i];
-        const lang = item.language || this.detectLanguage(item.text);
-
-        results.set(item.id, {
-          embedding: new Float32Array(embedding),
-          language: lang,
-          dimensions: embedding.length
-        });
+    while (itemIndex < items.length) {
+      // Check for pause/cancel before each batch
+      if (pauseCheck && pauseCheck()) {
+        ztoolkit.log(`[EmbeddingService] embedBatch() paused at ${itemIndex}/${items.length}`, 'warn');
+        throw new EmbeddingAPIError(
+          '索引已暂停 / Indexing paused',
+          'paused',
+          { retryable: false }  // Not retryable in the normal sense - handled specially
+        );
       }
 
-      ztoolkit.log(`[EmbeddingService] Batch ${batchIdx + 1}/${batches.length} completed: ${batch.length} embeddings`);
+      // Create batch with current batch size
+      const batch = items.slice(itemIndex, itemIndex + currentBatchSize);
+      const texts = batch.map(item => item.text);
+
+      ztoolkit.log(`[EmbeddingService] Processing batch: items ${itemIndex + 1}-${itemIndex + batch.length}/${items.length} (batchSize=${currentBatchSize})`);
+
+      try {
+        // Call API
+        const embeddings = await this.callEmbeddingAPI(texts);
+
+        for (let i = 0; i < batch.length; i++) {
+          const item = batch[i];
+          const embedding = embeddings[i];
+          const lang = item.language || this.detectLanguage(item.text);
+
+          results.set(item.id, {
+            embedding: new Float32Array(embedding),
+            language: lang,
+            dimensions: embedding.length
+          });
+        }
+
+        // Move to next batch
+        itemIndex += batch.length;
+
+      } catch (error) {
+        // Handle payload_too_large by reducing batch size
+        if (error instanceof EmbeddingAPIError && error.type === 'payload_too_large') {
+          if (currentBatchSize > 1) {
+            // Reduce batch size by half, minimum 1
+            const newBatchSize = Math.max(1, Math.floor(currentBatchSize / 2));
+            ztoolkit.log(`[EmbeddingService] Payload too large, reducing batch size from ${currentBatchSize} to ${newBatchSize}`, 'warn');
+            currentBatchSize = newBatchSize;
+            // Retry with smaller batch (don't advance itemIndex)
+            continue;
+          } else {
+            // Already at batch size 1, the single item is too large
+            ztoolkit.log(`[EmbeddingService] Single item too large to process: ${batch[0]?.id}`, 'error');
+            throw new EmbeddingAPIError(
+              `单个文本过大无法处理 / Single text too large to process: ${batch[0]?.text.substring(0, 50)}...`,
+              'payload_too_large',
+              { retryable: false, statusCode: 413 }
+            );
+          }
+        }
+        // Re-throw other errors
+        throw error;
+      }
     }
 
     const elapsed = Date.now() - startTime;
@@ -852,6 +925,9 @@ export class EmbeddingService {
         }
         return { type: 'rate_limit', retryAfterMs };
       }
+      if (statusCode === 413) {
+        return { type: 'payload_too_large' };
+      }
       if (statusCode === 401 || statusCode === 403) {
         return { type: 'auth' };
       }
@@ -869,54 +945,13 @@ export class EmbeddingService {
       return { type: 'auth' };
     }
 
+    // Check for payload too large patterns
+    if (errorMsg.includes('413') || errorMsg.includes('payload too large') ||
+        errorMsg.includes('request entity too large') || errorMsg.includes('content too large')) {
+      return { type: 'payload_too_large' };
+    }
+
     return { type: 'unknown' };
-  }
-
-  /**
-   * Call Ollama native API for a single text (helper for batch processing)
-   */
-  private async callEmbeddingAPISingle(text: string, _provider: ApiProviderType, url: string): Promise<number[]> {
-    const requestBody = {
-      model: this.config.model,
-      prompt: text
-    };
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    };
-
-    if (this.config.apiKey) {
-      headers['Authorization'] = `Bearer ${this.config.apiKey}`;
-    }
-
-    const response = await Zotero.HTTP.request('POST', url, {
-      headers,
-      body: JSON.stringify(requestBody),
-      timeout: this.config.timeout,
-      responseType: 'json'
-    });
-
-    const data = response.response;
-
-    if (!data || !data.embedding) {
-      throw new EmbeddingAPIError(
-        `Invalid Ollama response: ${JSON.stringify(data).substring(0, 200)}`,
-        'invalid_request',
-        { retryable: false }
-      );
-    }
-
-    // Record request (estimate 1 token per 4 chars for simplicity)
-    const estimatedTokens = Math.ceil(text.length / 4);
-    this.recordRequest(estimatedTokens, 1);
-
-    // Auto-detect dimensions
-    if (data.embedding.length > 0 && this.detectedDimensions !== data.embedding.length) {
-      this.detectedDimensions = data.embedding.length;
-      this.saveDetectedDimensions(data.embedding.length);
-    }
-
-    return data.embedding;
   }
 
   /**
@@ -938,25 +973,14 @@ export class EmbeddingService {
       await this.waitForRateLimit(rateCheck.waitMs, rateCheck.reason || 'Rate limit');
     }
 
-    // For Ollama native API, handle texts one by one
-    if (provider === 'ollama' && texts.length > 1) {
-      // Make separate requests for each text
-      const allEmbeddings: number[][] = [];
-      for (const text of texts) {
-        const singleResult = await this.callEmbeddingAPISingle(text, provider, url);
-        allEmbeddings.push(singleResult);
-      }
-      return allEmbeddings;
-    }
-
     // Build request body based on provider
     let requestBody: any;
 
     if (provider === 'ollama') {
-      // Ollama native API format - single text
+      // Ollama native API format (/api/embed) - supports batch input
       requestBody = {
         model: this.config.model,
-        prompt: texts[0]  // Ollama native uses 'prompt' not 'input'
+        input: texts.length === 1 ? texts[0] : texts  // Single string or array
       };
     } else {
       // OpenAI-compatible format (OpenAI, ollama-openai, etc.)
@@ -973,6 +997,13 @@ export class EmbeddingService {
 
     let lastError: EmbeddingAPIError | null = null;
 
+    // Calculate request body size for logging
+    const requestBodyStr = JSON.stringify(requestBody);
+    const requestBodySize = requestBodyStr.length;
+    const totalTextLength = texts.reduce((sum, t) => sum + t.length, 0);
+
+    ztoolkit.log(`[EmbeddingService] Request details: texts=${texts.length}, totalTextChars=${totalTextLength}, bodySize=${requestBodySize}, model=${this.config.model}`);
+
     for (let attempt = 0; attempt < this.config.maxRetries; attempt++) {
       try {
         const headers: Record<string, string> = {
@@ -984,13 +1015,17 @@ export class EmbeddingService {
           headers['Authorization'] = `Bearer ${this.config.apiKey}`;
         }
 
+        ztoolkit.log(`[EmbeddingService] Sending request attempt ${attempt + 1}/${this.config.maxRetries} to ${url}`);
+
         // Use Zotero.HTTP.request which is available in Zotero environment
         const response = await Zotero.HTTP.request('POST', url, {
           headers,
-          body: JSON.stringify(requestBody),
+          body: requestBodyStr,
           timeout: this.config.timeout,
           responseType: 'json'
         });
+
+        ztoolkit.log(`[EmbeddingService] Response received: status=${response.status}`);
 
         const data = response.response;
 
@@ -999,15 +1034,28 @@ export class EmbeddingService {
         let tokensUsed = estimatedTokens; // fallback to estimate
 
         if (provider === 'ollama') {
-          // Ollama native response format: { embedding: [...] }
-          if (!data || !data.embedding) {
+          // Ollama /api/embed response format: { embeddings: [[...], [...]] } for batch
+          // or { embedding: [...] } for single (older format)
+          if (!data) {
+            throw new EmbeddingAPIError(
+              `Invalid Ollama response: empty response`,
+              'invalid_request',
+              { retryable: false }
+            );
+          }
+          if (data.embeddings && Array.isArray(data.embeddings)) {
+            // New /api/embed format with batch support
+            embeddings = data.embeddings;
+          } else if (data.embedding && Array.isArray(data.embedding)) {
+            // Single embedding response (legacy or single input)
+            embeddings = [data.embedding];
+          } else {
             throw new EmbeddingAPIError(
               `Invalid Ollama response: ${JSON.stringify(data).substring(0, 200)}`,
               'invalid_request',
               { retryable: false }
             );
           }
-          embeddings = [data.embedding];
           // Ollama doesn't return token usage in native API
         } else {
           // OpenAI-compatible response format: { data: [{ embedding: [...], index: 0 }] }
@@ -1034,6 +1082,8 @@ export class EmbeddingService {
         // Record the request in usage stats
         this.recordRequest(tokensUsed, texts.length);
 
+        ztoolkit.log(`[EmbeddingService] Success: received ${embeddings.length} embeddings, dims=${embeddings[0]?.length}, tokens=${tokensUsed}`);
+
         // Auto-detect and save actual dimensions from first embedding
         if (embeddings.length > 0 && embeddings[0].length > 0) {
           const actualDims = embeddings[0].length;
@@ -1053,6 +1103,28 @@ export class EmbeddingService {
         return embeddings;
 
       } catch (error: any) {
+        // Log raw error details for debugging
+        let responseBody = '';
+        try {
+          if (error.responseText) {
+            responseBody = error.responseText.substring(0, 1000);
+          } else if (error.response) {
+            responseBody = typeof error.response === 'string'
+              ? error.response.substring(0, 1000)
+              : JSON.stringify(error.response).substring(0, 1000);
+          }
+        } catch (e) {
+          responseBody = '[Unable to parse response body]';
+        }
+
+        ztoolkit.log(`[EmbeddingService] Raw error details:`, 'error');
+        ztoolkit.log(`[EmbeddingService]   - message: ${error.message}`, 'error');
+        ztoolkit.log(`[EmbeddingService]   - status: ${error.status || error.statusCode}`, 'error');
+        ztoolkit.log(`[EmbeddingService]   - name: ${error.name}`, 'error');
+        if (responseBody) {
+          ztoolkit.log(`[EmbeddingService]   - responseBody: ${responseBody}`, 'error');
+        }
+
         // If already an EmbeddingAPIError, use it directly
         if (error instanceof EmbeddingAPIError) {
           lastError = error;
@@ -1060,8 +1132,29 @@ export class EmbeddingService {
           // Detect error type and create EmbeddingAPIError
           const { type, retryAfterMs } = this.detectErrorType(error);
           const statusCode = error.status || error.statusCode;
+
+          // Try to extract error details from response body
+          let errorDetails = '';
+          if (responseBody) {
+            try {
+              const parsed = JSON.parse(responseBody);
+              if (parsed.error?.message) {
+                errorDetails = ` (${parsed.error.message})`;
+              } else if (parsed.message) {
+                errorDetails = ` (${parsed.message})`;
+              } else if (parsed.detail) {
+                errorDetails = ` (${parsed.detail})`;
+              }
+            } catch {
+              // Not JSON, use first 100 chars of response
+              if (responseBody.length > 0 && responseBody.length < 200) {
+                errorDetails = ` (${responseBody})`;
+              }
+            }
+          }
+
           lastError = new EmbeddingAPIError(
-            error.message || String(error),
+            (error.message || String(error)) + errorDetails,
             type,
             {
               statusCode,
@@ -1071,11 +1164,11 @@ export class EmbeddingService {
           );
         }
 
-        ztoolkit.log(`[EmbeddingService] API attempt ${attempt + 1}/${this.config.maxRetries} failed: ${lastError.type} - ${lastError.message}`, 'warn');
+        ztoolkit.log(`[EmbeddingService] API attempt ${attempt + 1}/${this.config.maxRetries} failed: ${lastError.type} (status=${lastError.statusCode}) - ${lastError.message}`, 'warn');
 
-        // For non-retryable errors, throw immediately without retry
-        if (!lastError.retryable) {
-          ztoolkit.log(`[EmbeddingService] Non-retryable error (${lastError.type}), stopping retries`, 'error');
+        // For non-retryable errors or payload_too_large (handled by embedBatch), throw immediately
+        if (!lastError.retryable || lastError.type === 'payload_too_large') {
+          ztoolkit.log(`[EmbeddingService] Non-retryable error or payload_too_large (${lastError.type}), stopping retries`, 'error');
           throw lastError;
         }
 
@@ -1216,4 +1309,14 @@ export function getEmbeddingService(config?: Partial<EmbeddingConfig>): Embeddin
     embeddingServiceInstance = new EmbeddingService(config);
   }
   return embeddingServiceInstance;
+}
+
+/**
+ * Reset the singleton instance (for shutdown cleanup)
+ */
+export function resetEmbeddingService(): void {
+  if (embeddingServiceInstance) {
+    embeddingServiceInstance.destroy();
+    embeddingServiceInstance = null;
+  }
 }

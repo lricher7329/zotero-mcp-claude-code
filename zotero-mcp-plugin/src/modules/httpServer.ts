@@ -51,6 +51,8 @@ export class HttpServer {
   private keepAliveTimeout: number = 30000; // 30 seconds
   private sessionTimeout: number = 300000; // 5 minutes
   private sessionCleanupInterval: ReturnType<typeof setInterval> | null = null;
+  // Track active transports to close them on shutdown
+  private activeTransports: Set<any> = new Set();
 
   public isServerRunning(): boolean {
     return this.isRunning;
@@ -118,6 +120,18 @@ export class HttpServer {
       );
       return;
     }
+
+    // Close all active transports first
+    ztoolkit.log(`[HttpServer] Closing ${this.activeTransports.size} active connections...`);
+    for (const transport of this.activeTransports) {
+      try {
+        transport.close(0); // 0 = normal close
+      } catch (e) {
+        // Ignore errors when closing individual transports
+      }
+    }
+    this.activeTransports.clear();
+
     try {
       this.serverSocket.close();
       this.isRunning = false;
@@ -239,8 +253,11 @@ export class HttpServer {
       let sin: any = null;
       const converterStream: any = null;
 
+      // Track this transport for cleanup on shutdown
+      this.activeTransports.add(transport);
+
       ztoolkit.log(`[HttpServer] New connection accepted from transport: ${transport.host || 'unknown'}:${transport.port || 'unknown'}`);
-      
+
       try {
         input = transport.openInputStream(0, 0, 0);
         output = transport.openOutputStream(0, 0, 0);
@@ -636,6 +653,9 @@ export class HttpServer {
           );
         }
       } finally {
+        // Remove transport from tracking
+        this.activeTransports.delete(transport);
+
         // 确保资源清理
         try {
           if (output) {

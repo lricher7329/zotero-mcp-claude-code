@@ -11,6 +11,7 @@ type PreferenceObserver = (name: string) => void;
 class ServerPreferences {
   private observers: PreferenceObserver[] = [];
   private observerID: symbol | null = null;
+  private monitorInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.initializeDefaults();
@@ -114,12 +115,18 @@ class ServerPreferences {
 
   private startPreferenceMonitoring(): void {
     if (typeof ztoolkit === 'undefined') return;
-    
+
+    // Clear existing interval if any
+    if (this.monitorInterval) {
+      clearInterval(this.monitorInterval);
+      this.monitorInterval = null;
+    }
+
     // Monitor preference changes every 5 seconds for the first minute
     let monitorCount = 0;
     const maxMonitors = 12; // 12 * 5 seconds = 1 minute
-    
-    const monitorInterval = setInterval(() => {
+
+    this.monitorInterval = setInterval(() => {
       monitorCount++;
       
       const currentEnabled = Zotero.Prefs.get(MCP_SERVER_ENABLED, true);
@@ -150,7 +157,10 @@ class ServerPreferences {
       }
       
       if (monitorCount >= maxMonitors) {
-        clearInterval(monitorInterval);
+        if (this.monitorInterval) {
+          clearInterval(this.monitorInterval);
+          this.monitorInterval = null;
+        }
         ztoolkit.log(`[ServerPreferences] [MONITOR] Monitoring completed after ${monitorCount} checks`);
       }
     }, 5000);
@@ -252,11 +262,19 @@ class ServerPreferences {
   }
 
   public unregister(): void {
+    // Clear the monitoring interval
+    if (this.monitorInterval) {
+      clearInterval(this.monitorInterval);
+      this.monitorInterval = null;
+      ztoolkit.log(`[ServerPreferences] Monitor interval cleared`);
+    }
+
     if (this.observerID) {
       Zotero.Prefs.unregisterObserver(this.observerID);
       this.observerID = null;
     }
     this.observers = [];
+    ztoolkit.log(`[ServerPreferences] Unregistered`);
   }
 }
 

@@ -72,13 +72,14 @@ export async function registerSemanticIndexColumn(): Promise<void> {
 
 /**
  * Unregister the semantic index status column
+ * This is synchronous to work properly in onShutdown
  */
-export async function unregisterSemanticIndexColumn(): Promise<void> {
+export function unregisterSemanticIndexColumn(): void {
   try {
     // Only unregister if we have a valid dataKey (not null and not false)
     if (typeof registeredDataKey === 'string' && Zotero.ItemTreeManager?.unregisterColumn) {
-      await Zotero.ItemTreeManager.unregisterColumn(registeredDataKey);
-      ztoolkit.log(`[SemanticColumn] Column unregistered: ${registeredDataKey}`);
+      const result = Zotero.ItemTreeManager.unregisterColumn(registeredDataKey);
+      ztoolkit.log(`[SemanticColumn] Column unregistered: ${registeredDataKey}, result: ${result}`);
       registeredDataKey = null;
     }
   } catch (error) {
