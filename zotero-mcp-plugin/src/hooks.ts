@@ -20,6 +20,9 @@ const AUTO_UPDATE_DEBOUNCE_MS = 5000; // Wait 5 seconds after last change before
 // Queue of item keys to update
 const pendingAutoUpdateKeys = new Set<string>();
 
+// Flag to prevent recursive auto-update during indexing
+let isAutoIndexing = false;
+
 // Auto index check interval (10 minutes)
 const AUTO_INDEX_CHECK_INTERVAL_MS = 10 * 60 * 1000;
 let autoIndexCheckTimer: ReturnType<typeof setInterval> | null = null;
@@ -68,6 +71,9 @@ async function processPendingAutoUpdates() {
 
   ztoolkit.log(`[MCP Plugin] Auto-updating semantic index for ${keysToUpdate.length} items`);
 
+  // Set flag to prevent recursive calls during indexing
+  isAutoIndexing = true;
+
   try {
     const { getSemanticSearchService } = await import("./modules/semantic");
     const semanticService = getSemanticSearchService();
@@ -79,10 +85,10 @@ async function processPendingAutoUpdates() {
       return;
     }
 
-    // Build index for changed items (rebuild mode to update existing)
+    // Build index for new items only (rebuild: false to avoid clearing all data)
     await semanticService.buildIndex({
       itemKeys: keysToUpdate,
-      rebuild: true,  // Rebuild to ensure updates
+      rebuild: false,  // Only add new indexes, don't clear existing data
       onProgress: (progress) => {
         ztoolkit.log(`[MCP Plugin] Auto-update progress: ${progress.processed}/${progress.total}`);
       }
@@ -93,6 +99,9 @@ async function processPendingAutoUpdates() {
     ztoolkit.log(`[MCP Plugin] Auto-update completed for ${keysToUpdate.length} items`);
   } catch (error) {
     ztoolkit.log(`[MCP Plugin] Auto-update failed: ${error}`, 'error');
+  } finally {
+    // Always reset the flag
+    isAutoIndexing = false;
   }
 }
 
@@ -115,6 +124,46 @@ function scheduleAutoUpdate(itemKey: string) {
 }
 
 /**
+ * Handle deleted items - remove their indexes
+ */
+async function handleItemsDeleted(itemIds: number[], extraData: any) {
+  try {
+    const { getVectorStore } = await import("./modules/semantic/vectorStore");
+    const vectorStore = getVectorStore();
+
+    // Try to get item keys from extraData (Zotero passes old data for deleted items)
+    const itemKeys: string[] = [];
+    if (extraData) {
+      for (const id of itemIds) {
+        const oldData = extraData[id];
+        if (oldData?.key) {
+          itemKeys.push(oldData.key);
+        }
+      }
+    }
+
+    if (itemKeys.length === 0) {
+      ztoolkit.log(`[MCP Plugin] No item keys found for deleted items, skipping index cleanup`);
+      return;
+    }
+
+    ztoolkit.log(`[MCP Plugin] Cleaning up indexes for ${itemKeys.length} deleted items`);
+
+    for (const itemKey of itemKeys) {
+      try {
+        // Delete vectors and content cache (item is permanently deleted)
+        await vectorStore.deleteItemVectors(itemKey, true);
+        ztoolkit.log(`[MCP Plugin] Deleted index and cache for item: ${itemKey}`);
+      } catch (e) {
+        // Ignore errors for items that weren't indexed
+      }
+    }
+  } catch (error) {
+    ztoolkit.log(`[MCP Plugin] Error handling deleted items: ${error}`, 'warn');
+  }
+}
+
+/**
  * Register Zotero notifier to watch for item changes
  */
 function registerItemNotifier() {
@@ -126,9 +175,12 @@ function registerItemNotifier() {
   }
 
   itemNotifierID = Zotero.Notifier.registerObserver({
-    notify: async (event: string, type: string, ids: (string | number)[]) => {
+    notify: async (event: string, type: string, ids: (string | number)[], extraData: any) => {
       // Don't process during shutdown
       if (isShuttingDown) return;
+
+      // Don't process during auto-indexing (prevent loops)
+      if (isAutoIndexing) return;
 
       // Only process item events
       if (type !== 'item') return;
@@ -137,19 +189,26 @@ function registerItemNotifier() {
       const enabled = Zotero.Prefs.get(PREF_SEMANTIC_AUTO_UPDATE, true);
       if (!enabled) return;
 
-      // Only process add and modify events
-      if (event !== 'add' && event !== 'modify') return;
+      // Only process add and delete events (not modify - to avoid loops)
+      if (event !== 'add' && event !== 'delete') return;
 
       ztoolkit.log(`[MCP Plugin] Item notifier: event=${event}, type=${type}, ids=${ids.length}`);
 
-      // Get items and filter for regular items only
       const numericIds = ids.map(id => typeof id === 'string' ? parseInt(id, 10) : id);
-      const items = Zotero.Items.get(numericIds);
-      for (const item of items) {
-        // Only index regular items (not attachments, notes, etc.)
-        if (item.isRegularItem?.()) {
-          scheduleAutoUpdate(item.key);
+
+      if (event === 'add') {
+        // For add events, schedule indexing for new items
+        const items = Zotero.Items.get(numericIds);
+        for (const item of items) {
+          // Only index regular items (not attachments, notes, etc.)
+          if (item.isRegularItem?.()) {
+            scheduleAutoUpdate(item.key);
+          }
         }
+      } else if (event === 'delete') {
+        // For delete events, remove index for deleted items
+        // Extract item keys from extraData (items are already deleted)
+        handleItemsDeleted(numericIds, extraData);
       }
     }
   }, ['item'], 'zotero-mcp-plugin-auto-update');
@@ -210,6 +269,12 @@ async function triggerAutoIndexBuild() {
   // Don't start new operations during shutdown
   if (isShuttingDown) return;
 
+  // Don't start if already indexing
+  if (isAutoIndexing) {
+    ztoolkit.log("[MCP Plugin] Auto-indexing already in progress, skipping");
+    return;
+  }
+
   try {
     const enabled = Zotero.Prefs.get(PREF_SEMANTIC_AUTO_UPDATE, true);
     if (!enabled) {
@@ -236,6 +301,9 @@ async function triggerAutoIndexBuild() {
       return;
     }
 
+    // Set flag to prevent recursive calls during indexing
+    isAutoIndexing = true;
+
     // Start building index for unindexed items (rebuild=false means only index new items)
     ztoolkit.log("[MCP Plugin] Starting auto index build for unindexed items...");
     semanticService.buildIndex({
@@ -254,10 +322,14 @@ async function triggerAutoIndexBuild() {
       }
     }).catch((error) => {
       ztoolkit.log(`[MCP Plugin] Auto index failed: ${error}`, 'error');
+    }).finally(() => {
+      // Always reset the flag
+      isAutoIndexing = false;
     });
 
   } catch (error) {
     ztoolkit.log(`[MCP Plugin] Error in triggerAutoIndexBuild: ${error}`, 'error');
+    isAutoIndexing = false;
   }
 }
 

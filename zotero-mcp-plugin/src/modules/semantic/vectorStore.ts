@@ -782,9 +782,11 @@ export class VectorStore {
   }
 
   /**
-   * Delete vectors for an item (preserves content cache for full-text database)
+   * Delete vectors for an item
+   * @param itemKey The item key to delete
+   * @param deleteContentCache If true, also delete content cache (use when item is permanently deleted)
    */
-  async deleteItemVectors(itemKey: string): Promise<void> {
+  async deleteItemVectors(itemKey: string, deleteContentCache: boolean = false): Promise<void> {
     await this.ensureInitialized();
 
     await this.db.executeTransaction(async () => {
@@ -796,7 +798,12 @@ export class VectorStore {
         `DELETE FROM index_status WHERE item_key = ?`,
         [itemKey]
       );
-      // Note: content_cache is NOT deleted - it serves as permanent full-text database
+      if (deleteContentCache) {
+        await this.db.queryAsync(
+          `DELETE FROM content_cache WHERE item_key = ?`,
+          [itemKey]
+        );
+      }
     });
 
     // Clear cache entries
@@ -806,7 +813,8 @@ export class VectorStore {
       }
     }
 
-    ztoolkit.log(`[VectorStore] Deleted vectors for item: ${itemKey} (content cache preserved)`);
+    const cacheMsg = deleteContentCache ? 'including content cache' : 'content cache preserved';
+    ztoolkit.log(`[VectorStore] Deleted vectors for item: ${itemKey} (${cacheMsg})`);
   }
 
   /**
