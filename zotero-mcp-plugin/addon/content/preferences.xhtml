@@ -6,6 +6,7 @@
   <preferences>
     <preference id="extensions.zotero.zotero-mcp-plugin.mcp.server.enabled" name="extensions.zotero.zotero-mcp-plugin.mcp.server.enabled" type="bool" />
     <preference id="extensions.zotero.zotero-mcp-plugin.mcp.server.port" name="extensions.zotero.zotero-mcp-plugin.mcp.server.port" type="int" />
+    <preference id="extensions.zotero.zotero-mcp-plugin.mcp.server.allowRemote" name="extensions.zotero.zotero-mcp-plugin.mcp.server.allowRemote" type="bool" />
     <preference id="extensions.zotero.zotero-mcp-plugin.ai.maxTokens" name="extensions.zotero.zotero-mcp-plugin.ai.maxTokens" type="int" />
     <preference id="extensions.zotero.zotero-mcp-plugin.content.mode" name="extensions.zotero.zotero-mcp-plugin.content.mode" type="string" />
     <preference id="extensions.zotero.zotero-mcp-plugin.custom.maxContentLength" name="extensions.zotero.zotero-mcp-plugin.custom.maxContentLength" type="int" />
@@ -56,6 +57,14 @@
         ></html:input>
       </hbox>
       <html:div style="margin-left: 80px; font-size: 11px; color: #666; font-style: italic;" data-l10n-id="pref-server-port-restart-hint">
+      </html:div>
+      <checkbox
+        id="zotero-prefpane-__addonRef__-mcp-server-allow-remote"
+        preference="extensions.zotero.zotero-mcp-plugin.mcp.server.allowRemote"
+        data-l10n-id="pref-server-allow-remote"
+        style="margin-top: 10px;"
+      ></checkbox>
+      <html:div style="margin-left: 24px; font-size: 11px; color: #c00; font-style: italic;" data-l10n-id="pref-server-allow-remote-warning">
       </html:div>
     </vbox>
     </groupbox>

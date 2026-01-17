@@ -6,6 +6,9 @@ pref-server-enable =
 pref-server-port = Port
 pref-server-port-invalid = Port must be between 1024 and 65535.
 pref-server-port-restart-hint = Please restart the server after changing the port
+pref-server-allow-remote =
+    .label = Allow remote access (listen on 0.0.0.0)
+pref-server-allow-remote-warning = Warning: This will expose the MCP server to the network. Only enable if you need remote access or have VPN/proxy issues.
 
 pref-mcp-settings-title = MCP Content Settings
 pref-mcp-settings-description = Configure how the MCP server processes and returns content to AI clients

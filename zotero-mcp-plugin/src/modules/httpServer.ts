@@ -81,8 +81,12 @@ export class HttpServer {
         "@mozilla.org/network/server-socket;1"
       ].createInstance(Ci.nsIServerSocket);
 
-      // init方法参数：端口，是否允许回环地址，backlog队列大小
-      this.serverSocket.init(port, true, -1);
+      // init方法参数：端口，是否仅允许回环地址，backlog队列大小
+      // loopbackOnly=true: 仅监听 127.0.0.1
+      // loopbackOnly=false: 监听 0.0.0.0 (所有接口)
+      const loopbackOnly = !serverPreferences.isRemoteAccessAllowed();
+      Zotero.debug(`[HttpServer] Binding to ${loopbackOnly ? '127.0.0.1' : '0.0.0.0'}:${port}`);
+      this.serverSocket.init(port, loopbackOnly, -1);
       this.serverSocket.asyncListen(this.listener);
       this.isRunning = true;
 

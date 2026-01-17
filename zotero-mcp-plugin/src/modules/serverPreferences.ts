@@ -5,6 +5,7 @@ declare let ztoolkit: ZToolkit;
 const PREFS_PREFIX = config.prefsPrefix;
 const MCP_SERVER_PORT = `${PREFS_PREFIX}.mcp.server.port`;
 const MCP_SERVER_ENABLED = `${PREFS_PREFIX}.mcp.server.enabled`;
+const MCP_SERVER_ALLOW_REMOTE = `${PREFS_PREFIX}.mcp.server.allowRemote`;
 
 type PreferenceObserver = (name: string) => void;
 
@@ -222,6 +223,21 @@ class ServerPreferences {
     }
   }
 
+  public isRemoteAccessAllowed(): boolean {
+    const DEFAULT_ALLOW_REMOTE = false;
+    try {
+      const allowRemote = Zotero.Prefs.get(MCP_SERVER_ALLOW_REMOTE, true);
+
+      if (allowRemote === undefined || allowRemote === null) {
+        return DEFAULT_ALLOW_REMOTE;
+      }
+
+      return Boolean(allowRemote);
+    } catch (error) {
+      ztoolkit.log(`[ServerPreferences] Error getting allow remote status: ${error}. Using default: ${DEFAULT_ALLOW_REMOTE}`);
+      return DEFAULT_ALLOW_REMOTE;
+    }
+  }
 
   public addObserver(observer: PreferenceObserver): void {
     this.observers.push(observer);

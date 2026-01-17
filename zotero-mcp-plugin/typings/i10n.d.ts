@@ -169,6 +169,8 @@ export type FluentMessageId =
   | 'pref-semantic-stats-total-items'
   | 'pref-semantic-stats-total-vectors'
   | 'pref-semantic-stats-zh-vectors'
+  | 'pref-server-allow-remote'
+  | 'pref-server-allow-remote-warning'
   | 'pref-server-enable'
   | 'pref-server-name-label'
   | 'pref-server-port'
