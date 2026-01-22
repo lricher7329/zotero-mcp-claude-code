@@ -50,6 +50,9 @@ pref-client-custom-http = 自定义 HTTP 客户端
 
 pref-embedding-title = 语义搜索（Embedding API）
 pref-embedding-description = 配置用于语义搜索的 Embedding API。支持 OpenAI 兼容的 API。
+pref-embedding-provider-label = 服务商预设：
+pref-embedding-provider-custom = 自定义
+pref-embedding-api-key-optional = （可选）
 pref-embedding-api-base-label = API 地址：
 pref-embedding-api-base-placeholder = 例如 https://api.openai.com/v1 或 http://localhost:11434/v1
 pref-embedding-api-base-hint = OpenAI: https://api.openai.com/v1 | Ollama: http://localhost:11434/v1 | 自动检测 API 类型

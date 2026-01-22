@@ -50,6 +50,9 @@ pref-client-custom-http = Custom HTTP Client
 
 pref-embedding-title = Semantic Search (Embedding API)
 pref-embedding-description = Configure the embedding API for semantic search. Supports OpenAI-compatible APIs.
+pref-embedding-provider-label = Provider Preset:
+pref-embedding-provider-custom = Custom
+pref-embedding-api-key-optional = (Optional)
 pref-embedding-api-base-label = API Base URL:
 pref-embedding-api-base-placeholder = e.g. https://api.openai.com/v1 or http://localhost:11434/v1
 pref-embedding-api-base-hint = OpenAI: https://api.openai.com/v1 | Ollama: http://localhost:11434/v1 | Auto-detects API type

@@ -230,10 +230,55 @@ function bindPrefEvents() {
   bindSemanticStatsSettings(doc);
 }
 
+// Embedding provider presets - only apiBase and hints, model/dimensions filled by user
+const EMBEDDING_PROVIDER_PRESETS: Record<string, { apiBase: string; modelPlaceholder: string; needsApiKey: boolean }> = {
+  openai: {
+    apiBase: "https://api.openai.com/v1",
+    modelPlaceholder: "text-embedding-3-small",
+    needsApiKey: true
+  },
+  google: {
+    apiBase: "https://generativelanguage.googleapis.com/v1beta/openai",
+    modelPlaceholder: "gemini-embedding-001",
+    needsApiKey: true
+  },
+  alibaba: {
+    apiBase: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    modelPlaceholder: "text-embedding-v3",
+    needsApiKey: true
+  },
+  zhipu: {
+    apiBase: "https://open.bigmodel.cn/api/paas/v4",
+    modelPlaceholder: "embedding-3",
+    needsApiKey: true
+  },
+  openrouter: {
+    apiBase: "https://openrouter.ai/api/v1",
+    modelPlaceholder: "openai/text-embedding-3-small",
+    needsApiKey: true
+  },
+  siliconflow: {
+    apiBase: "https://api.siliconflow.cn/v1",
+    modelPlaceholder: "BAAI/bge-m3",
+    needsApiKey: true
+  },
+  voyage: {
+    apiBase: "https://api.voyageai.com/v1",
+    modelPlaceholder: "voyage-3-lite",
+    needsApiKey: true
+  },
+  ollama: {
+    apiBase: "http://localhost:11434/v1",
+    modelPlaceholder: "nomic-embed-text",
+    needsApiKey: false
+  }
+};
+
 /**
  * Bind embedding API settings handlers
  */
 function bindEmbeddingSettings(doc: Document) {
+  const providerSelect = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-embedding-provider`) as HTMLSelectElement;
   const apiBaseInput = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-embedding-api-base`) as HTMLInputElement;
   const apiKeyInput = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-embedding-api-key`) as HTMLInputElement;
   const modelInput = doc?.querySelector(`#zotero-prefpane-${config.addonRef}-embedding-model`) as HTMLInputElement;
@@ -241,6 +286,26 @@ function bindEmbeddingSettings(doc: Document) {
   const dimensionsRow = dimensionsInput?.closest('hbox') || dimensionsInput?.parentElement;
   const testButton = doc?.querySelector("#test-embedding-button") as HTMLButtonElement;
   const testResult = doc?.querySelector("#embedding-test-result") as HTMLSpanElement;
+
+  // Detect current provider from saved apiBase
+  const detectProvider = (apiBase: string): string => {
+    for (const [key, preset] of Object.entries(EMBEDDING_PROVIDER_PRESETS)) {
+      try {
+        if (apiBase && apiBase.includes(new URL(preset.apiBase).hostname)) {
+          return key;
+        }
+      } catch {
+        // Invalid URL, continue
+      }
+    }
+    return "custom";
+  };
+
+  // Initialize provider select from saved apiBase
+  if (providerSelect) {
+    const savedApiBase = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.embedding.apiBase", true) as string;
+    providerSelect.value = detectProvider(savedApiBase || "");
+  }
 
   // Initialize input values from preferences
   const initValue = (input: HTMLInputElement, prefKey: string, defaultValue: string) => {
@@ -287,6 +352,37 @@ function bindEmbeddingSettings(doc: Document) {
 
   // Initial visibility update
   updateDimensionsVisibility();
+
+  // Handle provider preset selection change
+  if (providerSelect) {
+    providerSelect.addEventListener("change", () => {
+      const provider = providerSelect.value;
+      if (provider !== "custom" && EMBEDDING_PROVIDER_PRESETS[provider]) {
+        const preset = EMBEDDING_PROVIDER_PRESETS[provider];
+
+        // Only fill in API Base URL
+        if (apiBaseInput) {
+          apiBaseInput.value = preset.apiBase;
+          Zotero.Prefs.set("extensions.zotero.zotero-mcp-plugin.embedding.apiBase", preset.apiBase, true);
+        }
+
+        // Update model placeholder hint (don't change the value)
+        if (modelInput) {
+          modelInput.placeholder = preset.modelPlaceholder;
+        }
+
+        // Update API key placeholder hint based on whether it's needed
+        if (apiKeyInput) {
+          apiKeyInput.placeholder = preset.needsApiKey ? "sk-..." : getString("pref-embedding-api-key-optional" as any) || "(Optional)";
+        }
+
+        // Update embedding service config
+        updateEmbeddingServiceConfig();
+
+        ztoolkit.log(`[PreferenceScript] Applied provider preset: ${provider}`);
+      }
+    });
+  }
 
   // Save preference on change
   const bindSave = (input: HTMLInputElement, prefKey: string, isNumber = false) => {
