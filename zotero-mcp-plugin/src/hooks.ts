@@ -409,37 +409,39 @@ async function onStartup() {
       ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Error in direct preference check: ${error}`, 'error');
     }
     
-    // 检查是否有任何外部因素重置了设置
+    // 只在服务器启用时启动服务器，但不影响插件的其他功能
     if (enabled === false) {
-      ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Server is disabled - investigating reason...`);
-      
+      ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Server is disabled - skipping server startup`);
+      ztoolkit.log(`===MCP=== [hooks.ts] Note: Plugin will continue to initialize (settings panel, etc.)`);
+
       // 尝试检测是否是首次启动后被重置
       const hasBeenEnabled = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.debug.hasBeenEnabled", false);
       if (!hasBeenEnabled) {
         ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] First time setup - server was never enabled before`);
       } else {
-        ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] WARNING: Server was previously enabled but is now disabled!`);
+        ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Server was previously enabled but is now disabled`);
       }
-      
-      ztoolkit.log(`===MCP=== [hooks.ts] Server is disabled, skipping startup 插件无法启动`);
-      return;
-    }
-    
-    // 记录服务器曾经被启用过
-    Zotero.Prefs.set("extensions.zotero.zotero-mcp-plugin.debug.hasBeenEnabled", true, true);
 
-    if (!port || isNaN(port)) {
-      throw new Error(`Invalid port value: ${port}`);
-    }
+      // 保存 httpServer 引用供后续使用（即使未启动）
+      addon.data.httpServer = httpServer;
+    } else {
+      // 服务器已启用，启动服务器
+      // 记录服务器曾经被启用过
+      Zotero.Prefs.set("extensions.zotero.zotero-mcp-plugin.debug.hasBeenEnabled", true, true);
 
-    ztoolkit.log(
-      `===MCP=== [hooks.ts] Starting HTTP server on port ${port}...`,
-    );
-    httpServer.start(port); // No await, let it run in background
-    addon.data.httpServer = httpServer; // 保存引用以便后续使用
-    ztoolkit.log(
-      `===MCP=== [hooks.ts] HTTP server start initiated on port ${port}`,
-    );
+      if (!port || isNaN(port)) {
+        throw new Error(`Invalid port value: ${port}`);
+      }
+
+      ztoolkit.log(
+        `===MCP=== [hooks.ts] Starting HTTP server on port ${port}...`,
+      );
+      httpServer.start(port); // No await, let it run in background
+      addon.data.httpServer = httpServer; // 保存引用以便后续使用
+      ztoolkit.log(
+        `===MCP=== [hooks.ts] HTTP server start initiated on port ${port}`,
+      );
+    }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     ztoolkit.log(
