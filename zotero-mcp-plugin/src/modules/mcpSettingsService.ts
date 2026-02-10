@@ -12,8 +12,8 @@ export class MCPSettingsService {
   // Unified content processing modes - single, intuitive system
   private static readonly UNIFIED_MODES = {
     'minimal': {
-      name: '最小模式 / Minimal',
-      description: '最快速度，最少内容 (500字符)',
+      name: 'Minimal',
+      description: 'Fastest speed, least content (500 chars)',
       maxContentLength: 500,
       maxAttachments: 2,
       maxNotes: 3,
@@ -25,8 +25,8 @@ export class MCPSettingsService {
       enableCompression: true
     },
     'preview': {
-      name: '预览模式 / Preview',
-      description: '适中内容，快速预览 (1.5K字符)',
+      name: 'Preview',
+      description: 'Moderate content, quick preview (1.5K chars)',
       maxContentLength: 1500,
       maxAttachments: 5,
       maxNotes: 8,
@@ -38,8 +38,8 @@ export class MCPSettingsService {
       enableCompression: true
     },
     'standard': {
-      name: '标准模式 / Standard',
-      description: '平衡处理，智能内容 (3K字符)',
+      name: 'Standard',
+      description: 'Balanced processing, smart content (3K chars)',
       maxContentLength: 3000,
       maxAttachments: 10,
       maxNotes: 15,
@@ -51,8 +51,8 @@ export class MCPSettingsService {
       enableCompression: true
     },
     'complete': {
-      name: '完整模式 / Complete',
-      description: '所有内容，无长度限制',
+      name: 'Complete',
+      description: 'All content, no length limit',
       maxContentLength: -1,
       maxAttachments: -1,
       maxNotes: -1,
@@ -362,8 +362,8 @@ export class MCPSettingsService {
           ...this.UNIFIED_MODES.complete
         },
         custom: {
-          name: '自定义模式 / Custom',
-          description: '手动配置所有参数 / Manually configure all parameters',
+          name: 'Custom',
+          description: 'Manually configure all parameters',
           maxContentLength: this.get('custom.maxContentLength'),
           maxAttachments: this.get('custom.maxAttachments'),
           maxNotes: this.get('custom.maxNotes'),

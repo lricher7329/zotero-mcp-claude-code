@@ -172,14 +172,14 @@ class ServerPreferences {
     try {
       const port = Zotero.Prefs.get(MCP_SERVER_PORT, true);
 
-      // 添加调试日志
+      // Add debug logging
       if (typeof Zotero !== "undefined" && Zotero.debug) {
         Zotero.debug(
           `[ServerPreferences] Raw port value from prefs: ${port} (type: ${typeof port})`,
         );
       }
 
-      // 确保返回有效的端口号
+      // Ensure a valid port number is returned
       if (port === undefined || port === null || isNaN(Number(port))) {
         if (typeof Zotero !== "undefined" && Zotero.debug) {
           Zotero.debug(
@@ -191,7 +191,7 @@ class ServerPreferences {
 
       return Number(port);
     } catch (error) {
-      // 如果偏好设置系统还未初始化或发生错误，返回默认值
+      // If the preference system is not initialized or an error occurs, return default
       if (typeof Zotero !== "undefined" && Zotero.debug) {
         Zotero.debug(
           `[ServerPreferences] Error getting port: ${error}. Using default: ${DEFAULT_PORT}`,
@@ -208,7 +208,7 @@ class ServerPreferences {
 
       ztoolkit.log(`[ServerPreferences] Reading ${MCP_SERVER_ENABLED}: ${enabled} (type: ${typeof enabled})`);
 
-      // 确保返回有效的布尔值
+      // Ensure a valid boolean is returned
       if (enabled === undefined || enabled === null) {
         ztoolkit.log(`[ServerPreferences] Server enabled value invalid, using default: ${DEFAULT_ENABLED}`);
         return DEFAULT_ENABLED;

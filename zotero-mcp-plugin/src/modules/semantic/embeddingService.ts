@@ -76,27 +76,27 @@ export class EmbeddingAPIError extends Error {
   getUserMessage(): string {
     switch (this.type) {
       case 'network':
-        return '网络连接失败，请检查网络后点击继续 / Network connection failed, please check network and click Resume';
+        return 'Network connection failed, please check network and click Resume';
       case 'rate_limit':
         const waitSec = this.retryAfterMs ? Math.ceil(this.retryAfterMs / 1000) : 60;
-        return `API 频率超限，请等待 ${waitSec} 秒后点击继续 / Rate limit exceeded, please wait ${waitSec}s and click Resume`;
+        return `Rate limit exceeded, please wait ${waitSec}s and click Resume`;
       case 'auth':
         if (this.statusCode === 403) {
-          return 'API 访问被拒绝 (403)，可能原因：1) API Key 无效 2) 账户配额用尽 3) 账户余额不足。请检查 API 服务商后台 / Access denied (403): Invalid API Key, quota exceeded, or insufficient balance. Please check your API provider dashboard';
+          return 'Access denied (403): Invalid API Key, quota exceeded, or insufficient balance. Please check your API provider dashboard';
         }
-        return 'API 认证失败 (401)，请检查 API Key 设置 / Authentication failed (401), please check API Key';
+        return 'Authentication failed (401), please check API Key';
       case 'invalid_request':
-        return 'API 请求无效，请检查配置 / Invalid API request, please check configuration';
+        return 'Invalid API request, please check configuration';
       case 'payload_too_large':
-        return '请求数据过大，正在自动减小批次重试 / Payload too large, auto-reducing batch size and retrying';
+        return 'Payload too large, auto-reducing batch size and retrying';
       case 'server':
-        return 'API 服务器错误，请稍后重试 / API server error, please try again later';
+        return 'API server error, please try again later';
       case 'config':
-        return 'API 未配置，请先配置 Embedding API / API not configured, please configure Embedding API first';
+        return 'API not configured, please configure Embedding API first';
       case 'paused':
-        return '索引已暂停 / Indexing paused by user';
+        return 'Indexing paused by user';
       default:
-        return `API 调用失败: ${this.message} / API call failed: ${this.message}`;
+        return `API call failed: ${this.message}`;
     }
   }
 }
@@ -817,7 +817,7 @@ export class EmbeddingService {
       if (pauseCheck && pauseCheck()) {
         ztoolkit.log(`[EmbeddingService] embedBatch() paused at ${itemIndex}/${items.length}`, 'warn');
         throw new EmbeddingAPIError(
-          '索引已暂停 / Indexing paused',
+          'Indexing paused',
           'paused',
           { retryable: false }  // Not retryable in the normal sense - handled specially
         );
@@ -862,7 +862,7 @@ export class EmbeddingService {
             // Already at batch size 1, the single item is too large
             ztoolkit.log(`[EmbeddingService] Single item too large to process: ${batch[0]?.id}`, 'error');
             throw new EmbeddingAPIError(
-              `单个文本过大无法处理 / Single text too large to process: ${batch[0]?.text.substring(0, 50)}...`,
+              `Single text too large to process: ${batch[0]?.text.substring(0, 50)}...`,
               'payload_too_large',
               { retryable: false, statusCode: 413 }
             );

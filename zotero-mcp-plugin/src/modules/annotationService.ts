@@ -1,63 +1,63 @@
 /**
- * 注释和高亮内容服务
- * 提供对Zotero中笔记、PDF注释、高亮等内容的检索功能
+ * Annotation and Highlight Content Service
+ * Provides retrieval of notes, PDF annotations, highlights and other content in Zotero
  */
 
 declare let ztoolkit: ZToolkit;
 
 import { TextFormatter } from './textFormatter';
 
-// 注释内容接口
+// Annotation content interface
 export interface AnnotationContent {
   id: string;
   itemKey: string;
   parentKey?: string;
   type: "note" | "highlight" | "annotation" | "ink" | "text" | "image";
   content: string;
-  text?: string; // 高亮的原始文本
-  comment?: string; // 用户添加的评论
-  color?: string; // 高亮颜色
+  text?: string; // Original highlighted text
+  comment?: string; // User-added comment
+  color?: string; // Highlight color
   tags: string[];
   dateAdded: string;
   dateModified: string;
   page?: number;
-  position?: any; // PDF中的位置信息
+  position?: any; // Position info in PDF
   sortIndex?: number;
 }
 
-// 搜索参数
+// Search parameters
 export interface AnnotationSearchParams {
-  q?: string; // 搜索关键词
-  itemKey?: string; // 特定文献的Key
-  type?: string | string[]; // 注释类型过滤
-  tags?: string | string[]; // 标签过滤
-  color?: string; // 颜色过滤
-  dateRange?: string; // 日期范围
-  hasComment?: boolean; // 是否有评论
+  q?: string; // Search keywords
+  itemKey?: string; // Specific item key
+  type?: string | string[]; // Annotation type filter
+  tags?: string | string[]; // Tag filter
+  color?: string; // Color filter
+  dateRange?: string; // Date range
+  hasComment?: boolean; // Whether has comment
   limit?: string;
   offset?: string;
   sort?: string; // dateAdded, dateModified, position
   direction?: string;
-  // 新增：内容详细程度控制
-  detailed?: boolean; // 是否返回完整内容，默认false
+  // Content detail level control
+  detailed?: boolean; // Whether to return full content, default false
 }
 
 export class AnnotationService {
   /**
-   * 智能截断文本，保留完整句子
+   * Smart text truncation, preserving complete sentences
    */
   private smartTruncate(text: string, maxLength: number = 200): string {
     if (!text || text.length <= maxLength) return text;
     
     const truncated = text.substring(0, maxLength);
-    // 寻找最后一个句号或换行
+    // Find the last period or newline
     const lastPeriod = Math.max(
       truncated.lastIndexOf('。'),
       truncated.lastIndexOf('.'),
       truncated.lastIndexOf('\n')
     );
     
-    // 如果找到合适的句子边界且不会截断太多内容
+    // If a suitable sentence boundary is found without truncating too much
     if (lastPeriod > maxLength * 0.6) {
       return truncated.substring(0, lastPeriod + 1) + "...";
     }
@@ -66,28 +66,28 @@ export class AnnotationService {
   }
 
   /**
-   * 提取关键词
+   * Extract keywords
    */
   private extractKeywords(text: string, maxCount: number = 5): string[] {
     if (!text) return [];
     
-    // 简单的关键词提取：移除停用词，按词频排序
+    // Simple keyword extraction: remove stop words, sort by frequency
     const stopWords = new Set(['的', '了', '在', '是', '和', '与', '或', '但', '然而', '因此', '所以', 
                               'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with']);
     
     const words = text
       .toLowerCase()
-      .replace(/[^\w\s\u4e00-\u9fa5]/g, ' ') // 保留中英文字符
+      .replace(/[^\w\s\u4e00-\u9fa5]/g, ' ') // Keep Chinese and English characters
       .split(/\s+/)
       .filter(word => word.length > 1 && !stopWords.has(word));
     
-    // 统计词频
+    // Count word frequency
     const wordCount = new Map<string, number>();
     words.forEach(word => {
       wordCount.set(word, (wordCount.get(word) || 0) + 1);
     });
     
-    // 按频率排序并返回前N个
+    // Sort by frequency and return top N
     return Array.from(wordCount.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, maxCount)
@@ -95,14 +95,14 @@ export class AnnotationService {
   }
 
   /**
-   * 处理注释内容，根据需要返回简化或完整版本
+   * Process annotation content, returning simplified or full version as needed
    */
   private processAnnotationContent(annotation: AnnotationContent, detailed: boolean = false): AnnotationContent {
     if (detailed) {
-      return annotation; // 返回完整内容
+      return annotation; // Return full content
     }
     
-    // 创建简化版本
+    // Create simplified version
     const processed: AnnotationContent = {
       ...annotation,
       content: this.smartTruncate(annotation.content),
@@ -110,7 +110,7 @@ export class AnnotationService {
       comment: annotation.comment ? this.smartTruncate(annotation.comment, 100) : annotation.comment,
     };
     
-    // 添加额外的元数据
+    // Add extra metadata
     (processed as any).contentMeta = {
       isPreview: !detailed,
       originalLength: annotation.content?.length || 0,
@@ -123,9 +123,9 @@ export class AnnotationService {
   }
 
   /**
-   * 获取所有笔记内容
-   * @param itemKey 可选，特定文献的笔记
-   * @returns 笔记列表
+   * Get all note content
+   * @param itemKey Optional, notes for a specific item
+   * @returns Note list
    */
   async getAllNotes(itemKey?: string): Promise<AnnotationContent[]> {
     try {
@@ -136,7 +136,7 @@ export class AnnotationService {
       let items: Zotero.Item[];
 
       if (itemKey) {
-        // 获取特定文献的笔记
+        // Get notes for specific item
         const parentItem = Zotero.Items.getByLibraryAndKey(
           Zotero.Libraries.userLibraryID,
           itemKey,
@@ -148,7 +148,7 @@ export class AnnotationService {
         const noteIds = parentItem.getNotes(false);
         items = noteIds.map((id) => Zotero.Items.get(id)).filter(Boolean);
       } else {
-        // 获取所有笔记
+        // Get all notes
         const search = new Zotero.Search();
         (search as any).libraryID = Zotero.Libraries.userLibraryID;
         search.addCondition("itemType", "is", "note");
@@ -185,9 +185,9 @@ export class AnnotationService {
   }
 
   /**
-   * 获取PDF注释和高亮
-   * @param itemKey PDF文献的Key
-   * @returns 注释列表
+   * Get PDF annotations and highlights
+   * @param itemKey Key of the PDF item
+   * @returns List of annotations
    */
   async getPDFAnnotations(itemKey: string): Promise<AnnotationContent[]> {
     try {
@@ -206,7 +206,7 @@ export class AnnotationService {
 
       const annotations: AnnotationContent[] = [];
 
-      // 获取附件
+      // Get attachments
       const attachmentIds = item.getAttachments();
 
       for (const attachmentId of attachmentIds) {
@@ -216,7 +216,7 @@ export class AnnotationService {
             continue;
           }
 
-          // 获取PDF的注释
+          // Get PDF annotations
           const annotationItems = attachment.getAnnotations();
 
           for (const annotationItem of annotationItems) {
@@ -243,7 +243,7 @@ export class AnnotationService {
         }
       }
 
-      // 按位置排序
+      // Sort by position
       annotations.sort((a, b) => {
         if (a.page !== b.page) {
           return (a.page || 0) - (b.page || 0);
@@ -265,9 +265,9 @@ export class AnnotationService {
   }
 
   /**
-   * 搜索注释和高亮内容
-   * @param params 搜索参数
-   * @returns 搜索结果
+   * Search annotations and highlights
+   * @param params Search parameters
+   * @returns Search results
    */
   async searchAnnotations(params: AnnotationSearchParams): Promise<{
     pagination: any;
@@ -286,7 +286,7 @@ export class AnnotationService {
     try {
       const allAnnotations: AnnotationContent[] = [];
 
-      // 获取笔记
+      // Get notes
       if (
         !params.type ||
         params.type === "note" ||
@@ -296,13 +296,13 @@ export class AnnotationService {
         allAnnotations.push(...notes);
       }
 
-      // 获取PDF注释
+      // Get PDF annotations
       if (!params.type || params.type !== "note") {
         if (params.itemKey) {
           const pdfAnnotations = await this.getPDFAnnotations(params.itemKey);
           allAnnotations.push(...pdfAnnotations);
         } else {
-          // 直接搜索所有 annotation 类型的 items（更快更准确）
+          // Search all annotation items directly (faster and more accurate)
           ztoolkit.log(`[AnnotationService] Searching for all annotation items directly`);
           try {
             const search = new Zotero.Search();
@@ -326,7 +326,7 @@ export class AnnotationService {
                   allAnnotations.push(annotationContent);
                 }
               } catch (e) {
-                // 忽略单个批注的错误
+                // Ignore individual annotation errors
               }
             }
             ztoolkit.log(`[AnnotationService] Processed ${allAnnotations.length} PDF annotations`);
@@ -344,7 +344,7 @@ export class AnnotationService {
                   allAnnotations.push(...pdfAnnotations);
                   processedCount++;
                 } catch (e) {
-                  // 忽略单个文献的错误
+                  // Ignore individual item errors
                 }
               }
             }
@@ -352,10 +352,10 @@ export class AnnotationService {
         }
       }
 
-      // 应用过滤器
+      // Apply filters
       let filteredAnnotations = this.filterAnnotations(allAnnotations, params);
 
-      // 应用搜索
+      // Apply search
       if (params.q) {
         filteredAnnotations = this.searchInAnnotations(
           filteredAnnotations,
@@ -363,16 +363,16 @@ export class AnnotationService {
         );
       }
 
-      // 处理内容（简化或完整）
+      // Process content (simplified or full)
       const detailed = params.detailed === true || String(params.detailed) === "true";
 
-      // 排序
+      // Sort
       const sort = params.sort || "dateModified";
       const direction = params.direction || "desc";
       this.sortAnnotations(filteredAnnotations, sort, direction);
 
-      // 分页 - 为preview模式使用更小的默认值
-      const defaultLimit = detailed ? "50" : "20"; // preview模式默认20条，详细模式50条
+      // Pagination - use smaller defaults for preview mode
+      const defaultLimit = detailed ? "50" : "20"; // preview mode defaults to 20, detailed mode 50
       const limit = Math.min(parseInt(params.limit || defaultLimit, 10), detailed ? 200 : 100);
       const offset = parseInt(params.offset || "0", 10);
       const totalCount = filteredAnnotations.length;
@@ -390,7 +390,7 @@ export class AnnotationService {
       );
 
       return {
-        // 元数据信息放在最前面
+        // Metadata first
         pagination: {
           limit,
           offset,
@@ -402,7 +402,7 @@ export class AnnotationService {
         contentMode: detailed ? "full" : "preview",
         version: "2.0",
         endpoint: "annotations/search",
-        // 实际数据放在后面
+        // Actual data after metadata
         results: processedResults,
       };
     } catch (error) {
@@ -415,7 +415,7 @@ export class AnnotationService {
   }
 
   /**
-   * 格式化笔记项目
+   * Format note item
    */
   private formatNoteItem(item: Zotero.Item): AnnotationContent | null {
     try {
@@ -424,10 +424,10 @@ export class AnnotationService {
         return null;
       }
 
-      // 提取格式化的文本内容 - 对注释保持简单格式化
+      // Extract formatted text content - keep simple formatting for annotations
       const textContent = TextFormatter.htmlToText(noteText, {
         preserveParagraphs: true,
-        preserveHeadings: false, // 注释中通常不需要标题格式
+        preserveHeadings: false, // Heading formatting usually not needed for annotations
         preserveLists: true,
         preserveEmphasis: false
       });
@@ -453,7 +453,7 @@ export class AnnotationService {
   }
 
   /**
-   * 格式化注释项目
+   * Format annotation item
    */
   private formatAnnotationItem(
     item: Zotero.Item,
@@ -475,7 +475,7 @@ export class AnnotationService {
         return null;
       }
 
-      // 映射注释类型
+      // Map annotation type
       let type: AnnotationContent["type"] = "annotation";
       switch (annotationType) {
         case "highlight":
@@ -522,14 +522,14 @@ export class AnnotationService {
   }
 
   /**
-   * 过滤注释
+   * Filter annotations
    */
   private filterAnnotations(
     annotations: AnnotationContent[],
     params: AnnotationSearchParams,
   ): AnnotationContent[] {
     return annotations.filter((annotation) => {
-      // 类型过滤
+      // Type filter
       if (params.type) {
         const types = Array.isArray(params.type) ? params.type : [params.type];
         if (!types.includes(annotation.type)) {
@@ -537,7 +537,7 @@ export class AnnotationService {
         }
       }
 
-      // 标签过滤
+      // Tag filter
       if (params.tags) {
         const searchTags = Array.isArray(params.tags)
           ? params.tags
@@ -552,12 +552,12 @@ export class AnnotationService {
         }
       }
 
-      // 颜色过滤
+      // Color filter
       if (params.color && annotation.color !== params.color) {
         return false;
       }
 
-      // 评论过滤
+      // Comment filter
       if (params.hasComment !== undefined) {
         const hasComment = !!(annotation.comment && annotation.comment.trim());
         if (params.hasComment !== hasComment) {
@@ -565,7 +565,7 @@ export class AnnotationService {
         }
       }
 
-      // 日期范围过滤
+      // Date range filter
       if (params.dateRange) {
         const [startDate, endDate] = params.dateRange
           .split(",")
@@ -580,7 +580,7 @@ export class AnnotationService {
   }
 
   /**
-   * 在注释中搜索
+   * Search within annotations
    */
   private searchInAnnotations(
     annotations: AnnotationContent[],
@@ -603,7 +603,7 @@ export class AnnotationService {
   }
 
   /**
-   * 排序注释
+   * Sort annotations
    */
   private sortAnnotations(
     annotations: AnnotationContent[],
@@ -643,22 +643,22 @@ export class AnnotationService {
   }
 
   /**
-   * 根据ID获取注释的完整内容
+   * Get full annotation content by ID
    */
   async getAnnotationById(annotationId: string): Promise<AnnotationContent | null> {
     try {
       ztoolkit.log(`[AnnotationService] Getting annotation by ID: ${annotationId}`);
       
-      // 尝试从笔记中查找
+      // Try to find in notes
       const notes = await this.getAllNotes();
       const note = notes.find(n => n.id === annotationId);
       if (note) {
         return note;
       }
 
-      // 从所有PDF注释中查找
+      // Search all PDF annotations
       const allItems = await Zotero.Items.getAll(Zotero.Libraries.userLibraryID);
-      for (const item of allItems.slice(0, 100)) { // 限制搜索范围避免性能问题
+      for (const item of allItems.slice(0, 100)) { // Limit search scope to avoid performance issues
         if (item.isRegularItem() && !item.isNote() && !item.isAttachment()) {
           try {
             const annotations = await this.getPDFAnnotations(item.key);
@@ -667,7 +667,7 @@ export class AnnotationService {
               return annotation;
             }
           } catch (e) {
-            // 忽略单个文献的错误
+            // Ignore individual item errors
           }
         }
       }
@@ -680,7 +680,7 @@ export class AnnotationService {
   }
 
   /**
-   * 批量获取注释的完整内容
+   * Get full annotation content in batch
    */
   async getAnnotationsByIds(annotationIds: string[]): Promise<AnnotationContent[]> {
     try {

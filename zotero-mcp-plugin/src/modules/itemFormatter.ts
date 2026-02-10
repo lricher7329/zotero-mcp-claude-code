@@ -55,7 +55,7 @@ export async function formatItem(
     zoteroUrl: `zotero://select/library/items/${item.key}`,
   };
 
-  // 安全的字符串获取函数 - 与其他模块保持一致
+  // Safe string getter function - consistent with other modules
   function safeGetString(value: any): string {
     if (value === null || value === undefined) return '';
     return String(value);
@@ -76,7 +76,7 @@ export async function formatItem(
                   continue;
                 }
                 
-                // 安全地获取各个字段
+                // Safely get individual fields
                 const attachmentData: any = {
                   key: attachment.key || '',
                   linkMode: attachment.attachmentLinkMode || 0,
@@ -84,7 +84,7 @@ export async function formatItem(
                   size: 0
                 };
                 
-                // 安全地处理每个字段
+                // Safely process each field
                 try {
                   attachmentData.title = safeGetString(attachment.getField("title"));
                 } catch (e) {
@@ -132,7 +132,7 @@ export async function formatItem(
                   ztoolkit.log(`[ItemFormatter] Error getting attachment size: ${e}`, "error");
                 }
                 
-                // 只添加有效的附件
+                // Only add valid attachments
                 if (attachmentData.key) {
                   processedAttachments.push(attachmentData);
                 }
@@ -142,7 +142,7 @@ export async function formatItem(
                   `[ItemFormatter] Error processing attachment: ${e}`,
                   "error",
                 );
-                // 继续处理下一个附件，不要因为一个附件的错误影响整个流程
+                // Continue to next attachment, don't let one attachment error affect the whole flow
                 continue;
               }
             }
@@ -323,7 +323,7 @@ export async function formatItems(
         return formatted;
       } catch (error) {
         ztoolkit.log(`[ItemFormatter] Error formatting item ${item.key}: ${error}`, "error");
-        // 返回基础信息而不是跳过
+        // Return basic info instead of skipping
         return {
           key: item.key || '',
           title: 'Error formatting item',

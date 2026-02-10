@@ -64,7 +64,7 @@ export class HttpServer {
       return;
     }
 
-    // 验证端口参数
+    // Validate port parameter
     if (!port || isNaN(port) || port < 1 || port > 65535) {
       const errorMsg = `[HttpServer] Invalid port number: ${port}. Port must be between 1 and 65535.`;
       Zotero.debug(errorMsg);
@@ -81,9 +81,9 @@ export class HttpServer {
         "@mozilla.org/network/server-socket;1"
       ].createInstance(Ci.nsIServerSocket);
 
-      // init方法参数：端口，是否仅允许回环地址，backlog队列大小
-      // loopbackOnly=true: 仅监听 127.0.0.1
-      // loopbackOnly=false: 监听 0.0.0.0 (所有接口)
+      // init() params: port, loopback only, backlog queue size
+      // loopbackOnly=true: listen on 127.0.0.1 only
+      // loopbackOnly=false: listen on 0.0.0.0 (all interfaces)
       const loopbackOnly = !serverPreferences.isRemoteAccessAllowed();
       Zotero.debug(`[HttpServer] Binding to ${loopbackOnly ? '127.0.0.1' : '0.0.0.0'}:${port}`);
       this.serverSocket.init(port, loopbackOnly, -1);
@@ -266,7 +266,7 @@ export class HttpServer {
         input = transport.openInputStream(0, 0, 0);
         output = transport.openOutputStream(0, 0, 0);
 
-        // 使用转换输入流来正确处理UTF-8编码
+        // Use converter input stream to properly handle UTF-8 encoding
         const converterStream = Cc[
           "@mozilla.org/intl/converter-input-stream;1"
         ].createInstance(Ci.nsIConverterInputStream);
@@ -277,7 +277,7 @@ export class HttpServer {
         );
         sin.init(input);
 
-        // 改进请求读取逻辑 - 读取完整的HTTP请求（包括body）
+        // Improved request reading logic - read the full HTTP request (including body)
         let requestText = "";
         let totalBytesRead = 0;
         const maxRequestSize = 1024 * 1024; // 1MB max request size
@@ -404,7 +404,7 @@ export class HttpServer {
           `[HttpServer] Received request: ${requestLine} (${requestText.length} bytes)`,
         );
 
-        // 验证请求格式
+        // Validate request format
         if (!requestLine || !requestLine.includes("HTTP/")) {
           ztoolkit.log(
             `[HttpServer] Invalid request format - RequestLine: "${requestLine || '<empty>'}", TotalBytes: ${totalBytesRead}, RequestLength: ${requestText.length}, RequestPreview: "${requestText.substring(0, 100).replace(/\r?\n/g, '\\n')}"`,
@@ -442,7 +442,7 @@ export class HttpServer {
           const query = new URLSearchParams(url.search);
           const path = url.pathname;
           
-          // 提取POST请求的body
+          // Extract POST request body
           let requestBody = "";
           if (method === "POST") {
             const bodyStart = requestText.indexOf("\r\n\r\n");
@@ -660,7 +660,7 @@ export class HttpServer {
         // Remove transport from tracking
         this.activeTransports.delete(transport);
 
-        // 确保资源清理
+        // Ensure resource cleanup
         try {
           if (output) {
             output.close();
@@ -697,12 +697,12 @@ export class HttpServer {
 private getCapabilities() {
   return {
     serverInfo: {
-      name: "Zotero MCP Plugin",
-      version: "1.1.0",
-      description: "Model Context Protocol integration for Zotero research management",
-      author: "Zotero MCP Team",
-      repository: "https://github.com/zotero/zotero-mcp",
-      documentation: "https://github.com/zotero/zotero-mcp/blob/main/README.md"
+      name: "Zotero MCP for Claude Code",
+      version: "1.3.5",
+      description: "Model Context Protocol integration for Zotero research management (Claude Code fork)",
+      author: "lricher7329",
+      repository: "https://github.com/lricher7329/zotero-mcp-claude-code",
+      documentation: "https://github.com/lricher7329/zotero-mcp-claude-code/blob/main/README.md"
     },
     protocols: {
       mcp: {

@@ -103,3 +103,6 @@ This fork includes the following changes for Claude Code compatibility:
 - HTTP server uses Mozilla's `nsIServerSocket` component
 - Preferences stored under `extensions.zotero.zotero-mcp-plugin.*`
 - Logging uses `ztoolkit.log()` with `===MCP===` prefix for easy filtering
+- All source code comments and error messages are in English
+- Chinese locale files (`addon/locale/zh-CN/`) are for UI translations only
+- Chinese stop word lists in NLP/annotation code are functional data and should remain

@@ -11,15 +11,15 @@ class MCPError extends Error {
   }
 }
 
-// 定义支持的搜索参数接口
+// Supported search parameters interface
 interface SearchParams {
   q?: string;
-  key?: string; // 新增 key 用于精确匹配
+  key?: string; // Added key for exact matching
   title?: string;
   creator?: string;
   year?: string;
-  tag?: string; // 向后兼容
-  tags?: string | string[]; // 支持字符串或数组
+  tag?: string; // Backward compatible
+  tags?: string | string[]; // Supports string or array
   tagMode?: "any" | "all" | "none";
   tagMatch?: "exact" | "contains" | "startsWith";
   itemType?: string;
@@ -32,21 +32,21 @@ interface SearchParams {
   offset?: string;
   sort?: string;
   direction?: string;
-  libraryID?: string; // 添加库ID参数
-  includeAttachments?: string; // 是否包含附件
-  includeNotes?: string; // 是否包含笔记
+  libraryID?: string; // Library ID parameter
+  includeAttachments?: string; // Whether to include attachments
+  includeNotes?: string; // Whether to include notes
 
-  // 全文搜索专用参数
-  fulltext?: string; // 全文搜索内容
-  fulltextMode?: "attachment" | "note" | "both"; // 全文搜索模式：仅附件、仅笔记、或两者
-  fulltextOperator?: "contains" | "exact" | "regex"; // 全文搜索操作符
+  // Fulltext search parameters
+  fulltext?: string; // Fulltext search content
+  fulltextMode?: "attachment" | "note" | "both"; // Fulltext search mode: attachments only, notes only, or both
+  fulltextOperator?: "contains" | "exact" | "regex"; // Fulltext search operator
 
-  // 高级搜索参数
+  // Advanced search parameters
   titleOperator?: "contains" | "exact" | "startsWith" | "endsWith" | "regex";
   creatorOperator?: "contains" | "exact" | "startsWith" | "endsWith";
-  yearRange?: string; // 格式: "2020-2023" 或 "2020-" 或 "-2023"
-  dateAdded?: string; // ISO日期字符串
-  dateAddedRange?: string; // 格式: "2023-01-01,2023-12-31"
+  yearRange?: string; // Format: "2020-2023" or "2020-" or "-2023"
+  dateAdded?: string; // ISO date string
+  dateAddedRange?: string; // Format: "2023-01-01,2023-12-31"
   dateModified?: string;
   dateModifiedRange?: string;
   publicationTitle?: string;
@@ -58,22 +58,22 @@ interface SearchParams {
   url?: string;
   extra?: string;
   numPages?: string;
-  numPagesRange?: string; // 格式: "100-500"
+  numPagesRange?: string; // Format: "100-500"
 
-  // 布尔查询支持
-  booleanQuery?: string; // 高级布尔查询字符串
-  fieldQueries?: FieldQuery[]; // 结构化字段查询
+  // Boolean query support
+  booleanQuery?: string; // Advanced boolean query string
+  fieldQueries?: FieldQuery[]; // Structured field queries
 
-  // 结果相关性和排序
+  // Result relevance and sorting
   relevanceScoring?: "true" | "false";
-  boostFields?: string; // 逗号分隔的字段列表，用于提升相关性权重
+  boostFields?: string; // Comma-separated field list for boosting relevance weight
 
-  // 保存的搜索
+  // Saved searches
   savedSearchName?: string;
   saveSearch?: "true" | "false";
 }
 
-// 字段查询结构
+// Field query structure
 interface FieldQuery {
   field: string;
   operator:
@@ -88,17 +88,17 @@ interface FieldQuery {
     | "gte"
     | "lte";
   value: string;
-  boost?: number; // 权重提升因子
+  boost?: number; // Relevance boost factor
 }
 
-// 相关性评分结果
+// Relevance scoring result
 interface ScoredItem {
   item: Zotero.Item;
   relevanceScore: number;
   matchedFields: string[];
 }
 
-// 定义支持的排序字段
+// Supported sort fields
 const SUPPORTED_SORT_FIELDS = [
   "date",
   "title",
@@ -108,11 +108,11 @@ const SUPPORTED_SORT_FIELDS = [
   "relevance",
 ];
 
-// 高级搜索辅助函数
+// Advanced search helper functions
 
 /**
- * 解析日期范围字符串
- * @param rangeStr 格式: "2020-2023" 或 "2020-" 或 "-2023" 或 "2023-01-01,2023-12-31"
+ * Parse date range string
+ * @param rangeStr Format: "2020-2023" or "2020-" or "-2023" or "2023-01-01,2023-12-31"
  * @returns {start: Date|null, end: Date|null}
  */
 function parseDateRange(rangeStr: string): {
@@ -121,7 +121,7 @@ function parseDateRange(rangeStr: string): {
 } {
   if (!rangeStr) return { start: null, end: null };
 
-  // 处理逗号分隔的日期格式
+  // Handle comma-separated date format
   if (rangeStr.includes(",")) {
     const [startStr, endStr] = rangeStr.split(",").map((s) => s.trim());
     return {
@@ -130,7 +130,7 @@ function parseDateRange(rangeStr: string): {
     };
   }
 
-  // 处理连字符分隔的年份格式
+  // Handle hyphen-separated year format
   if (rangeStr.includes("-")) {
     const parts = rangeStr.split("-");
     if (parts.length === 2) {
@@ -146,8 +146,8 @@ function parseDateRange(rangeStr: string): {
 }
 
 /**
- * 解析数值范围字符串
- * @param rangeStr 格式: "100-500" 或 "100-" 或 "-500"
+ * Parse numeric range string
+ * @param rangeStr Format: "100-500" or "100-" or "-500"
  * @returns {min: number|null, max: number|null}
  */
 function parseNumberRange(rangeStr: string): {
@@ -171,11 +171,11 @@ function parseNumberRange(rangeStr: string): {
 }
 
 /**
- * 检查字段值是否匹配操作符和查询值
- * @param fieldValue 字段值
- * @param operator 操作符
- * @param queryValue 查询值
- * @returns 是否匹配
+ * Check if a field value matches the operator and query value
+ * @param fieldValue Field value
+ * @param operator Operator
+ * @param queryValue Query value
+ * @returns Whether it matches
  */
 function matchesFieldQuery(
   fieldValue: any,
@@ -210,10 +210,10 @@ function matchesFieldQuery(
 }
 
 /**
- * 计算项目的相关性评分
- * @param item Zotero项目
- * @param params 搜索参数
- * @returns 相关性评分和匹配字段
+ * Calculate relevance score for an item
+ * @param item Zotero item
+ * @param params Search parameters
+ * @returns Relevance score and matched fields
  */
 function calculateRelevanceScore(
   item: Zotero.Item,
@@ -223,7 +223,7 @@ function calculateRelevanceScore(
   const matchedFields: string[] = [];
   const boostFields = params.boostFields?.split(",").map((f) => f.trim()) || [];
 
-  // 基础字段权重
+  // Base field weights
   const fieldWeights: Record<string, number> = {
     title: 3.0,
     creator: 2.0,
@@ -233,14 +233,14 @@ function calculateRelevanceScore(
     extra: 0.5,
   };
 
-  // 应用提升权重
+  // Apply boost weights
   boostFields.forEach((field) => {
     if (fieldWeights[field]) {
       fieldWeights[field] *= 2;
     }
   });
 
-  // 检查各字段匹配情况
+  // Check field match results
   if (params.q) {
     const query = params.q.toLowerCase();
     Object.entries(fieldWeights).forEach(([field, weight]) => {
@@ -271,7 +271,7 @@ function calculateRelevanceScore(
     });
   }
 
-  // 特定字段匹配加分
+  // Bonus for specific field matches
   if (
     params.title &&
     item.getField("title")?.toLowerCase().includes(params.title.toLowerCase())
@@ -294,12 +294,12 @@ function calculateRelevanceScore(
 }
 
 /**
- * 执行全文搜索
- * @param query 搜索词
- * @param libraryID 库ID
- * @param mode 搜索模式
- * @param operator 操作符
- * @returns 匹配的项目ID列表
+ * Perform fulltext search
+ * @param query Search term
+ * @param libraryID Library ID
+ * @param mode Search mode
+ * @param operator Operator
+ * @returns List of matching item IDs
  */
 async function performFulltextSearch(
   query: string,
@@ -312,11 +312,11 @@ async function performFulltextSearch(
 
   try {
     if (mode === "attachment" || mode === "both") {
-      // 使用Zotero.Search搜索附件全文
+      // Use Zotero.Search to search attachment fulltext
       const attachmentSearch = new Zotero.Search();
       (attachmentSearch as any).libraryID = libraryID;
       
-      // 搜索附件内容
+      // Search attachment content
       const searchOperator = operator === "exact" ? "is" : "contains";
       attachmentSearch.addCondition("fulltextContent", searchOperator, query);
       attachmentSearch.addCondition("itemType", "is", "attachment");
@@ -335,7 +335,7 @@ async function performFulltextSearch(
             itemIDs.push(attachment.id);
           }
           
-          // 记录匹配详情
+          // Record match details
           if (!matchDetails.has(targetID)) {
             matchDetails.set(targetID, {
               attachments: [],
@@ -346,7 +346,7 @@ async function performFulltextSearch(
           
           const details = matchDetails.get(targetID);
           
-          // 尝试获取匹配片段
+          // Try to get matching snippet
           let snippet = '';
           try {
             const content = await attachment.attachmentText || '';
@@ -359,7 +359,7 @@ async function performFulltextSearch(
               }
             }
           } catch (e) {
-            // 获取片段失败，使用空字符串
+            // Failed to get snippet, use empty string
             snippet = '';
           }
           
@@ -375,12 +375,12 @@ async function performFulltextSearch(
     }
 
     if (mode === "note" || mode === "both") {
-      // 搜索笔记内容
+      // Search note content
       const s = new Zotero.Search();
       (s as any).libraryID = libraryID;
       s.addCondition("itemType", "is", "note");
       
-      // 根据操作符设置搜索条件
+      // Set search condition based on operator
       const searchOperator = operator === "exact" ? "is" : "contains";
       s.addCondition("note", searchOperator, query);
       
@@ -407,7 +407,7 @@ async function performFulltextSearch(
           const noteContent = note.getNote();
           let snippet = '';
           
-          // 提取匹配片段
+          // Extract matching snippet
           if (noteContent) {
             const cleanContent = noteContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
             const queryPos = cleanContent.toLowerCase().indexOf(query.toLowerCase());
@@ -436,17 +436,17 @@ async function performFulltextSearch(
 }
 
 /**
- * 应用高级过滤条件到项目列表
- * @param items 项目列表
- * @param params 搜索参数
- * @returns 过滤后的项目列表
+ * Apply advanced filters to item list
+ * @param items Item list
+ * @param params Search parameters
+ * @returns Filtered item list
  */
 function applyAdvancedFilters(
   items: Zotero.Item[],
   params: SearchParams,
 ): Zotero.Item[] {
   return items.filter((item) => {
-    // 日期范围过滤
+    // Date range filter
     if (params.yearRange) {
       const { start, end } = parseDateRange(params.yearRange);
       if (start || end) {
@@ -459,7 +459,7 @@ function applyAdvancedFilters(
       }
     }
 
-    // 添加日期范围过滤
+    // Date added range filter
     if (params.dateAddedRange) {
       const { start, end } = parseDateRange(params.dateAddedRange);
       if (start || end) {
@@ -469,7 +469,7 @@ function applyAdvancedFilters(
       }
     }
 
-    // 修改日期范围过滤
+    // Date modified range filter
     if (params.dateModifiedRange) {
       const { start, end } = parseDateRange(params.dateModifiedRange);
       if (start || end) {
@@ -479,7 +479,7 @@ function applyAdvancedFilters(
       }
     }
 
-    // 页数范围过滤
+    // Page count range filter
     if (params.numPagesRange) {
       const { min, max } = parseNumberRange(params.numPagesRange);
       if (min || max) {
@@ -489,7 +489,7 @@ function applyAdvancedFilters(
       }
     }
 
-    // 高级字段匹配
+    // Advanced field matching
     if (params.titleOperator && params.title) {
       const title = item.getField("title") || "";
       if (!matchesFieldQuery(title, params.titleOperator, params.title)) {
@@ -535,7 +535,7 @@ function applyAdvancedFilters(
       }
     }
 
-    // 其他字段精确匹配
+    // Other field exact matching
     const exactMatchFields = ["language", "rights", "url", "extra"];
     for (const field of exactMatchFields) {
       const paramValue = params[field as keyof SearchParams];
@@ -552,8 +552,8 @@ function applyAdvancedFilters(
 }
 
 /**
- * 处理搜索引擎请求
- * @param params 搜索参数
+ * Handle search engine request
+ * @param params Search parameters
  */
 export async function handleSearchRequest(
   params: SearchParams,
@@ -563,7 +563,7 @@ export async function handleSearchRequest(
   );
   const startTime = Date.now();
 
-  // --- 1. 参数处理和验证 ---
+  // --- 1. Parameter processing and validation ---
   const libraryID = params.libraryID
     ? parseInt(params.libraryID, 10)
     : Zotero.Libraries.userLibraryID;
@@ -585,7 +585,7 @@ export async function handleSearchRequest(
     );
   }
 
-  // --- 2. 精确 Key 查找 (优先) ---
+  // --- 2. Exact key lookup (priority) ---
   if (params.key) {
     const item = await Zotero.Items.getByLibraryAndKeyAsync(
       libraryID,
@@ -599,7 +599,7 @@ export async function handleSearchRequest(
     };
   }
 
-  // --- 3. 处理全文搜索 (优先级高) ---
+  // --- 3. Handle fulltext search (high priority) ---
   let fulltextItemIDs: number[] = [];
   let fulltextMatchDetails = new Map<number, any>();
 
@@ -621,11 +621,11 @@ export async function handleSearchRequest(
     }
   }
 
-  // --- 4. 构建 Zotero 搜索条件 (除标签外) ---
+  // --- 4. Build Zotero search conditions (excluding tags) ---
   const s = new Zotero.Search();
   (s as any).libraryID = libraryID;
 
-  // 普通搜索条件
+  // Standard search conditions
   if (params.q) {
     s.addCondition("quicksearch-everything", "contains", params.q);
   }
@@ -639,7 +639,7 @@ export async function handleSearchRequest(
     isbn: "ISBN",
   };
 
-  // 向后兼容：如果提供了旧的 `tag` 参数且没有新的 `tags` 参数，则使用 Zotero 的原生标签搜索
+  // Backward compatible: if old `tag` param is provided without new `tags` param, use Zotero's native tag search
   if (params.tag && !params.tags) {
     fieldMappings.tag = "tag";
   }
@@ -663,7 +663,7 @@ export async function handleSearchRequest(
       s.addCondition("collection", "is", collection.id);
     } else {
       return {
-        // 无效 collection，返回空结果
+        // Invalid collection, return empty results
         query: params,
         pagination: { limit, offset, total: 0, hasMore: false },
         searchTime: `${Date.now() - startTime}ms`,
@@ -680,14 +680,14 @@ export async function handleSearchRequest(
   if (params.includeNotes !== "true")
     s.addCondition("itemType", "isNot", "note");
 
-  // --- 4. 执行初步搜索 ---
+  // --- 4. Execute initial search ---
   let initialItemIDs: number[];
   
   if (params.fulltext && fulltextItemIDs.length > 0) {
-    // 如果指定了全文搜索，使用全文搜索结果
+    // If fulltext search specified, use fulltext search results
     initialItemIDs = fulltextItemIDs;
   } else {
-    // 否则执行常规搜索
+    // Otherwise execute standard search
     initialItemIDs = await s.search();
   }
   
@@ -700,7 +700,7 @@ export async function handleSearchRequest(
     };
   }
 
-  // --- 5. 高级标签过滤 (内存中处理) ---
+  // --- 5. Advanced tag filtering (in-memory processing) ---
   let items = await Zotero.Items.getAsync(initialItemIDs);
   const queryTags = Array.isArray(params.tags)
     ? params.tags
@@ -751,7 +751,7 @@ export async function handleSearchRequest(
       }
 
       if (shouldInclude) {
-        (item as any).matchedTags = uniqueMatched; // 附加匹配的标签
+        (item as any).matchedTags = uniqueMatched; // Attach matched tags
         filteredItems.push(item);
         uniqueMatched.forEach((tag) => {
           matchedTagsStats[tag] = (matchedTagsStats[tag] || 0) + 1;
@@ -761,7 +761,7 @@ export async function handleSearchRequest(
     items = filteredItems;
   }
 
-  // --- 5.5. 应用高级过滤条件 ---
+  // --- 5.5. Apply advanced filters ---
   if (
     Object.keys(params).some((key) =>
       [
@@ -783,7 +783,7 @@ export async function handleSearchRequest(
     items = applyAdvancedFilters(items, params);
   }
 
-  // --- 6. 相关性评分和排序 ---
+  // --- 6. Relevance scoring and sorting ---
   const useRelevanceScoring =
     params.relevanceScoring === "true" || sort === "relevance";
   let scoredItems: ScoredItem[] = [];
@@ -799,7 +799,7 @@ export async function handleSearchRequest(
     });
 
     if (sort === "relevance") {
-      // 按相关性排序
+      // Sort by relevance
       scoredItems.sort((a, b) => {
         const scoreA = a.relevanceScore;
         const scoreB = b.relevanceScore;
@@ -807,7 +807,7 @@ export async function handleSearchRequest(
       });
       items = scoredItems.map((si) => si.item);
     } else {
-      // 非相关性排序，但保留评分信息
+      // Non-relevance sort, but preserve scoring info
       items.sort((a, b) => {
         let valA: any, valB: any;
         if (sort === "creator") {
@@ -832,7 +832,7 @@ export async function handleSearchRequest(
       });
     }
   } else {
-    // 传统排序
+    // Traditional sorting
     items.sort((a, b) => {
       let valA: any, valB: any;
       if (sort === "creator") {
@@ -857,13 +857,13 @@ export async function handleSearchRequest(
     });
   }
 
-  // --- 7. 分页和格式化 ---
+  // --- 7. Pagination and formatting ---
   const total = items.length;
   const paginatedItems = items.slice(offset, offset + limit);
   const results = paginatedItems.map((item) => {
     const formatted = formatItemBrief(item);
 
-    // 添加附件路径信息
+    // Add attachment path info
     try {
       const attachmentIDs = item.getAttachments();
       if (attachmentIDs && attachmentIDs.length > 0) {
@@ -888,12 +888,12 @@ export async function handleSearchRequest(
       formatted.attachments = [];
     }
 
-    // 添加标签匹配信息
+    // Add tag match info
     if ((item as any).matchedTags) {
       formatted.matchedTags = (item as any).matchedTags;
     }
 
-    // 添加相关性评分信息
+    // Add relevance scoring info
     if (useRelevanceScoring) {
       const scoredItem = scoredItems.find((si) => si.item.id === item.id);
       if (scoredItem) {
@@ -902,7 +902,7 @@ export async function handleSearchRequest(
       }
     }
 
-    // 添加全文搜索匹配详情
+    // Add fulltext search match details
     if (params.fulltext && fulltextMatchDetails.has(item.id)) {
       const matchDetails = fulltextMatchDetails.get(item.id);
       formatted.fulltextMatch = {
@@ -917,7 +917,7 @@ export async function handleSearchRequest(
     return formatted;
   });
 
-  // --- 8. 返回最终结果 ---
+  // --- 8. Return final results ---
   const response: Record<string, any> = {
     query: params,
     pagination: {
@@ -930,12 +930,12 @@ export async function handleSearchRequest(
     results,
   };
 
-  // 添加标签统计信息
+  // Add tag statistics
   if (Object.keys(matchedTagsStats).length > 0) {
     response.matchedTags = matchedTagsStats;
   }
 
-  // 添加高级搜索统计信息
+  // Add advanced search statistics
   if (useRelevanceScoring) {
     response.relevanceStats = {
       averageScore:
@@ -954,7 +954,7 @@ export async function handleSearchRequest(
     };
   }
 
-  // 添加搜索类型信息
+  // Add search feature info
   const searchFeatures: string[] = [];
   if (params.q) searchFeatures.push("fulltext");
   if (queryTags.length > 0) searchFeatures.push("tags");
@@ -969,7 +969,7 @@ export async function handleSearchRequest(
   if (useRelevanceScoring) searchFeatures.push("relevanceScoring");
 
   response.searchFeatures = searchFeatures;
-  response.version = "2.0"; // 标记为增强版搜索引擎
+  response.version = "2.0"; // Mark as enhanced search engine
 
   return response;
 }

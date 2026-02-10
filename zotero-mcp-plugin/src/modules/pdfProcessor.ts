@@ -4,8 +4,8 @@ declare const IOUtils: any; // Trusting this is available in the execution conte
 declare const ztoolkit: ZToolkit;
 
 /**
- * PDF处理器服务
- * 提供PDF文件的直接处理功能
+ * PDF Processor Service
+ * Provides direct PDF file processing functionality
  */
 export class PDFProcessor {
   private Zotero: any;
@@ -20,7 +20,7 @@ export class PDFProcessor {
 
   constructor(private readonly ztoolkit: any) {
     this.Zotero = ztoolkit.getGlobal("Zotero");
-    this.ztoolkit.log("[PDFProcessor] 初始化");
+    this.ztoolkit.log("[PDFProcessor] Initialized");
   }
 
   private _init(): void {
@@ -84,7 +84,7 @@ export class PDFProcessor {
     });
 
     this._worker.addEventListener("error", (error) => {
-      this.ztoolkit.log("[PDFProcessor] Worker错误:", error, "error");
+      this.ztoolkit.log("[PDFProcessor] Worker error:", error, "error");
     });
   }
 
@@ -130,22 +130,22 @@ export class PDFProcessor {
   }
 
   /**
-   * 提取PDF文本内容
-   * @param path PDF文件路径
-   * @returns Promise<string> 提取的文本内容
+   * Extract PDF text content
+   * @param path PDF file path
+   * @returns Promise<string> Extracted text content
    */
   async extractText(path: string): Promise<string> {
     try {
-      this.ztoolkit.log("[PDFProcessor] 开始提取文本:", { path });
+      this.ztoolkit.log("[PDFProcessor] Starting text extraction:", { path });
 
       // Using IOUtils.read directly as per the sample code.
       const fileData = await IOUtils.read(path);
       if (!fileData) {
-        throw new Error("文件读取失败 (IOUtils.read returned falsy)");
+        throw new Error("File read failed (IOUtils.read returned falsy)");
       }
 
       this.ztoolkit.log(
-        `[PDFProcessor] 文件读取成功: ${fileData.byteLength} bytes`,
+        `[PDFProcessor] File read success: ${fileData.byteLength} bytes`,
       );
 
       const response = await this._query<{ text: string }>(
@@ -164,7 +164,7 @@ export class PDFProcessor {
 
       return response.text;
     } catch (error) {
-      this.ztoolkit.log("[PDFProcessor] PDF文本提取失败:", error, "error");
+      this.ztoolkit.log("[PDFProcessor] PDF text extraction failed:", error, "error");
       throw error;
     }
   }

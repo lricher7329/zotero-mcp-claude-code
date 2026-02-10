@@ -50,7 +50,7 @@ export class AIInstructionsManager {
   }
 
   /**
-   * Enhance any metadata object with AI guidelines (全局应用)
+   * Enhance any metadata object with AI guidelines (applied globally)
    */
   static enhanceMetadataWithAIGuidelines(metadata: any): any {
     const globalInstructions = this.getGlobalInstructions();
@@ -93,7 +93,7 @@ export class AIInstructionsManager {
    * Apply global protection to any response data
    */
   static protectResponseData(responseData: any): any {
-    // 为所有响应数据添加适度的标记
+    // Add integrity markers to all response data
     return {
       ...responseData,
       _dataIntegrity: 'VERIFIED_FROM_ZOTERO_LIBRARY',

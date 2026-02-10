@@ -41,4 +41,6 @@ See `.claude/skills/release.md` for automated release process.
 ## Code Style
 - Use ztoolkit.log for logging
 - Follow existing patterns in codebase
-- Chinese comments are acceptable
+- Use English for all comments and code documentation
+- Chinese locale files in `addon/locale/zh-CN/` are for UI translations only
+- Chinese stop word lists in NLP code are functional data and should remain

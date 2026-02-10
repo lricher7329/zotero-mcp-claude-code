@@ -82,12 +82,19 @@ The plugin uses Streamable HTTP, which enables real-time bidirectional communica
 
 #### Supported AI Clients
 
-- **Claude Desktop**: Streamable HTTP MCP support
+- **Claude Code**: Native HTTP MCP support (`claude mcp add zotero-mcp http://127.0.0.1:23120/mcp -t http`)
+- **Claude Desktop**: Streamable HTTP via mcp-remote
 - **Cherry Studio**: Streamable HTTP support
-- **Cursor IDE**: Streamable HTTP MCP support
-- **Custom implementations**: Streamable HTTP protocol
+- **Cursor IDE**: Streamable HTTP via mcp-remote
+- **Gemini CLI**: HTTP MCP support
+- **Cline (VS Code)**: Streamable HTTP via mcp-remote
+- **Continue.dev**: Streamable HTTP via mcp-remote
+- **Qwen Code**: HTTP MCP support
+- **Chatbox**: Streamable HTTP via mcp-remote
+- **Trae AI**: Streamable HTTP via mcp-remote
+- **Custom HTTP clients**: Generic Streamable HTTP protocol
 
-For detailed client-specific configuration instructions, see the [Chinese README](./README-zh.md).
+The plugin preferences include a **Client Configuration Generator** that produces ready-to-use JSON config for each client.
 
 ---
 

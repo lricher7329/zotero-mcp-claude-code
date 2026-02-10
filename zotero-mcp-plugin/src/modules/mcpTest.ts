@@ -163,7 +163,7 @@ export async function testMCPIntegration(): Promise<{
 
   return {
     message: "MCP integration test completed",
-    message_zh: "MCP集成测试完成",
+    message_zh: "MCP integration test completed",
     testResults: {
       summary,
       tests,

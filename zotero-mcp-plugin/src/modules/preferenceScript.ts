@@ -9,13 +9,13 @@ export async function registerPrefsScripts(_window: Window) {
   
   addon.data.prefs = { window: _window };
   
-  // 诊断当前偏好设置状态
+  // Diagnose current preference state
   try {
     const currentEnabled = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.mcp.server.enabled", true);
     const currentPort = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.mcp.server.port", true);
     ztoolkit.log(`[PreferenceScript] [DIAGNOSTIC] Current preferences - enabled: ${currentEnabled}, port: ${currentPort}`);
     
-    // 检查是否是环境兼容性问题
+    // Check for environment compatibility issues
     const doc = _window.document;
     ztoolkit.log(`[PreferenceScript] [DIAGNOSTIC] Document available: ${!!doc}`);
     
@@ -23,7 +23,7 @@ export async function registerPrefsScripts(_window: Window) {
       const prefElements = doc.querySelectorAll('[preference]');
       ztoolkit.log(`[PreferenceScript] [DIAGNOSTIC] Found ${prefElements.length} preference-bound elements`);
       
-      // 特别检查服务器启用元素
+      // Specifically check the server enabled element
       const serverEnabledElement = doc.querySelector('#zotero-prefpane-zotero-mcp-plugin-mcp-server-enabled');
       if (serverEnabledElement) {
         ztoolkit.log(`[PreferenceScript] [DIAGNOSTIC] Server enabled element found, initial checked state: ${serverEnabledElement.hasAttribute('checked')}`);
@@ -158,7 +158,7 @@ function bindPrefEvents() {
 
       ztoolkit.log(`[PreferenceScript] Generated config for ${clientType}`);
     } catch (error) {
-      addon.data.prefs!.window.alert(`配置生成失败: ${error}`);
+      addon.data.prefs!.window.alert(`Config generation failed: ${error}`);
       ztoolkit.log(`[PreferenceScript] Config generation failed: ${error}`, "error");
     }
   });
@@ -169,7 +169,7 @@ function bindPrefEvents() {
       if (success) {
         // Show temporary success message
         const originalText = copyConfigButton.textContent;
-        copyConfigButton.textContent = "已复制!";
+        copyConfigButton.textContent = "Copied!";
         copyConfigButton.style.backgroundColor = "#4CAF50";
         setTimeout(() => {
           copyConfigButton.textContent = originalText;
@@ -179,13 +179,13 @@ function bindPrefEvents() {
         // Auto-select text in textarea for manual copy
         configOutput.select();
         configOutput.focus();
-        addon.data.prefs!.window.alert("自动复制失败，已选中文本，请使用 Ctrl+C 手动复制");
+        addon.data.prefs!.window.alert("Auto-copy failed. Text has been selected, please use Ctrl+C to copy manually.");
       }
     } catch (error) {
       // Auto-select text in textarea for manual copy
       configOutput.select();
       configOutput.focus();
-      addon.data.prefs!.window.alert(`复制失败，已选中文本，请使用 Ctrl+C 手动复制\n错误: ${error}`);
+      addon.data.prefs!.window.alert(`Copy failed. Text has been selected, please use Ctrl+C to copy manually.\nError: ${error}`);
       ztoolkit.log(`[PreferenceScript] Copy failed: ${error}`, "error");
     }
   });
@@ -202,7 +202,7 @@ function bindPrefEvents() {
       configGuide.style.fontFamily = "monospace, 'Courier New', Courier";
     } catch (error) {
       ztoolkit.log(`[PreferenceScript] Error displaying guide: ${error}`, "error");
-      configGuide.textContent = "配置指南显示出错，请尝试重新生成配置。";
+      configGuide.textContent = "Error displaying configuration guide. Please try regenerating the config.";
     }
   }
 
@@ -425,7 +425,7 @@ function bindEmbeddingSettings(doc: Document) {
         // Show warning alert
         addon.data.prefs!.window.alert(
           getString("pref-embedding-model-change-warning" as any) ||
-          "模型已更改，已有索引可能不兼容。请测试连接后重建索引。\n\nModel changed. Existing index may be incompatible. Please test connection and rebuild index."
+          "Model changed. Existing index may be incompatible. Please test connection and rebuild index."
         );
       }
     } catch (e) {

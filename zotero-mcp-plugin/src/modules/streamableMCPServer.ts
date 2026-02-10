@@ -23,7 +23,7 @@ export interface MCPRequest {
 }
 
 /**
- * 统一的MCP响应数据结构
+ * Unified MCP response data structure
  */
 interface UnifiedMCPResponse {
   data: any;
@@ -107,7 +107,7 @@ function createUnifiedResponse(
 }
 
 /**
- * 根据工具名确定响应类型
+ * Determine response type based on tool name
  */
 function determineResponseType(toolName: string): 'search' | 'content' | 'annotation' | 'collection' | 'text' {
   if (toolName.includes('search')) return 'search';
@@ -118,7 +118,7 @@ function determineResponseType(toolName: string): 'search' | 'content' | 'annota
 }
 
 /**
- * 获取工具特定的AI客户端指导信息
+ * Get tool-specific AI client guidance
  */
 function getToolSpecificGuidance(toolName: string): any {
   const baseGuidance = {

@@ -245,8 +245,8 @@ export class ClientConfigGenerator {
     },
     {
       name: "custom-http",
-      displayName: "自定义 HTTP 客户端",
-      description: "通用 HTTP MCP 客户端配置",
+      displayName: "Custom HTTP Client",
+      description: "Generic HTTP MCP client configuration",
       configTemplate: (port: number, serverName = "zotero-mcp") => ({
         name: serverName,
         description: "Zotero MCP Server - Research management and citation tools",
