@@ -1,6 +1,6 @@
 {
   "addons": {
-    "zotero-mcp-plugin@autoagent.my": {
+    "zotero-mcp-plugin@lricher7329.github.io": {
       "updates": [
         {
           "version": "1.2.8",
@@ -64,7 +64,7 @@
         },
         {
           "version": "1.3.5",
-          "update_link": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/download/v1.3.5/zotero-mcp-plugin.xpi",
+          "update_link": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/download/v1.3.5/zotero-mcp-for-claude-code.xpi",
           "applications": {
             "zotero": {
               "strict_min_version": "6.999",

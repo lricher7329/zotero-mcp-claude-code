@@ -153,8 +153,8 @@ pref-semantic-index-confirm-rebuild = 这将重建整个索引，确定吗？
 pref-semantic-index-confirm-clear = 这将清空所有索引数据（保留内容缓存），确定吗？
 pref-semantic-index-cleared = 索引已清空
 
-first-install-title = 欢迎使用 Zotero MCP 插件
-first-install-prompt = 感谢安装 Zotero MCP 插件！为了开始使用，您需要为您的 AI 客户端生成配置文件。是否现在打开设置页面来生成配置？
+first-install-title = 欢迎使用 Zotero MCP for Claude Code
+first-install-prompt = 感谢安装 Zotero MCP for Claude Code！为了开始使用，您需要为您的 AI 客户端生成配置文件。是否现在打开设置页面来生成配置？
 first-install-open-prefs = 打开设置
 first-install-later = 稍后配置
 

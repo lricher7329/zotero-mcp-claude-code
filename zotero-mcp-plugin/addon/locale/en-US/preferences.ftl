@@ -153,8 +153,8 @@ pref-semantic-index-confirm-rebuild = This will rebuild the entire index. Are yo
 pref-semantic-index-confirm-clear = This will clear all index data (content cache will be preserved). Are you sure?
 pref-semantic-index-cleared = Index cleared
 
-first-install-title = Welcome to Zotero MCP Plugin
-first-install-prompt = Thank you for installing the Zotero MCP Plugin! To get started, you need to generate configuration files for your AI clients. Would you like to open the settings page now to generate configurations?
+first-install-title = Welcome to Zotero MCP for Claude Code
+first-install-prompt = Thank you for installing Zotero MCP for Claude Code! To get started, you need to generate configuration files for your AI clients. Would you like to open the settings page now to generate configurations?
 first-install-open-prefs = Open Settings
 first-install-later = Configure Later
 

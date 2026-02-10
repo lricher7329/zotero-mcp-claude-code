@@ -1,5 +1,5 @@
 import { BasicExampleFactory } from "./modules/examples";
-import { httpServer } from "./modules/httpServer"; // 使用单例导出
+import { httpServer } from "./modules/httpServer"; // Use singleton export
 import { serverPreferences } from "./modules/serverPreferences";
 import { getString, initLocale } from "./utils/locale";
 import { registerPrefsScripts } from "./modules/preferenceScript";
@@ -401,11 +401,11 @@ async function onStartup() {
   // Check if this is first installation and show config prompt
   checkFirstInstallation();
 
-  // 启动HTTP服务器前增加详细诊断
+  // Add detailed diagnostics before starting HTTP server
   try {
     ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Starting server initialization...`);
     
-    // 记录初始化环境信息
+    // Log initialization environment info
     ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Zotero version: ${Zotero.version || 'unknown'}`);
     try {
       ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Platform: ${(globalThis as any).navigator?.platform || 'unknown'}`);
@@ -423,7 +423,7 @@ async function onStartup() {
     );
     ztoolkit.log(`===MCP=== [hooks.ts] Server enabled: ${enabled} (type: ${typeof enabled})`);
     
-    // 额外检查：直接查询底层偏好设置
+    // Additional check: query underlying preferences directly
     try {
       const directEnabled = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.mcp.server.enabled", true);
       const directPort = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.mcp.server.port", true);
@@ -436,12 +436,12 @@ async function onStartup() {
       ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Error in direct preference check: ${error}`, 'error');
     }
     
-    // 只在服务器启用时启动服务器，但不影响插件的其他功能
+    // Only start server when enabled; don't affect other plugin functionality
     if (enabled === false) {
       ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Server is disabled - skipping server startup`);
       ztoolkit.log(`===MCP=== [hooks.ts] Note: Plugin will continue to initialize (settings panel, etc.)`);
 
-      // 尝试检测是否是首次启动后被重置
+      // Check if this was reset after first startup
       const hasBeenEnabled = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.debug.hasBeenEnabled", false);
       if (!hasBeenEnabled) {
         ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] First time setup - server was never enabled before`);
@@ -449,11 +449,11 @@ async function onStartup() {
         ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Server was previously enabled but is now disabled`);
       }
 
-      // 保存 httpServer 引用供后续使用（即使未启动）
+      // Save httpServer reference for later use (even if not started)
       addon.data.httpServer = httpServer;
     } else {
-      // 服务器已启用，启动服务器
-      // 记录服务器曾经被启用过
+      // Server is enabled, start it
+      // Record that server has been enabled before
       Zotero.Prefs.set("extensions.zotero.zotero-mcp-plugin.debug.hasBeenEnabled", true, true);
 
       if (!port || isNaN(port)) {
@@ -464,7 +464,7 @@ async function onStartup() {
         `===MCP=== [hooks.ts] Starting HTTP server on port ${port}...`,
       );
       httpServer.start(port); // No await, let it run in background
-      addon.data.httpServer = httpServer; // 保存引用以便后续使用
+      addon.data.httpServer = httpServer; // Save reference for later use
       ztoolkit.log(
         `===MCP=== [hooks.ts] HTTP server start initiated on port ${port}`,
       );
@@ -480,20 +480,20 @@ async function onStartup() {
     );
   }
 
-  // 监听偏好设置变化
+  // Listen for preference changes
   serverPreferences.addObserver(async (name) => {
     ztoolkit.log(`[MCP Plugin] Preference changed: ${name}`);
 
     if (name === "extensions.zotero.zotero-mcp-plugin.mcp.server.port" || name === "extensions.zotero.zotero-mcp-plugin.mcp.server.enabled") {
       try {
-        // 先停止服务器
+        // Stop server first
         if (httpServer.isServerRunning()) {
           ztoolkit.log("[MCP Plugin] Stopping HTTP server for restart...");
           httpServer.stop();
           ztoolkit.log("[MCP Plugin] HTTP server stopped");
         }
 
-        // 如果启用了服务器，重新启动
+        // If server is enabled, restart it
         if (serverPreferences.isServerEnabled()) {
           const port = serverPreferences.getPort();
           ztoolkit.log(
@@ -566,7 +566,7 @@ function onShutdown(): void {
   // Clear all pending timeouts immediately
   clearAllPendingTimeouts();
 
-  // 取消注册条目变化监听器
+  // Unregister item change observer
   try {
     unregisterItemNotifier();
     ztoolkit.log("[MCP Plugin] Item notifier unregistered during shutdown");
@@ -575,7 +575,7 @@ function onShutdown(): void {
     ztoolkit.log(`[MCP Plugin] Error unregistering item notifier: ${err.message}`, "error");
   }
 
-  // 注销语义索引状态列
+  // Unregister semantic index status column
   try {
     unregisterSemanticIndexColumn();
     ztoolkit.log("[MCP Plugin] Semantic index column unregistered during shutdown");
@@ -587,7 +587,7 @@ function onShutdown(): void {
     );
   }
 
-  // 停止HTTP服务器
+  // Stop HTTP server
   try {
     if (httpServer.isServerRunning()) {
       httpServer.stop();
@@ -657,17 +657,17 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
     case "load":
       ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Loading preference scripts...`);
       
-      // 诊断设置面板加载环境
+      // Diagnose preference panel loading environment
       try {
         if (data.window) {
           ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Preference window available`);
           
-          // 检查当前偏好设置状态
+          // Check current preference state
           const currentEnabled = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.mcp.server.enabled", true);
           const currentPort = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.mcp.server.port", true);
           ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Current prefs at panel load - enabled: ${currentEnabled}, port: ${currentPort}`);
           
-          // 检查preference元素是否存在
+          // Check if preference elements exist
           trackedSetTimeout(() => {
             try {
               const doc = data.window.document;
@@ -729,11 +729,10 @@ function checkFirstInstallation() {
  */
 function showFirstInstallPrompt() {
   try {
-    // Use bilingual text for first install prompt
-    const title = "欢迎使用 Zotero MCP 插件 / Welcome to Zotero MCP Plugin";
-    const promptText = "感谢安装 Zotero MCP 插件！为了开始使用，您需要为您的 AI 客户端生成配置文件。是否现在打开设置页面来生成配置？\n\nThank you for installing the Zotero MCP Plugin! To get started, you need to generate configuration files for your AI clients. Would you like to open the settings page now to generate configurations?";
-    const openPrefsText = "打开设置 / Open Settings";
-    const laterText = "稍后配置 / Configure Later";
+    const title = "Welcome to Zotero MCP for Claude Code";
+    const promptText = "Thank you for installing Zotero MCP for Claude Code! To get started, you need to generate configuration files for your AI clients. Would you like to open the settings page now to generate configurations?";
+    const openPrefsText = "Open Settings";
+    const laterText = "Configure Later";
     
     // Use a simple window confirm instead of Services.prompt for compatibility
     const message = `${title}\n\n${promptText}\n\n${openPrefsText} (OK) / ${laterText} (Cancel)`;

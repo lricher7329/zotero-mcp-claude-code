@@ -17,7 +17,7 @@ const {
   config: { addonID },
 } = packageJson;
 
-const repoUrl = "https://github.com/cookjohn/zotero-mcp";
+const repoUrl = "https://github.com/lricher7329/zotero-mcp-claude-code";
 
 function generateUpdateJson(isBeta = false) {
   const currentVersion = isBeta ? `${version}-beta.0` : version;
