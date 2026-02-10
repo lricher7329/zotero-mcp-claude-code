@@ -2,6 +2,11 @@
   <html:link rel="localization" href="__addonRef__-preferences.ftl" />
 </linkset>
 
+<html:style>
+  h2[data-collapsed]::before { content: "\25BE "; font-size: 0.8em; }
+  h2[data-collapsed="true"]::before { content: "\25B8 "; }
+</html:style>
+
 <prefpane
   id="__addonRef__-preferences"
   onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', { window });"
