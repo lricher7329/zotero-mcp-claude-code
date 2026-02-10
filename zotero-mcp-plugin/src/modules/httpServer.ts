@@ -860,7 +860,7 @@ export class HttpServer {
     return {
       serverInfo: {
         name: "Zotero MCP for Claude Code",
-        version: "1.6.0",
+        version: "1.6.1",
         description:
           "Model Context Protocol integration for Zotero research management (Claude Code fork)",
         author: "lricher7329",
