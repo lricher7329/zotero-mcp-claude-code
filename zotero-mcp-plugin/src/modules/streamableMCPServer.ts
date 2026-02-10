@@ -26,6 +26,20 @@ import {
   handleUpdateItem,
   handleBatchTag,
   handleBatchAddToCollection,
+  handleUpdateNote,
+  handleTrashItem,
+  handleRenameCollection,
+  handleDeleteCollection,
+  handleRenameTag,
+  handleDeleteTag,
+  handleAddRelatedItem,
+  handleRemoveRelatedItem,
+  handleImportAttachmentURL,
+  handleRestoreFromTrash,
+  handleMoveCollection,
+  handleBatchRemoveFromCollection,
+  handleBatchTrash,
+  handleMoveItemToCollection,
 } from "./writeHandlers";
 
 export interface MCPRequest {
@@ -756,6 +770,41 @@ export class StreamableMCPServer {
               enum: ["relevance", "date", "title", "year"],
               description: "Sort order",
             },
+            creator: {
+              type: "string",
+              description: "Filter by creator/author name",
+            },
+            tags: {
+              type: "string",
+              description: "Filter by tags (comma-separated for multiple)",
+            },
+            tagMode: {
+              type: "string",
+              enum: ["any", "all"],
+              description: "Tag matching mode: any (default) or all",
+            },
+            tagMatch: {
+              type: "string",
+              enum: ["exact", "partial"],
+              description: "Tag matching: exact (default) or partial",
+            },
+            collection: {
+              type: "string",
+              description: "Filter by collection key",
+            },
+            itemType: {
+              type: "string",
+              description:
+                'Filter by item type (e.g., "journalArticle", "book")',
+            },
+            doi: {
+              type: "string",
+              description: "Search by DOI",
+            },
+            isbn: {
+              type: "string",
+              description: "Search by ISBN",
+            },
             limit: {
               type: "number",
               description: "Maximum results to return (overrides mode default)",
@@ -1290,6 +1339,182 @@ export class StreamableMCPServer {
           required: ["action"],
         },
       },
+      // Tier 1: Tag browsing
+      {
+        name: "get_tags",
+        description:
+          "Get all tags in the Zotero library, optionally filtered by name.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            q: {
+              type: "string",
+              description:
+                "Filter tags by name (case-insensitive substring match)",
+            },
+            limit: {
+              type: "number",
+              description: "Maximum tags to return (default: 100)",
+            },
+            offset: {
+              type: "number",
+              description: "Pagination offset (default: 0)",
+            },
+          },
+        },
+      },
+      // Tier 2: Read tools
+      {
+        name: "get_related_items",
+        description:
+          "Get items related to a given item. Returns details of all items linked via Zotero's 'Related' feature.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            itemKey: {
+              type: "string",
+              description: "Item key to get related items for",
+            },
+          },
+          required: ["itemKey"],
+        },
+      },
+      {
+        name: "generate_bibliography",
+        description:
+          "Generate a formatted bibliography/citation list from one or more items using Zotero's citation engine.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            itemKeys: {
+              type: "array",
+              items: { type: "string" },
+              description: "Item keys to include in the bibliography",
+            },
+            style: {
+              type: "string",
+              description:
+                'Citation style URL (default: "http://www.zotero.org/styles/apa"). Common styles: apa, chicago-note-bibliography, vancouver, harvard-cite-them-right',
+            },
+            format: {
+              type: "string",
+              enum: ["html", "text"],
+              description: "Output format (default: text)",
+            },
+          },
+          required: ["itemKeys"],
+        },
+      },
+      {
+        name: "search_by_identifier",
+        description:
+          "Search existing library items by DOI, ISBN, or PMID. Finds items already in your library matching the given identifier.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            doi: { type: "string", description: "DOI to search for" },
+            isbn: { type: "string", description: "ISBN to search for" },
+            pmid: { type: "string", description: "PubMed ID to search for" },
+          },
+          description:
+            "At least one identifier (doi, isbn, or pmid) is required",
+        },
+      },
+      // Tier 3: Library introspection and utility read tools
+      {
+        name: "get_library_stats",
+        description:
+          "Get summary statistics about the Zotero library: item counts by type, tag count, collection count, and trash count.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            includeTrash: {
+              type: "boolean",
+              description: "Include trash count (default: true)",
+            },
+          },
+        },
+      },
+      {
+        name: "get_item_types",
+        description:
+          "List all valid Zotero item types (e.g. journalArticle, book, conferencePaper) with localized names. Useful for discovering what types are available when creating items.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "get_creator_types",
+        description:
+          "List valid creator types (e.g. author, editor, translator). Optionally filter by item type to see only valid creator types for that type.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            itemType: {
+              type: "string",
+              description:
+                'Filter by item type (e.g. "journalArticle"). If omitted, returns all creator types.',
+            },
+          },
+        },
+      },
+      {
+        name: "get_item_type_fields",
+        description:
+          "List all valid fields for a given item type (e.g. title, date, DOI for journalArticle). Useful for discovering what fields are available when creating or updating items.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            itemType: {
+              type: "string",
+              description:
+                'Item type to get fields for (e.g. "journalArticle", "book")',
+            },
+          },
+          required: ["itemType"],
+        },
+      },
+      {
+        name: "get_trash_items",
+        description:
+          "List items currently in the Zotero trash with pagination support.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            limit: {
+              type: "number",
+              description: "Maximum items to return (default: 50)",
+            },
+            offset: {
+              type: "number",
+              description: "Pagination offset (default: 0)",
+            },
+          },
+        },
+      },
+      {
+        name: "get_recently_modified",
+        description:
+          "Get items recently modified within a given number of days. Useful for tracking recent library activity.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            days: {
+              type: "number",
+              description: "Number of days to look back (default: 7)",
+            },
+            limit: {
+              type: "number",
+              description: "Maximum items to return (default: 50)",
+            },
+            offset: {
+              type: "number",
+              description: "Pagination offset (default: 0)",
+            },
+          },
+        },
+      },
     ];
 
     // Conditionally add write tools when write operations are enabled
@@ -1530,6 +1755,277 @@ export class StreamableMCPServer {
             required: ["itemKeys", "collectionKey"],
           },
         },
+        // Tier 1: Additional write tools
+        {
+          name: "update_note",
+          description:
+            "Update the content of an existing note in the Zotero library. Optionally replace its tags.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              noteKey: {
+                type: "string",
+                description: "Key of the note item to update",
+              },
+              content: {
+                type: "string",
+                description: "New note content (supports HTML)",
+              },
+              tags: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                  "Replace all tags on this note (omit to keep existing tags)",
+              },
+            },
+            required: ["noteKey", "content"],
+          },
+        },
+        {
+          name: "trash_item",
+          description:
+            "Move an item to the Zotero trash. The item can be restored from trash in Zotero.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKey: {
+                type: "string",
+                description: "Key of the item to trash",
+              },
+            },
+            required: ["itemKey"],
+          },
+        },
+        {
+          name: "rename_collection",
+          description: "Rename an existing collection in the Zotero library.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              collectionKey: {
+                type: "string",
+                description: "Key of the collection to rename",
+              },
+              newName: {
+                type: "string",
+                description: "New name for the collection",
+              },
+            },
+            required: ["collectionKey", "newName"],
+          },
+        },
+        {
+          name: "delete_collection",
+          description:
+            "Permanently delete a collection. Items in the collection are NOT deleted by default.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              collectionKey: {
+                type: "string",
+                description: "Key of the collection to delete",
+              },
+              deleteItems: {
+                type: "boolean",
+                description:
+                  "Also delete items in the collection (default: false). Use with caution.",
+              },
+            },
+            required: ["collectionKey"],
+          },
+        },
+        {
+          name: "rename_tag",
+          description:
+            "Rename a tag across all items in the library. All items with the old tag will be updated.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              oldName: {
+                type: "string",
+                description: "Current tag name",
+              },
+              newName: {
+                type: "string",
+                description: "New tag name",
+              },
+            },
+            required: ["oldName", "newName"],
+          },
+        },
+        {
+          name: "delete_tag",
+          description:
+            "Delete a tag from the entire library. Removes it from all items.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              tagName: {
+                type: "string",
+                description: "Tag name to delete",
+              },
+            },
+            required: ["tagName"],
+          },
+        },
+        // Tier 2: Relation and attachment write tools
+        {
+          name: "add_related_item",
+          description:
+            "Create a bidirectional 'Related' link between two items in the Zotero library.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKey: {
+                type: "string",
+                description: "First item key",
+              },
+              relatedItemKey: {
+                type: "string",
+                description: "Second item key to relate to",
+              },
+            },
+            required: ["itemKey", "relatedItemKey"],
+          },
+        },
+        {
+          name: "remove_related_item",
+          description:
+            "Remove the bidirectional 'Related' link between two items in the Zotero library.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKey: {
+                type: "string",
+                description: "First item key",
+              },
+              relatedItemKey: {
+                type: "string",
+                description: "Second item key to unrelate",
+              },
+            },
+            required: ["itemKey", "relatedItemKey"],
+          },
+        },
+        {
+          name: "import_attachment_url",
+          description:
+            "Import a file from a URL as an attachment. Can be standalone or attached to a parent item.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              url: {
+                type: "string",
+                description: "URL to import the attachment from",
+              },
+              parentItemKey: {
+                type: "string",
+                description:
+                  "Parent item key to attach to (omit for standalone attachment)",
+              },
+              title: {
+                type: "string",
+                description: "Title for the attachment (optional)",
+              },
+            },
+            required: ["url"],
+          },
+        },
+        // Tier 3: Trash, collection, and batch write tools
+        {
+          name: "restore_from_trash",
+          description:
+            "Restore a single item from the Zotero trash back to the library.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKey: {
+                type: "string",
+                description: "Key of the trashed item to restore",
+              },
+            },
+            required: ["itemKey"],
+          },
+        },
+        {
+          name: "move_collection",
+          description:
+            "Move a collection to a new parent collection, or to the library root.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              collectionKey: {
+                type: "string",
+                description: "Key of the collection to move",
+              },
+              newParentKey: {
+                type: "string",
+                description:
+                  "Key of the new parent collection (omit or null to move to root)",
+              },
+            },
+            required: ["collectionKey"],
+          },
+        },
+        {
+          name: "batch_remove_from_collection",
+          description:
+            "Remove multiple items from a collection at once (max 100 items per call). Items are not deleted.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKeys: {
+                type: "array",
+                items: { type: "string" },
+                description: "Item keys to remove from the collection",
+              },
+              collectionKey: {
+                type: "string",
+                description: "Collection key to remove items from",
+              },
+            },
+            required: ["itemKeys", "collectionKey"],
+          },
+        },
+        {
+          name: "batch_trash",
+          description:
+            "Move multiple items to the trash at once (max 100 items per call).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKeys: {
+                type: "array",
+                items: { type: "string" },
+                description: "Item keys to move to trash",
+              },
+            },
+            required: ["itemKeys"],
+          },
+        },
+        {
+          name: "move_item_to_collection",
+          description:
+            "Atomically move an item from one collection to another (removes from source, adds to destination).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKey: {
+                type: "string",
+                description: "Key of the item to move",
+              },
+              fromCollectionKey: {
+                type: "string",
+                description: "Source collection key",
+              },
+              toCollectionKey: {
+                type: "string",
+                description: "Destination collection key",
+              },
+            },
+            required: ["itemKey", "fromCollectionKey", "toCollectionKey"],
+          },
+        },
       );
     }
 
@@ -1649,6 +2145,35 @@ export class StreamableMCPServer {
           result = await this.callFulltextDatabase(args);
           break;
 
+        // Tier 1: Tag browsing
+        case "get_tags":
+          result = await this.callGetTags(args || {});
+          break;
+
+        // Tier 2: Read tools
+        case "get_related_items":
+          if (!args?.itemKey) {
+            throw new Error("itemKey is required");
+          }
+          result = await this.callGetRelatedItems(args);
+          break;
+
+        case "generate_bibliography":
+          if (!args?.itemKeys || args.itemKeys.length === 0) {
+            throw new Error("itemKeys is required and must not be empty");
+          }
+          result = await this.callGenerateBibliography(args);
+          break;
+
+        case "search_by_identifier":
+          if (!args?.doi && !args?.isbn && !args?.pmid) {
+            throw new Error(
+              "At least one identifier (doi, isbn, or pmid) is required",
+            );
+          }
+          result = await this.callSearchByIdentifier(args);
+          break;
+
         // Write Tools
         case "add_note":
           result = await handleAddNote(args);
@@ -1688,6 +2213,93 @@ export class StreamableMCPServer {
 
         case "batch_add_to_collection":
           result = await handleBatchAddToCollection(args);
+          break;
+
+        // Tier 1: Additional write tools
+        case "update_note":
+          result = await handleUpdateNote(args);
+          break;
+
+        case "trash_item":
+          result = await handleTrashItem(args);
+          break;
+
+        case "rename_collection":
+          result = await handleRenameCollection(args);
+          break;
+
+        case "delete_collection":
+          result = await handleDeleteCollection(args);
+          break;
+
+        case "rename_tag":
+          result = await handleRenameTag(args);
+          break;
+
+        case "delete_tag":
+          result = await handleDeleteTag(args);
+          break;
+
+        // Tier 2: Relation and attachment write tools
+        case "add_related_item":
+          result = await handleAddRelatedItem(args);
+          break;
+
+        case "remove_related_item":
+          result = await handleRemoveRelatedItem(args);
+          break;
+
+        case "import_attachment_url":
+          result = await handleImportAttachmentURL(args);
+          break;
+
+        // Tier 3: Read tools
+        case "get_library_stats":
+          result = await this.callGetLibraryStats(args || {});
+          break;
+
+        case "get_item_types":
+          result = await this.callGetItemTypes();
+          break;
+
+        case "get_creator_types":
+          result = await this.callGetCreatorTypes(args || {});
+          break;
+
+        case "get_item_type_fields":
+          if (!args?.itemType) {
+            throw new Error("itemType is required");
+          }
+          result = await this.callGetItemTypeFields(args);
+          break;
+
+        case "get_trash_items":
+          result = await this.callGetTrashItems(args || {});
+          break;
+
+        case "get_recently_modified":
+          result = await this.callGetRecentlyModified(args || {});
+          break;
+
+        // Tier 3: Write tools
+        case "restore_from_trash":
+          result = await handleRestoreFromTrash(args);
+          break;
+
+        case "move_collection":
+          result = await handleMoveCollection(args);
+          break;
+
+        case "batch_remove_from_collection":
+          result = await handleBatchRemoveFromCollection(args);
+          break;
+
+        case "batch_trash":
+          result = await handleBatchTrash(args);
+          break;
+
+        case "move_item_to_collection":
+          result = await handleMoveItemToCollection(args);
           break;
 
         default:
@@ -2252,6 +2864,437 @@ export class StreamableMCPServer {
         "fulltext_database",
       );
     }
+  }
+
+  // --- Tier 1 & 2: Inline read tool methods ---
+
+  private async callGetTags(args: any): Promise<any> {
+    const libraryID = Zotero.Libraries.userLibraryID;
+    let tags: Array<{ tag: string; type?: number }> =
+      await Zotero.Tags.getAll(libraryID);
+
+    // Filter by query if provided
+    if (args.q) {
+      const query = args.q.toLowerCase();
+      tags = tags.filter((t) => t.tag.toLowerCase().includes(query));
+    }
+
+    const total = tags.length;
+    const offset = args.offset || 0;
+    const limit = args.limit || 100;
+    const paginated = tags.slice(offset, offset + limit);
+
+    return applyGlobalAIInstructions(
+      {
+        tags: paginated.map((t) => ({
+          name: t.tag,
+          type: t.type ?? 0,
+        })),
+        total,
+        offset,
+        limit,
+        hasMore: offset + limit < total,
+      },
+      "get_tags",
+    );
+  }
+
+  private async callGetRelatedItems(args: any): Promise<any> {
+    const libraryID = Zotero.Libraries.userLibraryID;
+    const item = Zotero.Items.getByLibraryAndKey(libraryID, args.itemKey);
+    if (!item) {
+      throw new Error(`Item with key "${args.itemKey}" not found`);
+    }
+
+    const relatedKeys: string[] = item.relatedItems || [];
+    const relatedItems: any[] = [];
+
+    for (const key of relatedKeys) {
+      const related = Zotero.Items.getByLibraryAndKey(libraryID, key);
+      if (related) {
+        relatedItems.push({
+          key: related.key,
+          itemType: related.itemType,
+          title: related.getField("title") || "",
+          creators:
+            related.getCreators?.()?.map((c: any) => ({
+              firstName: c.firstName,
+              lastName: c.lastName,
+              name: c.name,
+              creatorType: c.creatorType,
+            })) || [],
+          date: related.getField("date") || "",
+          DOI: related.getField("DOI") || "",
+        });
+      }
+    }
+
+    return applyGlobalAIInstructions(
+      {
+        itemKey: args.itemKey,
+        relatedItems,
+        count: relatedItems.length,
+      },
+      "get_related_items",
+    );
+  }
+
+  private async callGenerateBibliography(args: any): Promise<any> {
+    const libraryID = Zotero.Libraries.userLibraryID;
+    const items: any[] = [];
+
+    for (const key of args.itemKeys) {
+      const item = Zotero.Items.getByLibraryAndKey(libraryID, key);
+      if (!item) {
+        throw new Error(`Item with key "${key}" not found`);
+      }
+      items.push(item);
+    }
+
+    // Build citation style URL
+    let style = args.style || "http://www.zotero.org/styles/apa";
+    if (!style.startsWith("http")) {
+      style = `http://www.zotero.org/styles/${style}`;
+    }
+
+    const format = `bibliography=${style}`;
+    const result = Zotero.QuickCopy.getContentFromItems(items, format);
+
+    const outputFormat = args.format || "text";
+
+    return applyGlobalAIInstructions(
+      {
+        bibliography: outputFormat === "html" ? result.html : result.text,
+        format: outputFormat,
+        style,
+        itemCount: items.length,
+      },
+      "generate_bibliography",
+    );
+  }
+
+  private async callSearchByIdentifier(args: any): Promise<any> {
+    const libraryID = Zotero.Libraries.userLibraryID;
+    const search = new Zotero.Search();
+    (search as any).libraryID = libraryID;
+
+    let identifierType = "";
+    let identifierValue = "";
+
+    if (args.doi) {
+      search.addCondition("DOI", "is", args.doi);
+      identifierType = "DOI";
+      identifierValue = args.doi;
+    } else if (args.isbn) {
+      search.addCondition("ISBN", "is", args.isbn);
+      identifierType = "ISBN";
+      identifierValue = args.isbn;
+    } else if (args.pmid) {
+      // PMID is stored in the Extra field
+      search.addCondition("extra", "contains", `PMID: ${args.pmid}`);
+      identifierType = "PMID";
+      identifierValue = args.pmid;
+    }
+
+    const ids = await search.search();
+    const items: any[] = [];
+
+    if (ids && ids.length > 0) {
+      const zoteroItems = await Zotero.Items.getAsync(ids);
+      for (const item of zoteroItems) {
+        items.push({
+          key: item.key,
+          itemType: item.itemType,
+          title: item.getField("title") || "",
+          creators:
+            item.getCreators?.()?.map((c: any) => ({
+              firstName: c.firstName,
+              lastName: c.lastName,
+              name: c.name,
+              creatorType: c.creatorType,
+            })) || [],
+          date: item.getField("date") || "",
+          DOI: item.getField("DOI") || "",
+          ISBN: item.getField("ISBN") || "",
+          abstractNote: item.getField("abstractNote") || "",
+        });
+      }
+    }
+
+    return applyGlobalAIInstructions(
+      {
+        identifier: { type: identifierType, value: identifierValue },
+        items,
+        count: items.length,
+      },
+      "search_by_identifier",
+    );
+  }
+
+  // --- Tier 3: Inline read tool methods ---
+
+  private async callGetLibraryStats(args: any): Promise<any> {
+    const libraryID = Zotero.Libraries.userLibraryID;
+    const includeTrash = args.includeTrash !== false;
+
+    // getAll returns number[] (item IDs) at runtime despite TS types
+    const allItems = (await Zotero.Items.getAll(
+      libraryID,
+      false,
+      false,
+    )) as any as number[];
+    const topLevel = (await Zotero.Items.getAll(
+      libraryID,
+      true,
+      false,
+    )) as any as number[];
+
+    // Count items by type
+    const byType: Record<string, number> = {};
+    if (allItems && allItems.length > 0) {
+      const items: any[] = (await Zotero.Items.getAsync(
+        allItems as any,
+      )) as any;
+      for (const item of items) {
+        const t = item.itemType;
+        byType[t] = (byType[t] || 0) + 1;
+      }
+    }
+
+    const tags = await Zotero.Tags.getAll(libraryID);
+    const collections = Zotero.Collections.getByLibrary(libraryID);
+
+    let trashCount = 0;
+    if (includeTrash) {
+      const trashedIDs = (await Zotero.Items.getDeleted(
+        libraryID,
+        true,
+      )) as any as number[];
+      trashCount = trashedIDs ? trashedIDs.length : 0;
+    }
+
+    return applyGlobalAIInstructions(
+      {
+        totalItems: allItems ? allItems.length : 0,
+        topLevelItems: topLevel ? topLevel.length : 0,
+        byType,
+        tagCount: tags ? tags.length : 0,
+        collectionCount: collections ? collections.length : 0,
+        trashCount,
+      },
+      "get_library_stats",
+    );
+  }
+
+  private async callGetItemTypes(): Promise<any> {
+    const types = Zotero.ItemTypes.getTypes();
+    const primaryTypes = Zotero.ItemTypes.getPrimaryTypes();
+    const primaryIDs = new Set(primaryTypes.map((t: any) => t.id));
+
+    const mapped = types.map((t: any) => ({
+      id: t.id,
+      name: t.name,
+      localized: Zotero.ItemTypes.getLocalizedString(t.id),
+      isPrimary: primaryIDs.has(t.id),
+    }));
+
+    return applyGlobalAIInstructions(
+      {
+        types: mapped,
+        total: mapped.length,
+        primaryCount: primaryTypes.length,
+      },
+      "get_item_types",
+    );
+  }
+
+  private async callGetCreatorTypes(args: any): Promise<any> {
+    let types: any[];
+
+    if (args.itemType) {
+      const itemTypeID = Zotero.ItemTypes.getID(args.itemType);
+      if (!itemTypeID) {
+        throw new Error(`Unknown item type: "${args.itemType}"`);
+      }
+      types = Zotero.CreatorTypes.getTypesForItemType(itemTypeID);
+    } else {
+      // Return all known creator types
+      types = [];
+      const allItemTypes = Zotero.ItemTypes.getTypes();
+      const seen = new Set<number>();
+      for (const itemType of allItemTypes) {
+        const ctypes = Zotero.CreatorTypes.getTypesForItemType(itemType.id);
+        for (const ct of ctypes) {
+          if (!seen.has(ct.id)) {
+            seen.add(ct.id);
+            types.push(ct);
+          }
+        }
+      }
+    }
+
+    const mapped = types.map((t: any) => ({
+      id: t.id,
+      name: t.name,
+      localized: Zotero.CreatorTypes.getLocalizedString(t.name),
+    }));
+
+    return applyGlobalAIInstructions(
+      {
+        creatorTypes: mapped,
+        total: mapped.length,
+        filteredByItemType: args.itemType || null,
+      },
+      "get_creator_types",
+    );
+  }
+
+  private async callGetItemTypeFields(args: any): Promise<any> {
+    const itemTypeID = Zotero.ItemTypes.getID(args.itemType);
+    if (!itemTypeID) {
+      throw new Error(`Unknown item type: "${args.itemType}"`);
+    }
+
+    const fieldIDs = Zotero.ItemFields.getItemTypeFields(itemTypeID);
+
+    const fields = fieldIDs.map((fieldID: number) => ({
+      id: fieldID,
+      name: Zotero.ItemFields.getName(fieldID),
+      localized: Zotero.ItemFields.getLocalizedString(fieldID),
+    }));
+
+    return applyGlobalAIInstructions(
+      {
+        itemType: args.itemType,
+        fields,
+        total: fields.length,
+      },
+      "get_item_type_fields",
+    );
+  }
+
+  private async callGetTrashItems(args: any): Promise<any> {
+    const libraryID = Zotero.Libraries.userLibraryID;
+    const limit = args.limit || 50;
+    const offset = args.offset || 0;
+
+    // getDeleted returns number[] (item IDs) at runtime
+    const trashedIDs = (await Zotero.Items.getDeleted(
+      libraryID,
+      true,
+    )) as any as number[];
+    if (!trashedIDs || trashedIDs.length === 0) {
+      return applyGlobalAIInstructions(
+        {
+          items: [],
+          total: 0,
+          offset,
+          limit,
+          hasMore: false,
+        },
+        "get_trash_items",
+      );
+    }
+
+    const allTrashed: any[] = (await Zotero.Items.getAsync(
+      trashedIDs as any,
+    )) as any;
+    const total = allTrashed.length;
+    const paginated = allTrashed.slice(offset, offset + limit);
+
+    const items = paginated.map((item: any) => ({
+      key: item.key,
+      itemType: item.itemType,
+      title: item.getField("title") || "",
+      creators:
+        item.getCreators?.()?.map((c: any) => ({
+          firstName: c.firstName,
+          lastName: c.lastName,
+          name: c.name,
+          creatorType: c.creatorType,
+        })) || [],
+      dateModified: item.dateModified || "",
+      dateAdded: item.dateAdded || "",
+    }));
+
+    return applyGlobalAIInstructions(
+      {
+        items,
+        total,
+        offset,
+        limit,
+        hasMore: offset + limit < total,
+      },
+      "get_trash_items",
+    );
+  }
+
+  private async callGetRecentlyModified(args: any): Promise<any> {
+    const libraryID = Zotero.Libraries.userLibraryID;
+    const days = args.days || 7;
+    const limit = args.limit || 50;
+    const offset = args.offset || 0;
+
+    const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+    // getAll returns number[] (item IDs) at runtime
+    const allIDs = (await Zotero.Items.getAll(
+      libraryID,
+      true,
+      false,
+    )) as any as number[];
+
+    if (!allIDs || allIDs.length === 0) {
+      return applyGlobalAIInstructions(
+        {
+          items: [],
+          total: 0,
+          days,
+          offset,
+          limit,
+          hasMore: false,
+        },
+        "get_recently_modified",
+      );
+    }
+
+    const allItems: any[] = (await Zotero.Items.getAsync(allIDs as any)) as any;
+    const recent = allItems
+      .filter((item: any) => item.dateModified >= cutoff)
+      .sort(
+        (a: any, b: any) =>
+          new Date(b.dateModified).getTime() -
+          new Date(a.dateModified).getTime(),
+      );
+
+    const total = recent.length;
+    const paginated = recent.slice(offset, offset + limit);
+
+    const items = paginated.map((item: any) => ({
+      key: item.key,
+      itemType: item.itemType,
+      title: item.getField("title") || "",
+      creators:
+        item.getCreators?.()?.map((c: any) => ({
+          firstName: c.firstName,
+          lastName: c.lastName,
+          name: c.name,
+          creatorType: c.creatorType,
+        })) || [],
+      dateModified: item.dateModified || "",
+    }));
+
+    return applyGlobalAIInstructions(
+      {
+        items,
+        total,
+        days,
+        cutoffDate: cutoff,
+        offset,
+        limit,
+        hasMore: offset + limit < total,
+      },
+      "get_recently_modified",
+    );
   }
 
   /**

@@ -704,3 +704,655 @@ export async function handleBatchAddToCollection(args: {
     timestamp: new Date().toISOString(),
   };
 }
+
+// --- Tier 1: Additional Write Handlers ---
+
+export async function handleUpdateNote(args: {
+  noteKey: string;
+  content: string;
+  tags?: string[];
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.noteKey) {
+    throw new Error("noteKey is required");
+  }
+  if (!args.content || args.content.trim().length === 0) {
+    throw new Error("Note content cannot be empty");
+  }
+
+  const item = resolveItem(args.noteKey);
+
+  if (!item.isNote()) {
+    throw new Error(
+      `Item "${args.noteKey}" is not a note (type: ${item.itemType})`,
+    );
+  }
+
+  item.setNote(args.content);
+
+  if (args.tags !== undefined) {
+    // Replace all tags
+    const existingTags = item.getTags();
+    for (const tag of existingTags) {
+      item.removeTag(tag.tag);
+    }
+    for (const tag of args.tags) {
+      const trimmed = tag.trim();
+      if (trimmed) {
+        item.addTag(trimmed, 0);
+      }
+    }
+  }
+
+  await item.saveTx();
+
+  ztoolkit.log(
+    `[WriteHandlers] Updated note ${args.noteKey} (${args.content.length} chars)`,
+  );
+
+  return {
+    success: true,
+    action: "update_note",
+    itemKey: args.noteKey,
+    details: {
+      contentLength: args.content.length,
+      tags: args.tags || null,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function handleTrashItem(args: {
+  itemKey: string;
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.itemKey) {
+    throw new Error("itemKey is required");
+  }
+
+  const item = resolveItem(args.itemKey);
+  const title = item.getField("title") || item.key;
+  const itemType = item.itemType;
+
+  await Zotero.Items.trashTx(item.id);
+
+  ztoolkit.log(`[WriteHandlers] Trashed item ${args.itemKey} ("${title}")`);
+
+  return {
+    success: true,
+    action: "trash_item",
+    itemKey: args.itemKey,
+    details: {
+      title,
+      itemType,
+      trashedAt: new Date().toISOString(),
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function handleRenameCollection(args: {
+  collectionKey: string;
+  newName: string;
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.collectionKey) {
+    throw new Error("collectionKey is required");
+  }
+  if (!args.newName || args.newName.trim().length === 0) {
+    throw new Error("newName cannot be empty");
+  }
+
+  const collection = resolveCollection(args.collectionKey);
+  const oldName = collection.name;
+
+  collection.name = args.newName.trim();
+  await collection.saveTx();
+
+  ztoolkit.log(
+    `[WriteHandlers] Renamed collection "${oldName}" → "${collection.name}"`,
+  );
+
+  return {
+    success: true,
+    action: "rename_collection",
+    itemKey: args.collectionKey,
+    details: {
+      collectionKey: args.collectionKey,
+      oldName,
+      newName: collection.name,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function handleDeleteCollection(args: {
+  collectionKey: string;
+  deleteItems?: boolean;
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.collectionKey) {
+    throw new Error("collectionKey is required");
+  }
+
+  const collection = resolveCollection(args.collectionKey);
+  const name = collection.name;
+  const deleteItems = args.deleteItems || false;
+
+  await collection.eraseTx({ deleteItems });
+
+  ztoolkit.log(
+    `[WriteHandlers] Deleted collection "${name}" (deleteItems: ${deleteItems})`,
+  );
+
+  return {
+    success: true,
+    action: "delete_collection",
+    itemKey: args.collectionKey,
+    details: {
+      collectionKey: args.collectionKey,
+      name,
+      deleteItems,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function handleRenameTag(args: {
+  oldName: string;
+  newName: string;
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.oldName || args.oldName.trim().length === 0) {
+    throw new Error("oldName is required");
+  }
+  if (!args.newName || args.newName.trim().length === 0) {
+    throw new Error("newName is required");
+  }
+
+  const libraryID = Zotero.Libraries.userLibraryID;
+  const oldName = args.oldName.trim();
+  const newName = args.newName.trim();
+
+  await Zotero.Tags.rename(libraryID, oldName, newName);
+
+  ztoolkit.log(`[WriteHandlers] Renamed tag "${oldName}" → "${newName}"`);
+
+  return {
+    success: true,
+    action: "rename_tag",
+    itemKey: oldName,
+    details: {
+      oldName,
+      newName,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function handleDeleteTag(args: {
+  tagName: string;
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.tagName || args.tagName.trim().length === 0) {
+    throw new Error("tagName is required");
+  }
+
+  const libraryID = Zotero.Libraries.userLibraryID;
+  const tagName = args.tagName.trim();
+
+  // Look up tag ID
+  const tagID = Zotero.Tags.getID(tagName);
+  if (!tagID) {
+    throw new Error(`Tag "${tagName}" not found in library`);
+  }
+
+  await Zotero.Tags.removeFromLibrary(libraryID, [tagID]);
+
+  ztoolkit.log(`[WriteHandlers] Deleted tag "${tagName}" from library`);
+
+  return {
+    success: true,
+    action: "delete_tag",
+    itemKey: tagName,
+    details: {
+      tagName,
+      tagID,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+// --- Tier 2: Extended Write Handlers ---
+
+export async function handleAddRelatedItem(args: {
+  itemKey: string;
+  relatedItemKey: string;
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.itemKey) {
+    throw new Error("itemKey is required");
+  }
+  if (!args.relatedItemKey) {
+    throw new Error("relatedItemKey is required");
+  }
+  if (args.itemKey === args.relatedItemKey) {
+    throw new Error("Cannot relate an item to itself");
+  }
+
+  const item = resolveItem(args.itemKey);
+  const relatedItem = resolveItem(args.relatedItemKey);
+
+  // Add bidirectional relation
+  item.addRelatedItem(relatedItem);
+  await item.saveTx();
+
+  relatedItem.addRelatedItem(item);
+  await relatedItem.saveTx();
+
+  ztoolkit.log(
+    `[WriteHandlers] Related items ${args.itemKey} ↔ ${args.relatedItemKey}`,
+  );
+
+  return {
+    success: true,
+    action: "add_related_item",
+    itemKey: args.itemKey,
+    details: {
+      itemKey: args.itemKey,
+      relatedItemKey: args.relatedItemKey,
+      bidirectional: true,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function handleRemoveRelatedItem(args: {
+  itemKey: string;
+  relatedItemKey: string;
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.itemKey) {
+    throw new Error("itemKey is required");
+  }
+  if (!args.relatedItemKey) {
+    throw new Error("relatedItemKey is required");
+  }
+
+  const item = resolveItem(args.itemKey);
+  const relatedItem = resolveItem(args.relatedItemKey);
+
+  // Remove bidirectional relation
+  item.removeRelatedItem(relatedItem);
+  await item.saveTx();
+
+  relatedItem.removeRelatedItem(item);
+  await relatedItem.saveTx();
+
+  ztoolkit.log(
+    `[WriteHandlers] Unrelated items ${args.itemKey} ↔ ${args.relatedItemKey}`,
+  );
+
+  return {
+    success: true,
+    action: "remove_related_item",
+    itemKey: args.itemKey,
+    details: {
+      itemKey: args.itemKey,
+      relatedItemKey: args.relatedItemKey,
+      bidirectional: true,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function handleImportAttachmentURL(args: {
+  url: string;
+  parentItemKey?: string;
+  title?: string;
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.url) {
+    throw new Error("url is required");
+  }
+
+  const libraryID = Zotero.Libraries.userLibraryID;
+  let parentItemID: number | undefined;
+
+  if (args.parentItemKey) {
+    const parentItem = resolveItem(args.parentItemKey);
+    parentItemID = parentItem.id;
+  }
+
+  const importOptions: any = {
+    libraryID,
+    url: args.url,
+  };
+  if (parentItemID !== undefined) {
+    importOptions.parentItemID = parentItemID;
+  }
+  if (args.title) {
+    importOptions.title = args.title;
+  }
+
+  const attachment = await Zotero.Attachments.importFromURL(importOptions);
+
+  ztoolkit.log(
+    `[WriteHandlers] Imported attachment from URL: ${args.url} (key: ${attachment.key})`,
+  );
+
+  return {
+    success: true,
+    action: "import_attachment_url",
+    itemKey: attachment.key,
+    details: {
+      attachmentKey: attachment.key,
+      url: args.url,
+      parentItemKey: args.parentItemKey || null,
+      title: args.title || null,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+// --- Tier 3: Additional Write Handlers ---
+
+export async function handleRestoreFromTrash(args: {
+  itemKey: string;
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.itemKey) {
+    throw new Error("itemKey is required");
+  }
+
+  const libraryID = Zotero.Libraries.userLibraryID;
+
+  // Try normal resolution first (trashed items may still resolve)
+  let item = Zotero.Items.getByLibraryAndKey(libraryID, args.itemKey);
+
+  // If not found via getByLibraryAndKey, search among deleted items
+  if (!item) {
+    const deletedIDs = await Zotero.Items.getDeleted(libraryID, true);
+    if (deletedIDs && deletedIDs.length > 0) {
+      const deletedItems = await Zotero.Items.getAsync(deletedIDs);
+      item = deletedItems.find((i: any) => i.key === args.itemKey);
+    }
+  }
+
+  if (!item) {
+    throw new ItemNotFoundError(args.itemKey);
+  }
+
+  if (!item.deleted) {
+    return {
+      success: true,
+      action: "restore_from_trash",
+      itemKey: args.itemKey,
+      details: {
+        alreadyRestored: true,
+        title: item.getField("title") || item.key,
+      },
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  item.deleted = false;
+  await item.saveTx();
+
+  const title = item.getField("title") || item.key;
+
+  ztoolkit.log(
+    `[WriteHandlers] Restored item ${args.itemKey} ("${title}") from trash`,
+  );
+
+  return {
+    success: true,
+    action: "restore_from_trash",
+    itemKey: args.itemKey,
+    details: {
+      title,
+      itemType: item.itemType,
+      restoredAt: new Date().toISOString(),
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function handleMoveCollection(args: {
+  collectionKey: string;
+  newParentKey?: string;
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.collectionKey) {
+    throw new Error("collectionKey is required");
+  }
+
+  const collection = resolveCollection(args.collectionKey);
+  const oldParentKey = collection.parentKey || null;
+
+  if (args.newParentKey) {
+    const newParent = resolveCollection(args.newParentKey);
+
+    // Validate no circular parent: walk up from newParent to ensure we don't hit collection
+    let current = newParent;
+    while (current.parentKey) {
+      if (current.parentKey === args.collectionKey) {
+        throw new Error(
+          "Cannot move collection: would create circular parent hierarchy",
+        );
+      }
+      current = Zotero.Collections.getByLibraryAndKey(
+        Zotero.Libraries.userLibraryID,
+        current.parentKey,
+      );
+      if (!current) break;
+    }
+
+    collection.parentKey = args.newParentKey;
+  } else {
+    // Move to root
+    collection.parentKey = false;
+  }
+
+  await collection.saveTx();
+
+  ztoolkit.log(
+    `[WriteHandlers] Moved collection "${collection.name}" (parent: ${oldParentKey} → ${args.newParentKey || "root"})`,
+  );
+
+  return {
+    success: true,
+    action: "move_collection",
+    itemKey: args.collectionKey,
+    details: {
+      collectionKey: args.collectionKey,
+      name: collection.name,
+      oldParentKey,
+      newParentKey: args.newParentKey || null,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function handleBatchRemoveFromCollection(args: {
+  itemKeys: string[];
+  collectionKey: string;
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.itemKeys || args.itemKeys.length === 0) {
+    throw new Error("At least one itemKey is required");
+  }
+  if (!args.collectionKey) {
+    throw new Error("collectionKey is required");
+  }
+  if (args.itemKeys.length > BATCH_LIMIT) {
+    throw new BatchLimitError(BATCH_LIMIT);
+  }
+
+  const collection = resolveCollection(args.collectionKey);
+
+  const results: Array<{
+    itemKey: string;
+    removed: boolean;
+    wasInCollection: boolean;
+    error?: string;
+  }> = [];
+
+  await Zotero.DB.executeTransaction(async () => {
+    for (const itemKey of args.itemKeys) {
+      try {
+        const item = resolveItem(itemKey);
+
+        if (!collection.hasItem(item.id)) {
+          results.push({
+            itemKey,
+            removed: false,
+            wasInCollection: false,
+          });
+        } else {
+          item.removeFromCollection(collection.key);
+          await item.save({ skipDateModifiedUpdate: true });
+          results.push({
+            itemKey,
+            removed: true,
+            wasInCollection: true,
+          });
+        }
+      } catch (e) {
+        results.push({
+          itemKey,
+          removed: false,
+          wasInCollection: false,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+  });
+
+  const totalRemoved = results.filter((r) => r.removed).length;
+
+  ztoolkit.log(
+    `[WriteHandlers] Batch removed ${totalRemoved}/${args.itemKeys.length} items from "${collection.name}"`,
+  );
+
+  return {
+    success: totalRemoved > 0 || results.every((r) => !r.error),
+    action: "batch_remove_from_collection",
+    itemKey: args.itemKeys[0],
+    details: {
+      collectionKey: args.collectionKey,
+      collectionName: collection.name,
+      totalItems: args.itemKeys.length,
+      totalRemoved,
+      results,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function handleBatchTrash(args: {
+  itemKeys: string[];
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.itemKeys || args.itemKeys.length === 0) {
+    throw new Error("At least one itemKey is required");
+  }
+  if (args.itemKeys.length > BATCH_LIMIT) {
+    throw new BatchLimitError(BATCH_LIMIT);
+  }
+
+  const libraryID = Zotero.Libraries.userLibraryID;
+  const ids: number[] = [];
+  const errors: Array<{ itemKey: string; error: string }> = [];
+
+  for (const itemKey of args.itemKeys) {
+    const item = Zotero.Items.getByLibraryAndKey(libraryID, itemKey);
+    if (!item) {
+      errors.push({ itemKey, error: `Item not found` });
+    } else {
+      ids.push(item.id);
+    }
+  }
+
+  if (ids.length > 0) {
+    await Zotero.Items.trashTx(ids);
+  }
+
+  ztoolkit.log(
+    `[WriteHandlers] Batch trashed ${ids.length}/${args.itemKeys.length} items (errors: ${errors.length})`,
+  );
+
+  return {
+    success: ids.length > 0,
+    action: "batch_trash",
+    itemKey: args.itemKeys[0],
+    details: {
+      totalRequested: args.itemKeys.length,
+      totalTrashed: ids.length,
+      errors: errors.length > 0 ? errors : undefined,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function handleMoveItemToCollection(args: {
+  itemKey: string;
+  fromCollectionKey: string;
+  toCollectionKey: string;
+}): Promise<MutationResult> {
+  assertWriteEnabled();
+
+  if (!args.itemKey) {
+    throw new Error("itemKey is required");
+  }
+  if (!args.fromCollectionKey) {
+    throw new Error("fromCollectionKey is required");
+  }
+  if (!args.toCollectionKey) {
+    throw new Error("toCollectionKey is required");
+  }
+
+  const item = resolveItem(args.itemKey);
+  const fromCollection = resolveCollection(args.fromCollectionKey);
+  const toCollection = resolveCollection(args.toCollectionKey);
+
+  if (!fromCollection.hasItem(item.id)) {
+    throw new Error(
+      `Item "${args.itemKey}" is not in collection "${fromCollection.name}"`,
+    );
+  }
+
+  item.removeFromCollection(fromCollection.key);
+  item.addToCollection(toCollection.key);
+  await item.saveTx({ skipDateModifiedUpdate: true });
+
+  ztoolkit.log(
+    `[WriteHandlers] Moved ${args.itemKey} from "${fromCollection.name}" to "${toCollection.name}"`,
+  );
+
+  return {
+    success: true,
+    action: "move_item_to_collection",
+    itemKey: args.itemKey,
+    details: {
+      fromCollectionKey: args.fromCollectionKey,
+      fromCollectionName: fromCollection.name,
+      toCollectionKey: args.toCollectionKey,
+      toCollectionName: toCollection.name,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
