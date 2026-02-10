@@ -179,6 +179,8 @@ export type FluentMessageId =
   | 'pref-server-port-invalid'
   | 'pref-server-port-restart-hint'
   | 'pref-server-title'
+  | 'pref-server-write-enabled'
+  | 'pref-server-write-enabled-hint'
   | 'pref-truncate-length-label'
   | 'prefs-table-detail'
   | 'prefs-table-title'
