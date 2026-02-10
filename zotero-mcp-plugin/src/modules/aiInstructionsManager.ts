@@ -1,6 +1,6 @@
 /**
  * AI Instructions Manager for Zotero MCP Plugin
- * 
+ *
  * Provides unified AI guidance to prevent hallucination and ensure data integrity
  * across all MCP tool responses
  */
@@ -24,7 +24,7 @@ export class AIInstructionsManager {
   /**
    * Get global AI instructions for all MCP responses
    */
-  static getGlobalInstructions(): Omit<AIGuidelines, 'verification'> {
+  static getGlobalInstructions(): Omit<AIGuidelines, "verification"> {
     return {
       dataIntegrity: "VERIFIED_FROM_ZOTERO_USER_LIBRARY",
       usage: [
@@ -32,20 +32,20 @@ export class AIInstructionsManager {
         "You can analyze, summarize, and interpret this content to help the user",
         "When quoting directly, use proper attribution to the source",
         "Feel free to extract key insights and connections between sources",
-        "Use pagination when needed to access complete datasets"
+        "Use pagination when needed to access complete datasets",
       ],
       constraints: [
         "Maintain accuracy when referencing specific details from sources",
         "Distinguish between user's personal notes and published content when relevant",
         "Preserve important citation metadata for academic references",
-        "Respect the user's research organization and collection structure"
+        "Respect the user's research organization and collection structure",
       ],
       warnings: [
         "Large datasets may be paginated - check metadata for pagination info",
         "Content from PDFs may contain OCR errors or formatting artifacts",
         "Annotation content represents user's personal research insights",
-        "Some results may be compressed based on relevance and importance"
-      ]
+        "Some results may be compressed based on relevance and importance",
+      ],
     };
   }
 
@@ -54,18 +54,18 @@ export class AIInstructionsManager {
    */
   static enhanceMetadataWithAIGuidelines(metadata: any): any {
     const globalInstructions = this.getGlobalInstructions();
-    
+
     return {
       ...metadata,
       aiGuidelines: {
         ...globalInstructions,
         verification: {
           extractedAt: metadata.extractedAt || new Date().toISOString(),
-          sourceSystem: "Zotero Personal Library", 
+          sourceSystem: "Zotero Personal Library",
           userLibrary: true,
-          contentHash: this.generateContentHash(metadata)
-        }
-      }
+          contentHash: this.generateContentHash(metadata),
+        },
+      },
     };
   }
 
@@ -79,13 +79,16 @@ export class AIInstructionsManager {
       let hash = 0;
       for (let i = 0; i < content.length; i++) {
         const char = content.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
+        hash = (hash << 5) - hash + char;
         hash = hash & hash; // Convert to 32-bit integer
       }
       return Math.abs(hash).toString(16);
     } catch (error) {
-      ztoolkit.log(`[AIInstructions] Error generating content hash: ${error}`, 'warn');
-      return 'unknown';
+      ztoolkit.log(
+        `[AIInstructions] Error generating content hash: ${error}`,
+        "warn",
+      );
+      return "unknown";
     }
   }
 
@@ -96,8 +99,8 @@ export class AIInstructionsManager {
     // Add integrity markers to all response data
     return {
       ...responseData,
-      _dataIntegrity: 'VERIFIED_FROM_ZOTERO_LIBRARY',
-      _instructions: 'RESEARCH_DATA_FROM_USER_LIBRARY'
+      _dataIntegrity: "VERIFIED_FROM_ZOTERO_LIBRARY",
+      _instructions: "RESEARCH_DATA_FROM_USER_LIBRARY",
     };
   }
 }

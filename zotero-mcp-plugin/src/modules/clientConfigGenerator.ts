@@ -26,10 +26,10 @@ export class ClientConfigGenerator {
             serverUrl: `http://127.0.0.1:${port}/mcp`,
             headers: {
               "Content-Type": "application/json",
-              "User-Agent": "Claude-Code-MCP-Client"
-            }
-          }
-        }
+              "User-Agent": "Claude-Code-MCP-Client",
+            },
+          },
+        },
       }),
       getInstructions: (port: number = 23120) => [
         "1. Use Claude Code's built-in command to add the MCP server:",
@@ -58,8 +58,8 @@ export class ClientConfigGenerator {
         "Troubleshooting for Proxy Users:",
         "- If using VPN/proxy with TUN mode, add 127.0.0.1 to bypass list",
         "- Or temporarily disable TUN mode for local development",
-        "- Configuration uses 127.0.0.1 instead of localhost for better proxy compatibility"
-      ]
+        "- Configuration uses 127.0.0.1 instead of localhost for better proxy compatibility",
+      ],
     },
     {
       name: "claude-desktop",
@@ -70,11 +70,14 @@ export class ClientConfigGenerator {
           [serverName]: {
             command: "npx",
             args: ["mcp-remote", `http://127.0.0.1:${port}/mcp`],
-            env: {}
-          }
-        }
+            env: {},
+          },
+        },
       }),
-      getInstructions: () => getString("claude-desktop-instructions").split("\n").filter(s => s.trim())
+      getInstructions: () =>
+        getString("claude-desktop-instructions")
+          .split("\n")
+          .filter((s) => s.trim()),
     },
     {
       name: "cline-vscode",
@@ -87,11 +90,14 @@ export class ClientConfigGenerator {
             args: ["mcp-remote", `http://127.0.0.1:${port}/mcp`],
             env: {},
             alwaysAllow: ["*"],
-            disabled: false
-          }
-        }
+            disabled: false,
+          },
+        },
       }),
-      getInstructions: () => getString("cline-vscode-instructions").split("\n").filter(s => s.trim())
+      getInstructions: () =>
+        getString("cline-vscode-instructions")
+          .split("\n")
+          .filter((s) => s.trim()),
     },
     {
       name: "continue-dev",
@@ -105,13 +111,16 @@ export class ClientConfigGenerator {
               transport: {
                 type: "stdio",
                 command: "npx",
-                args: ["mcp-remote", `http://127.0.0.1:${port}/mcp`]
-              }
-            }
-          ]
-        }
+                args: ["mcp-remote", `http://127.0.0.1:${port}/mcp`],
+              },
+            },
+          ],
+        },
       }),
-      getInstructions: () => getString("continue-dev-instructions").split("\n").filter(s => s.trim())
+      getInstructions: () =>
+        getString("continue-dev-instructions")
+          .split("\n")
+          .filter((s) => s.trim()),
     },
     {
       name: "cursor",
@@ -122,11 +131,14 @@ export class ClientConfigGenerator {
           [serverName]: {
             command: "npx",
             args: ["mcp-remote", `http://127.0.0.1:${port}/mcp`],
-            env: {}
-          }
-        }
+            env: {},
+          },
+        },
       }),
-      getInstructions: () => getString("cursor-instructions").split("\n").filter(s => s.trim())
+      getInstructions: () =>
+        getString("cursor-instructions")
+          .split("\n")
+          .filter((s) => s.trim()),
     },
     {
       name: "cherry-studio",
@@ -138,12 +150,15 @@ export class ClientConfigGenerator {
             type: "streamableHttp",
             url: `http://127.0.0.1:${port}/mcp`,
             headers: {
-              "Content-Type": "application/json"
-            }
-          }
-        }
+              "Content-Type": "application/json",
+            },
+          },
+        },
       }),
-      getInstructions: () => getString("cherry-studio-instructions").split("\n").filter(s => s.trim())
+      getInstructions: () =>
+        getString("cherry-studio-instructions")
+          .split("\n")
+          .filter((s) => s.trim()),
     },
     {
       name: "gemini-cli",
@@ -154,14 +169,17 @@ export class ClientConfigGenerator {
           [serverName]: {
             httpUrl: `http://127.0.0.1:${port}/mcp`,
             headers: {
-              "Content-Type": "application/json"
+              "Content-Type": "application/json",
             },
             timeout: 60000,
-            trust: true
-          }
-        }
+            trust: true,
+          },
+        },
       }),
-      getInstructions: () => getString("gemini-cli-instructions").split("\n").filter(s => s.trim())
+      getInstructions: () =>
+        getString("gemini-cli-instructions")
+          .split("\n")
+          .filter((s) => s.trim()),
     },
     {
       name: "chatbox",
@@ -172,11 +190,14 @@ export class ClientConfigGenerator {
           [serverName]: {
             command: "npx",
             args: ["mcp-remote", `http://127.0.0.1:${port}/mcp`],
-            env: {}
-          }
-        }
+            env: {},
+          },
+        },
       }),
-      getInstructions: () => getString("chatbox-instructions").split("\n").filter(s => s.trim())
+      getInstructions: () =>
+        getString("chatbox-instructions")
+          .split("\n")
+          .filter((s) => s.trim()),
     },
     {
       name: "trae-ai",
@@ -187,11 +208,14 @@ export class ClientConfigGenerator {
           [serverName]: {
             command: "npx",
             args: ["mcp-remote", `http://127.0.0.1:${port}/mcp`],
-            env: {}
-          }
-        }
+            env: {},
+          },
+        },
       }),
-      getInstructions: () => getString("trae-ai-instructions").split("\n").filter(s => s.trim())
+      getInstructions: () =>
+        getString("trae-ai-instructions")
+          .split("\n")
+          .filter((s) => s.trim()),
     },
     {
       name: "qwen-code",
@@ -202,46 +226,14 @@ export class ClientConfigGenerator {
           [serverName]: {
             command: "npx",
             args: ["mcp-remote", `http://127.0.0.1:${port}/mcp`],
-            env: {}
-          }
-        }
+            env: {},
+          },
+        },
       }),
-      getInstructions: (port: number = 23120) => [
-        "1. Use Qwen Code's MCP add command:",
-        `   qwen mcp add zotero-mcp http://127.0.0.1:${port}/mcp -t http`,
-        "",
-        "2. Alternatively, add with custom headers and options:",
-        `   qwen mcp add zotero-mcp http://127.0.0.1:${port}/mcp \\`,
-        "     -t http \\",
-        "     -H 'Content-Type: application/json' \\",
-        "     -H 'User-Agent: Qwen-Code-MCP-Client' \\",
-        "     --trust",
-        "",
-        "3. Verify the server was added:",
-        "   qwen mcp list",
-        "",
-        "4. Available MCP tools in Qwen Code:",
-        "   - search_library: Search your Zotero library",
-        "   - get_annotations: Get annotations and notes",
-        "   - get_content: Extract full content from PDFs",
-        "   - get_collections: Browse your collections",
-        "   - search_fulltext: Search full document content",
-        "   - And 6 more research tools!",
-        "",
-        "5. Start using the tools with @ syntax:",
-        "   Example: /analyze @zotero:search_library term:\"machine learning\"",
-        "",
-        "6. Use /mcp command to verify MCP server is active",
-        "",
-        "Note: Ensure Zotero is running and the MCP plugin server is enabled",
-        "",
-        "Configuration file location: ~/.qwen/settings.json or .qwen/settings.json",
-        "",
-        "Troubleshooting:",
-        "- If connection fails, check server status with 'qwen mcp list'",
-        "- Use --trust flag to bypass tool call confirmation prompts",
-        "- Configuration uses 127.0.0.1 instead of localhost for better compatibility"
-      ]
+      getInstructions: () =>
+        getString("qwen-code-instructions")
+          .split("\n")
+          .filter((s) => s.trim()),
     },
     {
       name: "custom-http",
@@ -249,32 +241,40 @@ export class ClientConfigGenerator {
       description: "Generic HTTP MCP client configuration",
       configTemplate: (port: number, serverName = "zotero-mcp") => ({
         name: serverName,
-        description: "Zotero MCP Server - Research management and citation tools",
+        description:
+          "Zotero MCP Server - Research management and citation tools",
         transport: {
           type: "http",
           endpoint: `http://127.0.0.1:${port}/mcp`,
           method: "POST",
           headers: {
-            "Content-Type": "application/json"
-          }
+            "Content-Type": "application/json",
+          },
         },
         capabilities: {
           tools: true,
           resources: false,
-          prompts: false
+          prompts: false,
         },
-        connectionTest: `curl -X POST http://127.0.0.1:${port}/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}'`
+        connectionTest: `curl -X POST http://127.0.0.1:${port}/mcp -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}'`,
       }),
-      getInstructions: () => getString("custom-http-instructions").split("\n").filter(s => s.trim())
-    }
+      getInstructions: () =>
+        getString("custom-http-instructions")
+          .split("\n")
+          .filter((s) => s.trim()),
+    },
   ];
 
   static getAvailableClients(): ClientConfig[] {
     return this.CLIENT_CONFIGS;
   }
 
-  static generateConfig(clientName: string, port: number, serverName?: string): string {
-    const client = this.CLIENT_CONFIGS.find(c => c.name === clientName);
+  static generateConfig(
+    clientName: string,
+    port: number,
+    serverName?: string,
+  ): string {
+    const client = this.CLIENT_CONFIGS.find((c) => c.name === clientName);
     if (!client) {
       throw new Error(`Unsupported client: ${clientName}`);
     }
@@ -284,12 +284,16 @@ export class ClientConfigGenerator {
   }
 
   static getInstructions(clientName: string, port?: number): string[] {
-    const client = this.CLIENT_CONFIGS.find(c => c.name === clientName);
+    const client = this.CLIENT_CONFIGS.find((c) => c.name === clientName);
     return client?.getInstructions?.(port) || [];
   }
 
-  static generateFullGuide(clientName: string, port: number, serverName?: string): string {
-    const client = this.CLIENT_CONFIGS.find(c => c.name === clientName);
+  static generateFullGuide(
+    clientName: string,
+    port: number,
+    serverName?: string,
+  ): string {
+    const client = this.CLIENT_CONFIGS.find((c) => c.name === clientName);
     if (!client) {
       throw new Error(`Unsupported client: ${clientName}`);
     }
@@ -311,7 +315,7 @@ ${config}
 \`\`\`
 
 ${getString("config-guide-steps-header")}
-${instructions.map(instruction => instruction).join('\n')}
+${instructions.map((instruction) => instruction).join("\n")}
 
 ${getString("config-guide-tools-header")}
 ${getString("config-guide-tools-list")}
@@ -326,39 +330,47 @@ ${getString("config-guide-generated-time", { args: { time: new Date().toLocaleSt
   static async copyToClipboard(text: string): Promise<boolean> {
     try {
       // Try Zotero's built-in clipboard API first
-      if (typeof Zotero !== 'undefined' && Zotero.Utilities && Zotero.Utilities.Internal && Zotero.Utilities.Internal.copyTextToClipboard) {
+      if (
+        typeof Zotero !== "undefined" &&
+        Zotero.Utilities &&
+        Zotero.Utilities.Internal &&
+        Zotero.Utilities.Internal.copyTextToClipboard
+      ) {
         Zotero.Utilities.Internal.copyTextToClipboard(text);
         return true;
       }
-      
+
       // Try standard clipboard API
       const globalNav = (globalThis as any).navigator;
       if (globalNav && globalNav.clipboard) {
         await globalNav.clipboard.writeText(text);
         return true;
       }
-      
+
       // Try with global document
-      if (typeof ztoolkit !== 'undefined' && ztoolkit.getGlobal) {
-        const globalWindow = ztoolkit.getGlobal('window');
+      if (typeof ztoolkit !== "undefined" && ztoolkit.getGlobal) {
+        const globalWindow = ztoolkit.getGlobal("window");
         if (globalWindow && globalWindow.document) {
-          const textArea = globalWindow.document.createElement('textarea');
+          const textArea = globalWindow.document.createElement("textarea");
           textArea.value = text;
-          textArea.style.position = 'fixed';
-          textArea.style.left = '-999999px';
-          textArea.style.top = '-999999px';
+          textArea.style.position = "fixed";
+          textArea.style.left = "-999999px";
+          textArea.style.top = "-999999px";
           globalWindow.document.body.appendChild(textArea);
           textArea.focus();
           textArea.select();
-          const result = globalWindow.document.execCommand('copy');
+          const result = globalWindow.document.execCommand("copy");
           globalWindow.document.body.removeChild(textArea);
           return result;
         }
       }
-      
+
       return false;
     } catch (error) {
-      ztoolkit.log(`[ClientConfigGenerator] Failed to copy to clipboard: ${error}`, "error");
+      ztoolkit.log(
+        `[ClientConfigGenerator] Failed to copy to clipboard: ${error}`,
+        "error",
+      );
       return false;
     }
   }

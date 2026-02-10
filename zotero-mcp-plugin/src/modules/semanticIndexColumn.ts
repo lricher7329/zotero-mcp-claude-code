@@ -22,22 +22,24 @@ export async function registerSemanticIndexColumn(): Promise<void> {
   try {
     // Check if ItemTreeManager is available (Zotero 7+)
     if (!Zotero.ItemTreeManager?.registerColumn) {
-      ztoolkit.log("[SemanticColumn] ItemTreeManager.registerColumn not available, skipping column registration");
+      ztoolkit.log(
+        "[SemanticColumn] ItemTreeManager.registerColumn not available, skipping column registration",
+      );
       return;
     }
 
     // Register the column
     registeredDataKey = await Zotero.ItemTreeManager.registerColumn({
-      dataKey: 'mcpSemanticStatus',
-      label: 'Semantic',
+      dataKey: "mcpSemanticStatus",
+      label: "Semantic",
       pluginID: config.addonID,
-      enabledTreeIDs: ['main'],
+      enabledTreeIDs: ["main"],
       flex: 0,
-      width: '60',
+      width: "60",
       fixedWidth: true,
       showInColumnPicker: true,
       columnPickerSubMenu: true,
-      zoteroPersist: ['width', 'hidden', 'sortDirection'],
+      zoteroPersist: ["width", "hidden", "sortDirection"],
 
       // Data provider - returns the status text for each item
       dataProvider: (item: Zotero.Item, dataKey: string) => {
@@ -45,28 +47,39 @@ export async function registerSemanticIndexColumn(): Promise<void> {
       },
 
       // Custom cell renderer for styling
-      renderCell: (index: number, data: string, column: any, isFirstColumn: boolean, doc: Document) => {
-        const cell = doc.createElement('span');
-        cell.className = `cell ${column.className || ''}`;
+      renderCell: (
+        index: number,
+        data: string,
+        column: any,
+        isFirstColumn: boolean,
+        doc: Document,
+      ) => {
+        const cell = doc.createElement("span");
+        cell.className = `cell ${column.className || ""}`;
         cell.textContent = data;
-        cell.style.textAlign = 'center';
-        cell.style.display = 'block';
+        cell.style.textAlign = "center";
+        cell.style.display = "block";
 
         // Color coding
-        if (data === '\u2713') {
-          cell.style.color = '#4CAF50';
-          cell.style.fontWeight = 'bold';
+        if (data === "\u2713") {
+          cell.style.color = "#4CAF50";
+          cell.style.fontWeight = "bold";
         } else {
-          cell.style.color = '#999999';
+          cell.style.color = "#999999";
         }
 
         return cell;
-      }
+      },
     });
 
-    ztoolkit.log(`[SemanticColumn] Column registered with dataKey: ${registeredDataKey}`);
+    ztoolkit.log(
+      `[SemanticColumn] Column registered with dataKey: ${registeredDataKey}`,
+    );
   } catch (error) {
-    ztoolkit.log(`[SemanticColumn] Failed to register column: ${error}`, 'error');
+    ztoolkit.log(
+      `[SemanticColumn] Failed to register column: ${error}`,
+      "error",
+    );
   }
 }
 
@@ -77,13 +90,21 @@ export async function registerSemanticIndexColumn(): Promise<void> {
 export function unregisterSemanticIndexColumn(): void {
   try {
     // Only unregister if we have a valid dataKey (not null and not false)
-    if (typeof registeredDataKey === 'string' && Zotero.ItemTreeManager?.unregisterColumn) {
+    if (
+      typeof registeredDataKey === "string" &&
+      Zotero.ItemTreeManager?.unregisterColumn
+    ) {
       const result = Zotero.ItemTreeManager.unregisterColumn(registeredDataKey);
-      ztoolkit.log(`[SemanticColumn] Column unregistered: ${registeredDataKey}, result: ${result}`);
+      ztoolkit.log(
+        `[SemanticColumn] Column unregistered: ${registeredDataKey}, result: ${result}`,
+      );
       registeredDataKey = null;
     }
   } catch (error) {
-    ztoolkit.log(`[SemanticColumn] Failed to unregister column: ${error}`, 'error');
+    ztoolkit.log(
+      `[SemanticColumn] Failed to unregister column: ${error}`,
+      "error",
+    );
   }
 }
 
@@ -94,15 +115,15 @@ export function unregisterSemanticIndexColumn(): void {
 function getItemIndexStatus(itemKey: string): string {
   // Check if cache is valid
   const now = Date.now();
-  if (!indexedItemsCache || (now - cacheTimestamp) > CACHE_TTL_MS) {
+  if (!indexedItemsCache || now - cacheTimestamp > CACHE_TTL_MS) {
     // Cache is invalid, trigger async refresh
     refreshCacheAsync();
     // Return unknown status while loading
-    return '-';
+    return "-";
   }
 
   // Return status from cache
-  return indexedItemsCache.has(itemKey) ? '\u2713' : '-';
+  return indexedItemsCache.has(itemKey) ? "\u2713" : "-";
 }
 
 /**
@@ -110,14 +131,17 @@ function getItemIndexStatus(itemKey: string): string {
  */
 async function refreshCacheAsync(): Promise<void> {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getVectorStore } = require("./semantic/vectorStore");
     const vectorStore = getVectorStore();
     await vectorStore.initialize();
     indexedItemsCache = await vectorStore.getIndexedItems();
     cacheTimestamp = Date.now();
-    ztoolkit.log(`[SemanticColumn] Cache refreshed: ${indexedItemsCache?.size || 0} indexed items`);
+    ztoolkit.log(
+      `[SemanticColumn] Cache refreshed: ${indexedItemsCache?.size || 0} indexed items`,
+    );
   } catch (error) {
-    ztoolkit.log(`[SemanticColumn] Failed to refresh cache: ${error}`, 'warn');
+    ztoolkit.log(`[SemanticColumn] Failed to refresh cache: ${error}`, "warn");
     // Keep using stale cache if available
   }
 }
@@ -142,7 +166,7 @@ export async function refreshSemanticColumn(): Promise<void> {
       }
     }
   } catch (error) {
-    ztoolkit.log(`[SemanticColumn] Failed to refresh column: ${error}`, 'warn');
+    ztoolkit.log(`[SemanticColumn] Failed to refresh column: ${error}`, "warn");
   }
 }
 

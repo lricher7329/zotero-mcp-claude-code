@@ -5,7 +5,7 @@
 
 declare let ztoolkit: ZToolkit;
 
-import { TextFormatter } from './textFormatter';
+import { TextFormatter } from "./textFormatter";
 
 // Annotation content interface
 export interface AnnotationContent {
@@ -48,20 +48,20 @@ export class AnnotationService {
    */
   private smartTruncate(text: string, maxLength: number = 200): string {
     if (!text || text.length <= maxLength) return text;
-    
+
     const truncated = text.substring(0, maxLength);
     // Find the last period or newline
     const lastPeriod = Math.max(
-      truncated.lastIndexOf('。'),
-      truncated.lastIndexOf('.'),
-      truncated.lastIndexOf('\n')
+      truncated.lastIndexOf("。"),
+      truncated.lastIndexOf("."),
+      truncated.lastIndexOf("\n"),
     );
-    
+
     // If a suitable sentence boundary is found without truncating too much
     if (lastPeriod > maxLength * 0.6) {
       return truncated.substring(0, lastPeriod + 1) + "...";
     }
-    
+
     return truncated + "...";
   }
 
@@ -70,23 +70,47 @@ export class AnnotationService {
    */
   private extractKeywords(text: string, maxCount: number = 5): string[] {
     if (!text) return [];
-    
+
     // Simple keyword extraction: remove stop words, sort by frequency
-    const stopWords = new Set(['的', '了', '在', '是', '和', '与', '或', '但', '然而', '因此', '所以', 
-                              'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with']);
-    
+    const stopWords = new Set([
+      "的",
+      "了",
+      "在",
+      "是",
+      "和",
+      "与",
+      "或",
+      "但",
+      "然而",
+      "因此",
+      "所以",
+      "the",
+      "a",
+      "an",
+      "and",
+      "or",
+      "but",
+      "in",
+      "on",
+      "at",
+      "to",
+      "for",
+      "of",
+      "with",
+    ]);
+
     const words = text
       .toLowerCase()
-      .replace(/[^\w\s\u4e00-\u9fa5]/g, ' ') // Keep Chinese and English characters
+      .replace(/[^\w\s\u4e00-\u9fa5]/g, " ") // Keep Chinese and English characters
       .split(/\s+/)
-      .filter(word => word.length > 1 && !stopWords.has(word));
-    
+      .filter((word) => word.length > 1 && !stopWords.has(word));
+
     // Count word frequency
     const wordCount = new Map<string, number>();
-    words.forEach(word => {
+    words.forEach((word) => {
       wordCount.set(word, (wordCount.get(word) || 0) + 1);
     });
-    
+
     // Sort by frequency and return top N
     return Array.from(wordCount.entries())
       .sort((a, b) => b[1] - a[1])
@@ -97,28 +121,41 @@ export class AnnotationService {
   /**
    * Process annotation content, returning simplified or full version as needed
    */
-  private processAnnotationContent(annotation: AnnotationContent, detailed: boolean = false): AnnotationContent {
+  private processAnnotationContent(
+    annotation: AnnotationContent,
+    detailed: boolean = false,
+  ): AnnotationContent {
     if (detailed) {
       return annotation; // Return full content
     }
-    
+
     // Create simplified version
     const processed: AnnotationContent = {
       ...annotation,
       content: this.smartTruncate(annotation.content),
-      text: annotation.text ? this.smartTruncate(annotation.text, 150) : annotation.text,
-      comment: annotation.comment ? this.smartTruncate(annotation.comment, 100) : annotation.comment,
+      text: annotation.text
+        ? this.smartTruncate(annotation.text, 150)
+        : annotation.text,
+      comment: annotation.comment
+        ? this.smartTruncate(annotation.comment, 100)
+        : annotation.comment,
     };
-    
+
     // Add extra metadata
     (processed as any).contentMeta = {
       isPreview: !detailed,
       originalLength: annotation.content?.length || 0,
       textLength: annotation.text?.length || 0,
       commentLength: annotation.comment?.length || 0,
-      keywords: this.extractKeywords(annotation.content + " " + (annotation.text || "") + " " + (annotation.comment || ""))
+      keywords: this.extractKeywords(
+        annotation.content +
+          " " +
+          (annotation.text || "") +
+          " " +
+          (annotation.comment || ""),
+      ),
     };
-    
+
     return processed;
   }
 
@@ -303,24 +340,28 @@ export class AnnotationService {
           allAnnotations.push(...pdfAnnotations);
         } else {
           // Search all annotation items directly (faster and more accurate)
-          ztoolkit.log(`[AnnotationService] Searching for all annotation items directly`);
+          ztoolkit.log(
+            `[AnnotationService] Searching for all annotation items directly`,
+          );
           try {
             const search = new Zotero.Search();
             (search as any).libraryID = Zotero.Libraries.userLibraryID;
             search.addCondition("itemType", "is", "annotation");
             const annotationIds = await search.search();
-            ztoolkit.log(`[AnnotationService] Found ${annotationIds.length} annotation items via search`);
+            ztoolkit.log(
+              `[AnnotationService] Found ${annotationIds.length} annotation items via search`,
+            );
 
             const annotationItems = await Zotero.Items.getAsync(annotationIds);
             for (const annotationItem of annotationItems) {
               try {
                 // Get parent attachment key for context
                 const parentItem = annotationItem.parentItem;
-                const parentKey = parentItem ? parentItem.key : '';
+                const parentKey = parentItem ? parentItem.key : "";
 
                 const annotationContent = this.formatAnnotationItem(
                   annotationItem,
-                  parentKey
+                  parentKey,
                 );
                 if (annotationContent) {
                   allAnnotations.push(annotationContent);
@@ -329,16 +370,27 @@ export class AnnotationService {
                 // Ignore individual annotation errors
               }
             }
-            ztoolkit.log(`[AnnotationService] Processed ${allAnnotations.length} PDF annotations`);
+            ztoolkit.log(
+              `[AnnotationService] Processed ${allAnnotations.length} PDF annotations`,
+            );
           } catch (searchError) {
-            ztoolkit.log(`[AnnotationService] Direct annotation search failed: ${searchError}, falling back to item iteration`, "warn");
+            ztoolkit.log(
+              `[AnnotationService] Direct annotation search failed: ${searchError}, falling back to item iteration`,
+              "warn",
+            );
             // Fallback to old method
-            const allItems = await Zotero.Items.getAll(Zotero.Libraries.userLibraryID);
+            const allItems = await Zotero.Items.getAll(
+              Zotero.Libraries.userLibraryID,
+            );
             const itemLimit = 100;
             let processedCount = 0;
             for (const item of allItems) {
               if (processedCount >= itemLimit) break;
-              if (item.isRegularItem() && !item.isNote() && !item.isAttachment()) {
+              if (
+                item.isRegularItem() &&
+                !item.isNote() &&
+                !item.isAttachment()
+              ) {
                 try {
                   const pdfAnnotations = await this.getPDFAnnotations(item.key);
                   allAnnotations.push(...pdfAnnotations);
@@ -364,7 +416,8 @@ export class AnnotationService {
       }
 
       // Process content (simplified or full)
-      const detailed = params.detailed === true || String(params.detailed) === "true";
+      const detailed =
+        params.detailed === true || String(params.detailed) === "true";
 
       // Sort
       const sort = params.sort || "dateModified";
@@ -373,15 +426,18 @@ export class AnnotationService {
 
       // Pagination - use smaller defaults for preview mode
       const defaultLimit = detailed ? "50" : "20"; // preview mode defaults to 20, detailed mode 50
-      const limit = Math.min(parseInt(params.limit || defaultLimit, 10), detailed ? 200 : 100);
+      const limit = Math.min(
+        parseInt(params.limit || defaultLimit, 10),
+        detailed ? 200 : 100,
+      );
       const offset = parseInt(params.offset || "0", 10);
       const totalCount = filteredAnnotations.length;
       const paginatedResults = filteredAnnotations.slice(
         offset,
         offset + limit,
       );
-      const processedResults = paginatedResults.map(annotation => 
-        this.processAnnotationContent(annotation, detailed)
+      const processedResults = paginatedResults.map((annotation) =>
+        this.processAnnotationContent(annotation, detailed),
       );
 
       const searchTime = `${Date.now() - startTime}ms`;
@@ -429,7 +485,7 @@ export class AnnotationService {
         preserveParagraphs: true,
         preserveHeadings: false, // Heading formatting usually not needed for annotations
         preserveLists: true,
-        preserveEmphasis: false
+        preserveEmphasis: false,
       });
 
       return {
@@ -645,24 +701,31 @@ export class AnnotationService {
   /**
    * Get full annotation content by ID
    */
-  async getAnnotationById(annotationId: string): Promise<AnnotationContent | null> {
+  async getAnnotationById(
+    annotationId: string,
+  ): Promise<AnnotationContent | null> {
     try {
-      ztoolkit.log(`[AnnotationService] Getting annotation by ID: ${annotationId}`);
-      
+      ztoolkit.log(
+        `[AnnotationService] Getting annotation by ID: ${annotationId}`,
+      );
+
       // Try to find in notes
       const notes = await this.getAllNotes();
-      const note = notes.find(n => n.id === annotationId);
+      const note = notes.find((n) => n.id === annotationId);
       if (note) {
         return note;
       }
 
       // Search all PDF annotations
-      const allItems = await Zotero.Items.getAll(Zotero.Libraries.userLibraryID);
-      for (const item of allItems.slice(0, 100)) { // Limit search scope to avoid performance issues
+      const allItems = await Zotero.Items.getAll(
+        Zotero.Libraries.userLibraryID,
+      );
+      for (const item of allItems.slice(0, 100)) {
+        // Limit search scope to avoid performance issues
         if (item.isRegularItem() && !item.isNote() && !item.isAttachment()) {
           try {
             const annotations = await this.getPDFAnnotations(item.key);
-            const annotation = annotations.find(a => a.id === annotationId);
+            const annotation = annotations.find((a) => a.id === annotationId);
             if (annotation) {
               return annotation;
             }
@@ -674,7 +737,10 @@ export class AnnotationService {
 
       return null;
     } catch (error) {
-      ztoolkit.log(`[AnnotationService] Error getting annotation by ID: ${error}`, "error");
+      ztoolkit.log(
+        `[AnnotationService] Error getting annotation by ID: ${error}`,
+        "error",
+      );
       throw error;
     }
   }
@@ -682,22 +748,29 @@ export class AnnotationService {
   /**
    * Get full annotation content in batch
    */
-  async getAnnotationsByIds(annotationIds: string[]): Promise<AnnotationContent[]> {
+  async getAnnotationsByIds(
+    annotationIds: string[],
+  ): Promise<AnnotationContent[]> {
     try {
-      ztoolkit.log(`[AnnotationService] Getting annotations by IDs: ${annotationIds.join(", ")}`);
-      
+      ztoolkit.log(
+        `[AnnotationService] Getting annotations by IDs: ${annotationIds.join(", ")}`,
+      );
+
       const results: AnnotationContent[] = [];
-      
+
       for (const id of annotationIds) {
         const annotation = await this.getAnnotationById(id);
         if (annotation) {
           results.push(annotation);
         }
       }
-      
+
       return results;
     } catch (error) {
-      ztoolkit.log(`[AnnotationService] Error getting annotations by IDs: ${error}`, "error");
+      ztoolkit.log(
+        `[AnnotationService] Error getting annotations by IDs: ${error}`,
+        "error",
+      );
       throw error;
     }
   }

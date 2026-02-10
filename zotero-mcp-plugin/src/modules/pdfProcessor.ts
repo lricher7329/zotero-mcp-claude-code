@@ -115,14 +115,11 @@ export class PDFProcessor {
         reject: (reason?: any) => {
           clearTimeout(timeoutId);
           reject(reason);
-        }
+        },
       };
 
       if (transfer) {
-        this._worker!.postMessage(
-          { id: promiseID, action, data },
-          transfer,
-        );
+        this._worker!.postMessage({ id: promiseID, action, data }, transfer);
       } else {
         this._worker!.postMessage({ id: promiseID, action, data });
       }
@@ -164,7 +161,11 @@ export class PDFProcessor {
 
       return response.text;
     } catch (error) {
-      this.ztoolkit.log("[PDFProcessor] PDF text extraction failed:", error, "error");
+      this.ztoolkit.log(
+        "[PDFProcessor] PDF text extraction failed:",
+        error,
+        "error",
+      );
       throw error;
     }
   }

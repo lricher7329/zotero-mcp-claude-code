@@ -19,7 +19,8 @@ function getByteLength(str: string): number {
       if (charCode < 0x80) bytes += 1;
       else if (charCode < 0x800) bytes += 2;
       else if (charCode < 0xd800 || charCode >= 0xe000) bytes += 3;
-      else { // surrogate pair
+      else {
+        // surrogate pair
         i++;
         bytes += 4;
       }
@@ -32,11 +33,65 @@ function getByteLength(str: string): number {
  * Write string to output stream with correct UTF-8 encoding
  */
 function writeStringToStream(output: any, str: string): void {
-  const converterStream = Cc["@mozilla.org/intl/converter-output-stream;1"]
-    .createInstance(Ci.nsIConverterOutputStream);
+  const converterStream = Cc[
+    "@mozilla.org/intl/converter-output-stream;1"
+  ].createInstance(Ci.nsIConverterOutputStream);
   (converterStream as any).init(output, "UTF-8", 0, 0);
   converterStream.writeString(str);
   converterStream.flush();
+}
+
+/**
+ * Simple token-bucket rate limiter per IP address.
+ * Only active when remote access is enabled.
+ */
+class RateLimiter {
+  private buckets: Map<string, { tokens: number; lastRefill: number }> =
+    new Map();
+  private maxTokens: number;
+  private refillRate: number; // tokens per second
+
+  constructor(maxTokens = 60, refillRate = 10) {
+    this.maxTokens = maxTokens;
+    this.refillRate = refillRate;
+  }
+
+  allow(ip: string): boolean {
+    const now = Date.now();
+    let bucket = this.buckets.get(ip);
+
+    if (!bucket) {
+      bucket = { tokens: this.maxTokens - 1, lastRefill: now };
+      this.buckets.set(ip, bucket);
+      return true;
+    }
+
+    // Refill tokens based on elapsed time
+    const elapsed = (now - bucket.lastRefill) / 1000;
+    bucket.tokens = Math.min(
+      this.maxTokens,
+      bucket.tokens + elapsed * this.refillRate,
+    );
+    bucket.lastRefill = now;
+
+    if (bucket.tokens >= 1) {
+      bucket.tokens -= 1;
+      return true;
+    }
+
+    return false;
+  }
+
+  /** Prune stale entries (call periodically) */
+  prune(): void {
+    const now = Date.now();
+    const staleThreshold = 60000; // 1 minute
+    for (const [ip, bucket] of this.buckets.entries()) {
+      if (now - bucket.lastRefill > staleThreshold) {
+        this.buckets.delete(ip);
+      }
+    }
+  }
 }
 
 export class HttpServer {
@@ -47,12 +102,15 @@ export class HttpServer {
   private isRunning: boolean = false;
   private mcpServer: StreamableMCPServer | null = null;
   private port: number = 8080;
-  private activeSessions: Map<string, { createdAt: Date; lastActivity: Date; }> = new Map();
+  private activeSessions: Map<string, { createdAt: Date; lastActivity: Date }> =
+    new Map();
   private keepAliveTimeout: number = 30000; // 30 seconds
   private sessionTimeout: number = 300000; // 5 minutes
   private sessionCleanupInterval: ReturnType<typeof setInterval> | null = null;
   // Track active transports to close them on shutdown
   private activeTransports: Set<any> = new Set();
+  // Rate limiter (active only when remote access is enabled)
+  private rateLimiter: RateLimiter = new RateLimiter();
 
   public isServerRunning(): boolean {
     return this.isRunning;
@@ -85,7 +143,9 @@ export class HttpServer {
       // loopbackOnly=true: listen on 127.0.0.1 only
       // loopbackOnly=false: listen on 0.0.0.0 (all interfaces)
       const loopbackOnly = !serverPreferences.isRemoteAccessAllowed();
-      Zotero.debug(`[HttpServer] Binding to ${loopbackOnly ? '127.0.0.1' : '0.0.0.0'}:${port}`);
+      Zotero.debug(
+        `[HttpServer] Binding to ${loopbackOnly ? "127.0.0.1" : "0.0.0.0"}:${port}`,
+      );
       this.serverSocket.init(port, loopbackOnly, -1);
       this.serverSocket.asyncListen(this.listener);
       this.isRunning = true;
@@ -96,7 +156,7 @@ export class HttpServer {
 
       // Initialize integrated MCP server if enabled
       this.initializeMCPServer();
-      
+
       // Start session cleanup timer
       this.startSessionCleanup();
     } catch (e) {
@@ -126,7 +186,9 @@ export class HttpServer {
     }
 
     // Close all active transports first
-    ztoolkit.log(`[HttpServer] Closing ${this.activeTransports.size} active connections...`);
+    ztoolkit.log(
+      `[HttpServer] Closing ${this.activeTransports.size} active connections...`,
+    );
     for (const transport of this.activeTransports) {
       try {
         transport.close(0); // 0 = normal close
@@ -165,7 +227,17 @@ export class HttpServer {
    * Generate a unique session ID for MCP connections
    */
   private generateSessionId(): string {
-    return 'mcp-' + Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 9);
+    try {
+      return "mcp-" + (globalThis as any).crypto.randomUUID();
+    } catch {
+      // Fallback for environments without crypto.randomUUID
+      const bytes = new Uint8Array(16);
+      (globalThis as any).crypto.getRandomValues(bytes);
+      const hex = Array.from(bytes, (b) =>
+        b.toString(16).padStart(2, "0"),
+      ).join("");
+      return `mcp-${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
   }
 
   /**
@@ -178,11 +250,16 @@ export class HttpServer {
     this.sessionCleanupInterval = setInterval(() => {
       const now = new Date();
       for (const [sessionId, session] of this.activeSessions.entries()) {
-        if (now.getTime() - session.lastActivity.getTime() > this.sessionTimeout) {
+        if (
+          now.getTime() - session.lastActivity.getTime() >
+          this.sessionTimeout
+        ) {
           this.activeSessions.delete(sessionId);
           ztoolkit.log(`[HttpServer] Cleaned up expired session: ${sessionId}`);
         }
       }
+      // Prune stale rate limiter entries
+      this.rateLimiter.prune();
     }, 60000); // Check every minute
   }
 
@@ -215,38 +292,47 @@ export class HttpServer {
     if (path === "/mcp" || path.startsWith("/mcp/")) {
       return true;
     }
-    
+
     // Check for Connection header in request
     const connectionHeader = requestText.match(/Connection:\s*([^\r\n]+)/i);
-    if (connectionHeader && connectionHeader[1].toLowerCase().includes('keep-alive')) {
+    if (
+      connectionHeader &&
+      connectionHeader[1].toLowerCase().includes("keep-alive")
+    ) {
       return true;
     }
-    
+
     return false;
   }
 
   /**
    * Build appropriate HTTP headers with session and connection management
    */
-  private buildHttpHeaders(result: any, keepAlive: boolean, sessionId?: string): string {
-    const baseHeaders = `HTTP/1.1 ${result.status} ${result.statusText}\r\n` +
+  private buildHttpHeaders(
+    result: any,
+    keepAlive: boolean,
+    sessionId?: string,
+  ): string {
+    const baseHeaders =
+      `HTTP/1.1 ${result.status} ${result.statusText}\r\n` +
       `Content-Type: ${result.headers?.["Content-Type"] || "application/json; charset=utf-8"}\r\n`;
-    
+
     let headers = baseHeaders;
-    
+
     // Add session ID for MCP requests
     if (sessionId) {
       headers += `Mcp-Session-Id: ${sessionId}\r\n`;
     }
-    
+
     // Add connection management headers
     if (keepAlive) {
-      headers += `Connection: keep-alive\r\n` +
+      headers +=
+        `Connection: keep-alive\r\n` +
         `Keep-Alive: timeout=${this.keepAliveTimeout / 1000}, max=100\r\n`;
     } else {
       headers += `Connection: close\r\n`;
     }
-    
+
     return headers;
   }
 
@@ -260,7 +346,9 @@ export class HttpServer {
       // Track this transport for cleanup on shutdown
       this.activeTransports.add(transport);
 
-      ztoolkit.log(`[HttpServer] New connection accepted from transport: ${transport.host || 'unknown'}:${transport.port || 'unknown'}`);
+      ztoolkit.log(
+        `[HttpServer] New connection accepted from transport: ${transport.host || "unknown"}:${transport.port || "unknown"}`,
+      );
 
       try {
         input = transport.openInputStream(0, 0, 0);
@@ -296,7 +384,10 @@ export class HttpServer {
             if (available === 0) {
               waitAttempts++;
               if (waitAttempts > maxWaitAttempts) {
-                ztoolkit.log(`[HttpServer] Timeout waiting for headers after ${waitAttempts} attempts, TotalBytes: ${totalBytesRead}`, "warn");
+                ztoolkit.log(
+                  `[HttpServer] Timeout waiting for headers after ${waitAttempts} attempts, TotalBytes: ${totalBytesRead}`,
+                  "warn",
+                );
                 break;
               }
               await new Promise((resolve) => setTimeout(resolve, 10));
@@ -306,11 +397,17 @@ export class HttpServer {
             let chunk = "";
             try {
               const str: { value?: string } = {};
-              const bytesRead = converterStream.readString(Math.min(bytesToRead, available), str);
+              const bytesRead = converterStream.readString(
+                Math.min(bytesToRead, available),
+                str,
+              );
               chunk = str.value || "";
               if (bytesRead === 0) break;
             } catch (converterError) {
-              ztoolkit.log(`[HttpServer] Converter failed, using fallback: ${converterError}`, "error");
+              ztoolkit.log(
+                `[HttpServer] Converter failed, using fallback: ${converterError}`,
+                "error",
+              );
               chunk = sin.read(Math.min(bytesToRead, available));
               if (!chunk) break;
             }
@@ -324,7 +421,9 @@ export class HttpServer {
               headersComplete = true;
               // Parse Content-Length from headers
               const headersSection = requestText.substring(0, bodyStartIndex);
-              const contentLengthMatch = headersSection.match(/Content-Length:\s*(\d+)/i);
+              const contentLengthMatch = headersSection.match(
+                /Content-Length:\s*(\d+)/i,
+              );
               if (contentLengthMatch) {
                 contentLength = parseInt(contentLengthMatch[1], 10);
               }
@@ -335,25 +434,33 @@ export class HttpServer {
           if (headersComplete && contentLength > 0) {
             const bodyStart = bodyStartIndex + 4; // Skip \r\n\r\n
             const currentBodyLength = requestText.length - bodyStart;
-            const remainingBodyBytes = contentLength - currentBodyLength;
 
-            ztoolkit.log(`[HttpServer] Reading body: Content-Length=${contentLength}, current=${currentBodyLength}, remaining=${remainingBodyBytes}`);
+            ztoolkit.log(
+              `[HttpServer] Reading body: Content-Length=${contentLength}, current=${currentBodyLength}, remaining=${contentLength - currentBodyLength}`,
+            );
 
             waitAttempts = 0; // Reset wait counter for body reading
-            while (remainingBodyBytes > 0 && (requestText.length - bodyStart) < contentLength) {
+            while (requestText.length - bodyStart < contentLength) {
               const available = input.available();
 
               if (available === 0) {
                 waitAttempts++;
                 if (waitAttempts > maxWaitAttempts) {
-                  ztoolkit.log(`[HttpServer] Timeout waiting for body after ${waitAttempts} attempts`, "warn");
+                  ztoolkit.log(
+                    `[HttpServer] Timeout waiting for body after ${waitAttempts} attempts`,
+                    "warn",
+                  );
                   break;
                 }
                 await new Promise((resolve) => setTimeout(resolve, 10));
                 continue;
               }
 
-              const bytesToRead = Math.min(8192, contentLength - (requestText.length - bodyStart), available);
+              const bytesToRead = Math.min(
+                8192,
+                contentLength - (requestText.length - bodyStart),
+                available,
+              );
               let chunk = "";
               try {
                 const str: { value?: string } = {};
@@ -371,13 +478,15 @@ export class HttpServer {
           }
         } catch (readError) {
           ztoolkit.log(
-            `[HttpServer] Error reading request: ${readError}, BytesRead: ${totalBytesRead}, InputStream available: ${input?.available ? input.available() : 'N/A'}`,
+            `[HttpServer] Error reading request: ${readError}, BytesRead: ${totalBytesRead}, InputStream available: ${input?.available ? input.available() : "N/A"}`,
             "error",
           );
           requestText = requestText || "INVALID_REQUEST";
         }
 
-        ztoolkit.log(`[HttpServer] Total bytes read: ${totalBytesRead}, request text length: ${requestText.length}`);
+        ztoolkit.log(
+          `[HttpServer] Total bytes read: ${totalBytesRead}, request text length: ${requestText.length}`,
+        );
 
         try {
           if (converterStream) converterStream.close();
@@ -407,16 +516,17 @@ export class HttpServer {
         // Validate request format
         if (!requestLine || !requestLine.includes("HTTP/")) {
           ztoolkit.log(
-            `[HttpServer] Invalid request format - RequestLine: "${requestLine || '<empty>'}", TotalBytes: ${totalBytesRead}, RequestLength: ${requestText.length}, RequestPreview: "${requestText.substring(0, 100).replace(/\r?\n/g, '\\n')}"`,
+            `[HttpServer] Invalid request format - RequestLine: "${requestLine || "<empty>"}", TotalBytes: ${totalBytesRead}, RequestLength: ${requestText.length}, RequestPreview: "${requestText.substring(0, 100).replace(/\r?\n/g, "\\n")}"`,
             "error",
           );
           try {
             const badRequestResult = {
               status: 400,
               statusText: "Bad Request",
-              headers: { "Content-Type": "text/plain; charset=utf-8" }
+              headers: { "Content-Type": "text/plain; charset=utf-8" },
             };
-            const badRequestHeaders = this.buildHttpHeaders(badRequestResult, false) +
+            const badRequestHeaders =
+              this.buildHttpHeaders(badRequestResult, false) +
               "Content-Length: 11\r\n" +
               "\r\n";
             const errorResponse = badRequestHeaders + "Bad Request";
@@ -441,7 +551,35 @@ export class HttpServer {
           const url = new URL(urlPath, "http://127.0.0.1");
           const query = new URLSearchParams(url.search);
           const path = url.pathname;
-          
+
+          // Rate limiting (only when remote access is enabled)
+          if (serverPreferences.isRemoteAccessAllowed()) {
+            const clientIp = transport.host || "unknown";
+            if (!this.rateLimiter.allow(clientIp)) {
+              ztoolkit.log(
+                `[HttpServer] Rate limit exceeded for ${clientIp}`,
+                "warn",
+              );
+              const rateLimitResult = {
+                status: 429,
+                statusText: "Too Many Requests",
+                headers: { "Content-Type": "application/json; charset=utf-8" },
+              };
+              const rateLimitBody = JSON.stringify({
+                error: "Rate limit exceeded. Try again later.",
+              });
+              const rateLimitByteLength = getByteLength(rateLimitBody);
+              const rateLimitHeaders =
+                this.buildHttpHeaders(rateLimitResult, false) +
+                `Retry-After: 5\r\n` +
+                `Content-Length: ${rateLimitByteLength}\r\n` +
+                "\r\n";
+              output.write(rateLimitHeaders, rateLimitHeaders.length);
+              writeStringToStream(output, rateLimitBody);
+              return;
+            }
+          }
+
           // Extract POST request body
           let requestBody = "";
           if (method === "POST") {
@@ -453,20 +591,26 @@ export class HttpServer {
 
           // Extract existing session ID or create new one for MCP requests
           let sessionId: string | undefined;
-          const mcpSessionHeader = requestText.match(/Mcp-Session-Id:\s*([^\r\n]+)/i);
-          
+          const mcpSessionHeader = requestText.match(
+            /Mcp-Session-Id:\s*([^\r\n]+)/i,
+          );
+
           if (path === "/mcp" || path.startsWith("/mcp/")) {
             if (mcpSessionHeader && mcpSessionHeader[1]) {
               sessionId = mcpSessionHeader[1].trim();
               this.updateSessionActivity(sessionId);
-              ztoolkit.log(`[HttpServer] Using existing MCP session: ${sessionId}`);
+              ztoolkit.log(
+                `[HttpServer] Using existing MCP session: ${sessionId}`,
+              );
             } else {
               sessionId = this.generateSessionId();
               this.activeSessions.set(sessionId, {
                 createdAt: new Date(),
-                lastActivity: new Date()
+                lastActivity: new Date(),
               });
-              ztoolkit.log(`[HttpServer] Created new MCP session: ${sessionId}`);
+              ztoolkit.log(
+                `[HttpServer] Created new MCP session: ${sessionId}`,
+              );
             }
           }
 
@@ -485,7 +629,9 @@ export class HttpServer {
                 result = {
                   status: 503,
                   statusText: "Service Unavailable",
-                  headers: { "Content-Type": "application/json; charset=utf-8" },
+                  headers: {
+                    "Content-Type": "application/json; charset=utf-8",
+                  },
                   body: JSON.stringify({ error: "MCP server not enabled" }),
                 };
               }
@@ -500,26 +646,28 @@ export class HttpServer {
                   protocol: "MCP (Model Context Protocol)",
                   transport: "Streamable HTTP",
                   version: "2024-11-05",
-                  description: "This endpoint accepts MCP protocol requests via POST method",
+                  description:
+                    "This endpoint accepts MCP protocol requests via POST method",
                   usage: {
                     method: "POST",
                     contentType: "application/json",
-                    body: "MCP JSON-RPC 2.0 formatted requests"
+                    body: "MCP JSON-RPC 2.0 formatted requests",
                   },
                   status: this.mcpServer ? "available" : "disabled",
-                  documentation: "Send POST requests with MCP protocol messages to interact with Zotero data"
+                  documentation:
+                    "Send POST requests with MCP protocol messages to interact with Zotero data",
                 }),
               };
             } else {
               result = {
                 status: 405,
                 statusText: "Method Not Allowed",
-                headers: { 
+                headers: {
                   "Content-Type": "application/json; charset=utf-8",
-                  "Allow": "GET, POST"
+                  Allow: "GET, POST",
                 },
-                body: JSON.stringify({ 
-                  error: `Method ${method} not allowed. Use GET for info or POST for MCP requests.` 
+                body: JSON.stringify({
+                  error: `Method ${method} not allowed. Use GET for info or POST for MCP requests.`,
                 }),
               };
             }
@@ -537,10 +685,17 @@ export class HttpServer {
                 status: 503,
                 statusText: "Service Unavailable",
                 headers: { "Content-Type": "application/json; charset=utf-8" },
-                body: JSON.stringify({ error: "MCP server not enabled", enabled: false }),
+                body: JSON.stringify({
+                  error: "MCP server not enabled",
+                  enabled: false,
+                }),
               };
             }
-          } else if (path === "/mcp/capabilities" || path === "/capabilities" || path === "/help") {
+          } else if (
+            path === "/mcp/capabilities" ||
+            path === "/capabilities" ||
+            path === "/help"
+          ) {
             // Comprehensive capabilities discovery endpoint
             result = {
               status: 200,
@@ -560,9 +715,10 @@ export class HttpServer {
             const pingResult = {
               status: 200,
               statusText: "OK",
-              headers: { "Content-Type": "text/plain; charset=utf-8" }
+              headers: { "Content-Type": "text/plain; charset=utf-8" },
             };
-            const pingHeaders = this.buildHttpHeaders(pingResult, keepAlive) +
+            const pingHeaders =
+              this.buildHttpHeaders(pingResult, keepAlive) +
               "Content-Length: 4\r\n" +
               "\r\n";
             const response = pingHeaders + "pong";
@@ -572,9 +728,10 @@ export class HttpServer {
             const notFoundResult = {
               status: 404,
               statusText: "Not Found",
-              headers: { "Content-Type": "text/plain; charset=utf-8" }
+              headers: { "Content-Type": "text/plain; charset=utf-8" },
             };
-            const notFoundHeaders = this.buildHttpHeaders(notFoundResult, false) +
+            const notFoundHeaders =
+              this.buildHttpHeaders(notFoundResult, false) +
               "Content-Length: 9\r\n" +
               "\r\n";
             const response = notFoundHeaders + "Not Found";
@@ -588,11 +745,14 @@ export class HttpServer {
           const byteLength = getByteLength(body);
 
           // Build headers with session and connection management
-          const finalHeaders = this.buildHttpHeaders(result, keepAlive, sessionId) +
+          const finalHeaders =
+            this.buildHttpHeaders(result, keepAlive, sessionId) +
             `Content-Length: ${byteLength}\r\n` +
             "\r\n";
 
-          ztoolkit.log(`[HttpServer] Sending response: ${byteLength} bytes (chars: ${body.length})`);
+          ztoolkit.log(
+            `[HttpServer] Sending response: ${byteLength} bytes (chars: ${body.length})`,
+          );
 
           // Write headers (ASCII only, so length is safe)
           output.write(finalHeaders, finalHeaders.length);
@@ -620,9 +780,10 @@ export class HttpServer {
           const errorResult = {
             status: 500,
             statusText: "Internal Server Error",
-            headers: { "Content-Type": "application/json; charset=utf-8" }
+            headers: { "Content-Type": "application/json; charset=utf-8" },
           };
-          const errorHeaders = this.buildHttpHeaders(errorResult, false) +
+          const errorHeaders =
+            this.buildHttpHeaders(errorResult, false) +
             `Content-Length: ${errorByteLength}\r\n` +
             "\r\n";
           output.write(errorHeaders, errorHeaders.length);
@@ -642,9 +803,10 @@ export class HttpServer {
           const criticalErrorResult = {
             status: 500,
             statusText: "Internal Server Error",
-            headers: { "Content-Type": "text/plain; charset=utf-8" }
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
           };
-          const criticalErrorHeaders = this.buildHttpHeaders(criticalErrorResult, false) +
+          const criticalErrorHeaders =
+            this.buildHttpHeaders(criticalErrorResult, false) +
             "Content-Length: 21\r\n" +
             "\r\n";
           const errorResponse = criticalErrorHeaders + "Internal Server Error";
@@ -691,313 +853,515 @@ export class HttpServer {
     },
   };
 
-/**
- * Get comprehensive capabilities and API documentation
- */
-private getCapabilities() {
-  return {
-    serverInfo: {
-      name: "Zotero MCP for Claude Code",
-      version: "1.3.5",
-      description: "Model Context Protocol integration for Zotero research management (Claude Code fork)",
-      author: "lricher7329",
-      repository: "https://github.com/lricher7329/zotero-mcp-claude-code",
-      documentation: "https://github.com/lricher7329/zotero-mcp-claude-code/blob/main/README.md"
-    },
-    protocols: {
-      mcp: {
-        version: "2024-11-05",
-        transport: "streamable-http",
-        endpoint: "/mcp",
-        description: "Full MCP protocol support for AI clients"
+  /**
+   * Get comprehensive capabilities and API documentation
+   */
+  private getCapabilities() {
+    return {
+      serverInfo: {
+        name: "Zotero MCP for Claude Code",
+        version: "1.4.0",
+        description:
+          "Model Context Protocol integration for Zotero research management (Claude Code fork)",
+        author: "lricher7329",
+        repository: "https://github.com/lricher7329/zotero-mcp-claude-code",
+        documentation:
+          "https://github.com/lricher7329/zotero-mcp-claude-code/blob/main/README.md",
       },
-      rest: {
-        version: "1.1.0",
-        description: "REST API for direct HTTP access",
-        baseUrl: `http://127.0.0.1:${this.port}`
-      }
-    },
-    capabilities: {
-      search: {
-        library: true,
-        annotations: true,
-        collections: true,
-        fullText: true,
-        advanced: true
-      },
-      retrieval: {
-        items: true,
-        annotations: true,
-        pdfContent: true,
-        collections: true,
-        notes: true
-      },
-      formats: {
-        json: true,
-        text: true,
-        markdown: false
-      }
-    },
-    tools: [
-      {
-        name: "search_library",
-        description: "Search the Zotero library with advanced parameters including boolean operators, relevance scoring, fulltext search, and pagination. Returns: {query, pagination, searchTime, results: [{key, title, creators, date, attachments: [{key, filename, filePath, contentType, linkMode}], fulltextMatch: {query, mode, attachments: [{snippet, score}], notes: [{snippet, score}]}}], searchFeatures, version}",
-        category: "search",
-        parameters: {
-          q: { type: "string", description: "General search query", required: false },
-          title: { type: "string", description: "Title search", required: false },
-          titleOperator: { 
-            type: "string", 
-            enum: ["contains", "exact", "startsWith", "endsWith", "regex"],
-            description: "Title search operator",
-            required: false
-          },
-          yearRange: { type: "string", description: "Year range (e.g., '2020-2023')", required: false },
-          fulltext: { type: "string", description: "Full-text search in attachments and notes", required: false },
-          fulltextMode: { 
-            type: "string", 
-            enum: ["attachment", "note", "both"],
-            description: "Full-text search mode: 'attachment' (PDFs only), 'note' (notes only), 'both' (default)",
-            required: false 
-          },
-          fulltextOperator: { 
-            type: "string", 
-            enum: ["contains", "exact", "regex"],
-            description: "Full-text search operator (default: 'contains')",
-            required: false 
-          },
-          relevanceScoring: { type: "boolean", description: "Enable relevance scoring", required: false },
-          sort: { 
-            type: "string", 
-            enum: ["relevance", "date", "title", "year"],
-            description: "Sort order",
-            required: false
-          },
-          limit: { type: "number", description: "Maximum results to return", required: false },
-          offset: { type: "number", description: "Pagination offset", required: false }
-        },
-        examples: [
-          { query: { q: "machine learning" }, description: "Basic text search" },
-          { query: { title: "deep learning", titleOperator: "contains" }, description: "Title-specific search" },
-          { query: { yearRange: "2020-2023", sort: "relevance" }, description: "Year-filtered search with relevance sorting" },
-          { query: { fulltext: "neural networks", fulltextMode: "attachment" }, description: "Full-text search in PDF attachments only" },
-          { query: { fulltext: "methodology", fulltextMode: "both", fulltextOperator: "exact" }, description: "Exact full-text search in both attachments and notes" }
-        ]
-      },
-      {
-        name: "search_annotations",
-        description: "Search all notes, PDF annotations and highlights with smart content processing",
-        category: "search",
-        parameters: {
-          q: { type: "string", description: "Search query for content, comments, and tags", required: false },
-          type: { 
-            type: "string", 
-            enum: ["note", "highlight", "annotation", "ink", "text", "image"],
-            description: "Filter by annotation type",
-            required: false
-          },
-          detailed: { type: "boolean", description: "Return detailed content (default: false for preview)", required: false },
-          limit: { type: "number", description: "Maximum results (preview: 20, detailed: 50)", required: false },
-          offset: { type: "number", description: "Pagination offset", required: false }
-        },
-        examples: [
-          { query: { q: "important findings" }, description: "Search annotation content" },
-          { query: { type: "highlight", detailed: true }, description: "Get detailed highlights" }
-        ]
-      },
-      {
-        name: "get_item_details",
-        description: "Get detailed information for a specific item including metadata, abstract, attachments info, notes, and tags but not fulltext content. Returns: {key, title, creators, date, itemType, publicationTitle, volume, issue, pages, DOI, url, abstractNote, tags, notes: [note_content], attachments: [{key, title, path, contentType, filename, url, linkMode, hasFulltext, size}]}",
-        category: "retrieval",
-        parameters: {
-          itemKey: { type: "string", description: "Unique item key", required: true }
-        },
-        examples: [
-          { query: { itemKey: "ABCD1234" }, description: "Get item by key" }
-        ]
-      },
-      {
-        name: "get_annotation_by_id",
-        description: "Get complete content of a specific annotation by ID",
-        category: "retrieval",
-        parameters: {
-          annotationId: { type: "string", description: "Annotation ID", required: true }
-        }
-      },
-      {
-        name: "get_annotations_batch",
-        description: "Get complete content of multiple annotations by IDs",
-        category: "retrieval",
-        parameters: {
-          ids: { 
-            type: "array", 
-            items: { type: "string" },
-            description: "Array of annotation IDs",
-            required: true
-          }
-        }
-      },
-      {
-        name: "get_item_pdf_content",
-        description: "Extract text content from PDF attachments",
-        category: "retrieval",
-        parameters: {
-          itemKey: { type: "string", description: "Item key", required: true },
-          page: { type: "number", description: "Specific page number (optional)", required: false }
-        }
-      },
-      {
-        name: "get_collections",
-        description: "Get list of all collections in the library",
-        category: "collections",
-        parameters: {
-          limit: { type: "number", description: "Maximum results to return", required: false },
-          offset: { type: "number", description: "Pagination offset", required: false }
-        }
-      },
-      {
-        name: "search_collections",
-        description: "Search collections by name",
-        category: "collections",
-        parameters: {
-          q: { type: "string", description: "Collection name search query", required: true },
-          limit: { type: "number", description: "Maximum results to return", required: false }
-        }
-      },
-      {
-        name: "get_collection_details",
-        description: "Get detailed information about a specific collection",
-        category: "collections",
-        parameters: {
-          collectionKey: { type: "string", description: "Collection key", required: true }
-        }
-      },
-      {
-        name: "get_collection_items",
-        description: "Get items in a specific collection",
-        category: "collections",
-        parameters: {
-          collectionKey: { type: "string", description: "Collection key", required: true },
-          limit: { type: "number", description: "Maximum results to return", required: false },
-          offset: { type: "number", description: "Pagination offset", required: false }
-        }
-      },
-      {
-        name: "get_item_fulltext",
-        description: "Get comprehensive fulltext content from item including attachments, notes, abstracts, and webpage snapshots. Returns: {itemKey, title, itemType, abstract, fulltext: {attachments: [{attachmentKey, filename, filePath, contentType, type, content, length, extractionMethod}], notes: [{noteKey, title, content, htmlContent, length, dateModified}], webpage: {url, filename, filePath, content, length, type}, total_length}, metadata: {extractedAt, sources}}",
-        category: "fulltext",
-        parameters: {
-          itemKey: { type: "string", description: "Item key", required: true },
-          attachments: { type: "boolean", description: "Include attachment content (default: true)", required: false },
-          notes: { type: "boolean", description: "Include notes content (default: true)", required: false },
-          webpage: { type: "boolean", description: "Include webpage snapshots (default: true)", required: false },
-          abstract: { type: "boolean", description: "Include abstract (default: true)", required: false }
-        },
-        examples: [
-          { query: { itemKey: "ABCD1234" }, description: "Get all fulltext content for an item" },
-          { query: { itemKey: "ABCD1234", attachments: true, notes: false }, description: "Get only attachment content" }
-        ]
-      },
-      {
-        name: "get_attachment_content",
-        description: "Extract text content from a specific attachment (PDF, HTML, text files). Returns: {attachmentKey, filename, filePath, contentType, type, content, length, extractionMethod, extractedAt}",
-        category: "fulltext",
-        parameters: {
-          attachmentKey: { type: "string", description: "Attachment key", required: true },
-          format: { type: "string", enum: ["json", "text"], description: "Response format (default: json)", required: false }
-        }
-      },
-      {
-        name: "search_fulltext",
-        description: "Search within fulltext content of items with context and relevance scoring",
-        category: "fulltext",
-        parameters: {
-          q: { type: "string", description: "Search query", required: true },
-          itemKeys: { type: "array", items: { type: "string" }, description: "Limit search to specific items (optional)", required: false },
-          contextLength: { type: "number", description: "Context length around matches (default: 200)", required: false },
-          maxResults: { type: "number", description: "Maximum results to return (default: 50)", required: false },
-          caseSensitive: { type: "boolean", description: "Case sensitive search (default: false)", required: false }
-        },
-        examples: [
-          { query: { q: "machine learning" }, description: "Search for 'machine learning' in all fulltext" },
-          { query: { q: "neural networks", maxResults: 10, contextLength: 100 }, description: "Limited context search" }
-        ]
-      },
-      {
-        name: "get_item_abstract",
-        description: "Get the abstract/summary of a specific item",
-        category: "retrieval",
-        parameters: {
-          itemKey: { type: "string", description: "Item key", required: true },
-          format: { type: "string", enum: ["json", "text"], description: "Response format (default: json)", required: false }
-        }
-      }
-    ],
-    endpoints: {
-      mcp: {
-        "/mcp": {
-          method: "POST",
-          description: "MCP protocol endpoint for AI clients",
-          contentType: "application/json",
-          protocol: "MCP 2024-11-05"
-        }
-      },
-      rest: {
-        "/ping": {
-          method: "GET",
-          description: "Health check endpoint",
-          response: "text/plain"
-        },
-        "/mcp/status": {
-          method: "GET", 
-          description: "MCP server status and capabilities",
-          response: "application/json"
-        },
-        "/capabilities": {
-          method: "GET",
-          description: "This endpoint - comprehensive API documentation",
-          response: "application/json"
-        },
-        "/help": {
-          method: "GET",
-          description: "Alias for /capabilities",
-          response: "application/json"
-        },
-        "/test/mcp": {
-          method: "GET",
-          description: "MCP integration testing endpoint",
-          response: "application/json"
-        }
-      }
-    },
-    usage: {
-      gettingStarted: {
+      protocols: {
         mcp: {
-          description: "Connect via MCP protocol",
-          steps: [
-            "Configure MCP client to connect to this server",
-            "Use streamable HTTP transport",
-            "Send MCP requests to /mcp endpoint",
-            "Available tools will be listed via tools/list method"
-          ]
+          version: "2024-11-05",
+          transport: "streamable-http",
+          endpoint: "/mcp",
+          description: "Full MCP protocol support for AI clients",
         },
         rest: {
-          description: "Use REST API directly", 
-          examples: [
-            "GET /capabilities - Get this documentation",
-            "GET /ping - Health check",
-            "GET /mcp/status - Check MCP server status"
-          ]
-        }
+          version: "1.1.0",
+          description: "REST API for direct HTTP access",
+          baseUrl: `http://127.0.0.1:${this.port}`,
+        },
       },
-      authentication: "None required for local connections",
-      rateLimit: "No rate limiting currently implemented",
-      cors: "CORS headers not currently set"
-    },
-    timestamp: new Date().toISOString(),
-    status: this.mcpServer ? "ready" : "mcp-disabled"
-  };
-}
+      capabilities: {
+        search: {
+          library: true,
+          annotations: true,
+          collections: true,
+          fullText: true,
+          advanced: true,
+        },
+        retrieval: {
+          items: true,
+          annotations: true,
+          pdfContent: true,
+          collections: true,
+          notes: true,
+        },
+        formats: {
+          json: true,
+          text: true,
+          markdown: false,
+        },
+      },
+      tools: [
+        {
+          name: "search_library",
+          description:
+            "Search the Zotero library with advanced parameters including boolean operators, relevance scoring, fulltext search, and pagination. Returns: {query, pagination, searchTime, results: [{key, title, creators, date, attachments: [{key, filename, filePath, contentType, linkMode}], fulltextMatch: {query, mode, attachments: [{snippet, score}], notes: [{snippet, score}]}}], searchFeatures, version}",
+          category: "search",
+          parameters: {
+            q: {
+              type: "string",
+              description: "General search query",
+              required: false,
+            },
+            title: {
+              type: "string",
+              description: "Title search",
+              required: false,
+            },
+            titleOperator: {
+              type: "string",
+              enum: ["contains", "exact", "startsWith", "endsWith", "regex"],
+              description: "Title search operator",
+              required: false,
+            },
+            yearRange: {
+              type: "string",
+              description: "Year range (e.g., '2020-2023')",
+              required: false,
+            },
+            fulltext: {
+              type: "string",
+              description: "Full-text search in attachments and notes",
+              required: false,
+            },
+            fulltextMode: {
+              type: "string",
+              enum: ["attachment", "note", "both"],
+              description:
+                "Full-text search mode: 'attachment' (PDFs only), 'note' (notes only), 'both' (default)",
+              required: false,
+            },
+            fulltextOperator: {
+              type: "string",
+              enum: ["contains", "exact", "regex"],
+              description: "Full-text search operator (default: 'contains')",
+              required: false,
+            },
+            relevanceScoring: {
+              type: "boolean",
+              description: "Enable relevance scoring",
+              required: false,
+            },
+            sort: {
+              type: "string",
+              enum: ["relevance", "date", "title", "year"],
+              description: "Sort order",
+              required: false,
+            },
+            limit: {
+              type: "number",
+              description: "Maximum results to return",
+              required: false,
+            },
+            offset: {
+              type: "number",
+              description: "Pagination offset",
+              required: false,
+            },
+          },
+          examples: [
+            {
+              query: { q: "machine learning" },
+              description: "Basic text search",
+            },
+            {
+              query: { title: "deep learning", titleOperator: "contains" },
+              description: "Title-specific search",
+            },
+            {
+              query: { yearRange: "2020-2023", sort: "relevance" },
+              description: "Year-filtered search with relevance sorting",
+            },
+            {
+              query: {
+                fulltext: "neural networks",
+                fulltextMode: "attachment",
+              },
+              description: "Full-text search in PDF attachments only",
+            },
+            {
+              query: {
+                fulltext: "methodology",
+                fulltextMode: "both",
+                fulltextOperator: "exact",
+              },
+              description:
+                "Exact full-text search in both attachments and notes",
+            },
+          ],
+        },
+        {
+          name: "search_annotations",
+          description:
+            "Search all notes, PDF annotations and highlights with smart content processing",
+          category: "search",
+          parameters: {
+            q: {
+              type: "string",
+              description: "Search query for content, comments, and tags",
+              required: false,
+            },
+            type: {
+              type: "string",
+              enum: ["note", "highlight", "annotation", "ink", "text", "image"],
+              description: "Filter by annotation type",
+              required: false,
+            },
+            detailed: {
+              type: "boolean",
+              description:
+                "Return detailed content (default: false for preview)",
+              required: false,
+            },
+            limit: {
+              type: "number",
+              description: "Maximum results (preview: 20, detailed: 50)",
+              required: false,
+            },
+            offset: {
+              type: "number",
+              description: "Pagination offset",
+              required: false,
+            },
+          },
+          examples: [
+            {
+              query: { q: "important findings" },
+              description: "Search annotation content",
+            },
+            {
+              query: { type: "highlight", detailed: true },
+              description: "Get detailed highlights",
+            },
+          ],
+        },
+        {
+          name: "get_item_details",
+          description:
+            "Get detailed information for a specific item including metadata, abstract, attachments info, notes, and tags but not fulltext content. Returns: {key, title, creators, date, itemType, publicationTitle, volume, issue, pages, DOI, url, abstractNote, tags, notes: [note_content], attachments: [{key, title, path, contentType, filename, url, linkMode, hasFulltext, size}]}",
+          category: "retrieval",
+          parameters: {
+            itemKey: {
+              type: "string",
+              description: "Unique item key",
+              required: true,
+            },
+          },
+          examples: [
+            { query: { itemKey: "ABCD1234" }, description: "Get item by key" },
+          ],
+        },
+        {
+          name: "get_annotation_by_id",
+          description: "Get complete content of a specific annotation by ID",
+          category: "retrieval",
+          parameters: {
+            annotationId: {
+              type: "string",
+              description: "Annotation ID",
+              required: true,
+            },
+          },
+        },
+        {
+          name: "get_annotations_batch",
+          description: "Get complete content of multiple annotations by IDs",
+          category: "retrieval",
+          parameters: {
+            ids: {
+              type: "array",
+              items: { type: "string" },
+              description: "Array of annotation IDs",
+              required: true,
+            },
+          },
+        },
+        {
+          name: "get_item_pdf_content",
+          description: "Extract text content from PDF attachments",
+          category: "retrieval",
+          parameters: {
+            itemKey: {
+              type: "string",
+              description: "Item key",
+              required: true,
+            },
+            page: {
+              type: "number",
+              description: "Specific page number (optional)",
+              required: false,
+            },
+          },
+        },
+        {
+          name: "get_collections",
+          description: "Get list of all collections in the library",
+          category: "collections",
+          parameters: {
+            limit: {
+              type: "number",
+              description: "Maximum results to return",
+              required: false,
+            },
+            offset: {
+              type: "number",
+              description: "Pagination offset",
+              required: false,
+            },
+          },
+        },
+        {
+          name: "search_collections",
+          description: "Search collections by name",
+          category: "collections",
+          parameters: {
+            q: {
+              type: "string",
+              description: "Collection name search query",
+              required: true,
+            },
+            limit: {
+              type: "number",
+              description: "Maximum results to return",
+              required: false,
+            },
+          },
+        },
+        {
+          name: "get_collection_details",
+          description: "Get detailed information about a specific collection",
+          category: "collections",
+          parameters: {
+            collectionKey: {
+              type: "string",
+              description: "Collection key",
+              required: true,
+            },
+          },
+        },
+        {
+          name: "get_collection_items",
+          description: "Get items in a specific collection",
+          category: "collections",
+          parameters: {
+            collectionKey: {
+              type: "string",
+              description: "Collection key",
+              required: true,
+            },
+            limit: {
+              type: "number",
+              description: "Maximum results to return",
+              required: false,
+            },
+            offset: {
+              type: "number",
+              description: "Pagination offset",
+              required: false,
+            },
+          },
+        },
+        {
+          name: "get_item_fulltext",
+          description:
+            "Get comprehensive fulltext content from item including attachments, notes, abstracts, and webpage snapshots. Returns: {itemKey, title, itemType, abstract, fulltext: {attachments: [{attachmentKey, filename, filePath, contentType, type, content, length, extractionMethod}], notes: [{noteKey, title, content, htmlContent, length, dateModified}], webpage: {url, filename, filePath, content, length, type}, total_length}, metadata: {extractedAt, sources}}",
+          category: "fulltext",
+          parameters: {
+            itemKey: {
+              type: "string",
+              description: "Item key",
+              required: true,
+            },
+            attachments: {
+              type: "boolean",
+              description: "Include attachment content (default: true)",
+              required: false,
+            },
+            notes: {
+              type: "boolean",
+              description: "Include notes content (default: true)",
+              required: false,
+            },
+            webpage: {
+              type: "boolean",
+              description: "Include webpage snapshots (default: true)",
+              required: false,
+            },
+            abstract: {
+              type: "boolean",
+              description: "Include abstract (default: true)",
+              required: false,
+            },
+          },
+          examples: [
+            {
+              query: { itemKey: "ABCD1234" },
+              description: "Get all fulltext content for an item",
+            },
+            {
+              query: { itemKey: "ABCD1234", attachments: true, notes: false },
+              description: "Get only attachment content",
+            },
+          ],
+        },
+        {
+          name: "get_attachment_content",
+          description:
+            "Extract text content from a specific attachment (PDF, HTML, text files). Returns: {attachmentKey, filename, filePath, contentType, type, content, length, extractionMethod, extractedAt}",
+          category: "fulltext",
+          parameters: {
+            attachmentKey: {
+              type: "string",
+              description: "Attachment key",
+              required: true,
+            },
+            format: {
+              type: "string",
+              enum: ["json", "text"],
+              description: "Response format (default: json)",
+              required: false,
+            },
+          },
+        },
+        {
+          name: "search_fulltext",
+          description:
+            "Search within fulltext content of items with context and relevance scoring",
+          category: "fulltext",
+          parameters: {
+            q: { type: "string", description: "Search query", required: true },
+            itemKeys: {
+              type: "array",
+              items: { type: "string" },
+              description: "Limit search to specific items (optional)",
+              required: false,
+            },
+            contextLength: {
+              type: "number",
+              description: "Context length around matches (default: 200)",
+              required: false,
+            },
+            maxResults: {
+              type: "number",
+              description: "Maximum results to return (default: 50)",
+              required: false,
+            },
+            caseSensitive: {
+              type: "boolean",
+              description: "Case sensitive search (default: false)",
+              required: false,
+            },
+          },
+          examples: [
+            {
+              query: { q: "machine learning" },
+              description: "Search for 'machine learning' in all fulltext",
+            },
+            {
+              query: {
+                q: "neural networks",
+                maxResults: 10,
+                contextLength: 100,
+              },
+              description: "Limited context search",
+            },
+          ],
+        },
+        {
+          name: "get_item_abstract",
+          description: "Get the abstract/summary of a specific item",
+          category: "retrieval",
+          parameters: {
+            itemKey: {
+              type: "string",
+              description: "Item key",
+              required: true,
+            },
+            format: {
+              type: "string",
+              enum: ["json", "text"],
+              description: "Response format (default: json)",
+              required: false,
+            },
+          },
+        },
+      ],
+      endpoints: {
+        mcp: {
+          "/mcp": {
+            method: "POST",
+            description: "MCP protocol endpoint for AI clients",
+            contentType: "application/json",
+            protocol: "MCP 2024-11-05",
+          },
+        },
+        rest: {
+          "/ping": {
+            method: "GET",
+            description: "Health check endpoint",
+            response: "text/plain",
+          },
+          "/mcp/status": {
+            method: "GET",
+            description: "MCP server status and capabilities",
+            response: "application/json",
+          },
+          "/capabilities": {
+            method: "GET",
+            description: "This endpoint - comprehensive API documentation",
+            response: "application/json",
+          },
+          "/help": {
+            method: "GET",
+            description: "Alias for /capabilities",
+            response: "application/json",
+          },
+          "/test/mcp": {
+            method: "GET",
+            description: "MCP integration testing endpoint",
+            response: "application/json",
+          },
+        },
+      },
+      usage: {
+        gettingStarted: {
+          mcp: {
+            description: "Connect via MCP protocol",
+            steps: [
+              "Configure MCP client to connect to this server",
+              "Use streamable HTTP transport",
+              "Send MCP requests to /mcp endpoint",
+              "Available tools will be listed via tools/list method",
+            ],
+          },
+          rest: {
+            description: "Use REST API directly",
+            examples: [
+              "GET /capabilities - Get this documentation",
+              "GET /ping - Health check",
+              "GET /mcp/status - Check MCP server status",
+            ],
+          },
+        },
+        authentication: "None required for local connections",
+        rateLimit: "No rate limiting currently implemented",
+        cors: "CORS headers not currently set",
+      },
+      timestamp: new Date().toISOString(),
+      status: this.mcpServer ? "ready" : "mcp-disabled",
+    };
+  }
 }
 
 export const httpServer = new HttpServer();

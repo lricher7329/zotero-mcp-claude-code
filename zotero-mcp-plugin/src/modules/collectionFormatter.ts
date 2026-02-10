@@ -16,7 +16,7 @@ export function getCollectionPath(collection: Zotero.Collection): string {
     if (current.parentKey) {
       current = Zotero.Collections.getByLibraryAndKey(
         current.libraryID,
-        current.parentKey
+        current.parentKey,
       );
     } else {
       current = null;
@@ -39,7 +39,7 @@ export function getCollectionDepth(collection: Zotero.Collection): number {
     depth++;
     current = Zotero.Collections.getByLibraryAndKey(
       current.libraryID,
-      current.parentKey
+      current.parentKey,
     );
   }
 

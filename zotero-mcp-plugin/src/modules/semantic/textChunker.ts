@@ -8,9 +8,9 @@
 declare let ztoolkit: ZToolkit;
 
 export interface ChunkerOptions {
-  maxChunkSize: number;   // Maximum chunk size (characters, ~tokens for Chinese)
-  overlapSize: number;    // Overlap between chunks
-  minChunkSize: number;   // Minimum chunk size
+  maxChunkSize: number; // Maximum chunk size (characters, ~tokens for Chinese)
+  overlapSize: number; // Overlap between chunks
+  minChunkSize: number; // Minimum chunk size
 }
 
 export interface TextChunk {
@@ -25,9 +25,9 @@ export class TextChunker {
 
   constructor(options: Partial<ChunkerOptions> = {}) {
     this.options = {
-      maxChunkSize: options.maxChunkSize || 450,  // Leave room for instruction prefix
+      maxChunkSize: options.maxChunkSize || 450, // Leave room for instruction prefix
       overlapSize: options.overlapSize || 50,
-      minChunkSize: options.minChunkSize || 20
+      minChunkSize: options.minChunkSize || 20,
     };
   }
 
@@ -37,7 +37,9 @@ export class TextChunker {
   chunk(text: string): string[] {
     const startTime = Date.now();
     const inputLength = text?.length || 0;
-    ztoolkit.log(`[TextChunker] Starting chunk: input length=${inputLength}, maxChunkSize=${this.options.maxChunkSize}`);
+    ztoolkit.log(
+      `[TextChunker] Starting chunk: input length=${inputLength}, maxChunkSize=${this.options.maxChunkSize}`,
+    );
 
     if (!text || text.trim().length < this.options.minChunkSize) {
       ztoolkit.log(`[TextChunker] Text too short, returning as-is`);
@@ -49,7 +51,7 @@ export class TextChunker {
 
     // First split by paragraphs
     const paragraphs = cleanText.split(/\n\n+/);
-    let currentChunk = '';
+    let currentChunk = "";
 
     for (const paragraph of paragraphs) {
       const trimmedPara = paragraph.trim();
@@ -60,7 +62,7 @@ export class TextChunker {
         // Save current chunk first
         if (currentChunk.trim()) {
           chunks.push(currentChunk.trim());
-          currentChunk = '';
+          currentChunk = "";
         }
 
         // Split long paragraph
@@ -71,7 +73,7 @@ export class TextChunker {
 
       // Check if adding would exceed max length
       const potentialChunk = currentChunk
-        ? currentChunk + '\n\n' + trimmedPara
+        ? currentChunk + "\n\n" + trimmedPara
         : trimmedPara;
 
       if (potentialChunk.length <= this.options.maxChunkSize) {
@@ -86,12 +88,17 @@ export class TextChunker {
     }
 
     // Add last chunk
-    if (currentChunk.trim() && currentChunk.trim().length >= this.options.minChunkSize) {
+    if (
+      currentChunk.trim() &&
+      currentChunk.trim().length >= this.options.minChunkSize
+    ) {
       chunks.push(currentChunk.trim());
     }
 
     const elapsed = Date.now() - startTime;
-    ztoolkit.log(`[TextChunker] Chunking completed: ${chunks.length} chunks in ${elapsed}ms, avg size=${chunks.length > 0 ? Math.round(chunks.reduce((a, c) => a + c.length, 0) / chunks.length) : 0}`);
+    ztoolkit.log(
+      `[TextChunker] Chunking completed: ${chunks.length} chunks in ${elapsed}ms, avg size=${chunks.length > 0 ? Math.round(chunks.reduce((a, c) => a + c.length, 0) / chunks.length) : 0}`,
+    );
 
     return chunks;
   }
@@ -114,7 +121,7 @@ export class TextChunker {
         id: i,
         text: chunkText,
         startPos: startPos >= 0 ? startPos : searchStart,
-        endPos: startPos >= 0 ? endPos : searchStart + chunkText.length
+        endPos: startPos >= 0 ? endPos : searchStart + chunkText.length,
       });
 
       searchStart = startPos >= 0 ? startPos + 1 : searchStart + 1;
@@ -127,15 +134,17 @@ export class TextChunker {
    * Preprocess text - clean up whitespace and normalize
    */
   private preprocessText(text: string): string {
-    return text
-      // Normalize whitespace
-      .replace(/\r\n/g, '\n')
-      .replace(/\t/g, ' ')
-      // Remove excessive spaces
-      .replace(/ +/g, ' ')
-      // Remove excessive newlines (keep paragraph breaks)
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
+    return (
+      text
+        // Normalize whitespace
+        .replace(/\r\n/g, "\n")
+        .replace(/\t/g, " ")
+        // Remove excessive spaces
+        .replace(/ +/g, " ")
+        // Remove excessive newlines (keep paragraph breaks)
+        .replace(/\n{3,}/g, "\n\n")
+        .trim()
+    );
   }
 
   /**
@@ -147,14 +156,14 @@ export class TextChunker {
     // Split by sentences (supports Chinese and English punctuation)
     const sentencePattern = /(?<=[。！？.!?;；])\s*/;
     const sentences = paragraph.split(sentencePattern);
-    let currentChunk = '';
+    let currentChunk = "";
 
     for (const sentence of sentences) {
       const trimmedSentence = sentence.trim();
       if (!trimmedSentence) continue;
 
       const potentialChunk = currentChunk
-        ? currentChunk + ' ' + trimmedSentence
+        ? currentChunk + " " + trimmedSentence
         : trimmedSentence;
 
       if (potentialChunk.length <= this.options.maxChunkSize) {
@@ -167,14 +176,17 @@ export class TextChunker {
         // If single sentence is still too long, force split
         if (trimmedSentence.length > this.options.maxChunkSize) {
           chunks.push(...this.forceSplit(trimmedSentence));
-          currentChunk = '';
+          currentChunk = "";
         } else {
           currentChunk = trimmedSentence;
         }
       }
     }
 
-    if (currentChunk.trim() && currentChunk.trim().length >= this.options.minChunkSize) {
+    if (
+      currentChunk.trim() &&
+      currentChunk.trim().length >= this.options.minChunkSize
+    ) {
       chunks.push(currentChunk.trim());
     }
 
@@ -195,7 +207,7 @@ export class TextChunker {
       // Try to find a good break point (space, punctuation)
       if (end < text.length) {
         const searchStart = Math.max(start + maxChunkSize - 50, start);
-        const breakPoints = [' ', '，', ',', '。', '.', '、', ';', '；'];
+        const breakPoints = [" ", "，", ",", "。", ".", "、", ";", "；"];
         let bestBreak = -1;
 
         for (let i = end - 1; i >= searchStart; i--) {
@@ -217,7 +229,7 @@ export class TextChunker {
       if (start >= text.length - overlapSize) break;
     }
 
-    return chunks.filter(c => c.length >= this.options.minChunkSize);
+    return chunks.filter((c) => c.length >= this.options.minChunkSize);
   }
 
   /**
@@ -226,7 +238,8 @@ export class TextChunker {
    * English: ~4 chars per token
    */
   estimateTokens(text: string): number {
-    const chineseChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
+    const chineseChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || [])
+      .length;
     const otherChars = text.length - chineseChars;
 
     return Math.ceil(chineseChars / 1.5 + otherChars / 4);
@@ -235,13 +248,13 @@ export class TextChunker {
   /**
    * Detect primary language
    */
-  detectLanguage(text: string): 'zh' | 'en' {
+  detectLanguage(text: string): "zh" | "en" {
     const chineseRegex = /[\u4e00-\u9fff\u3400-\u4dbf]/g;
     const chineseChars = (text.match(chineseRegex) || []).length;
-    const totalChars = text.replace(/\s/g, '').length;
+    const totalChars = text.replace(/\s/g, "").length;
 
     // If Chinese chars > 30%, consider it Chinese
-    return totalChars > 0 && chineseChars / totalChars > 0.3 ? 'zh' : 'en';
+    return totalChars > 0 && chineseChars / totalChars > 0.3 ? "zh" : "en";
   }
 }
 
@@ -249,8 +262,13 @@ export class TextChunker {
 let chunkerInstance: TextChunker | null = null;
 
 export function getTextChunker(options?: Partial<ChunkerOptions>): TextChunker {
-  if (!chunkerInstance || options) {
+  if (!chunkerInstance) {
     chunkerInstance = new TextChunker(options);
+  } else if (options) {
+    ztoolkit.log(
+      `[TextChunker] getTextChunker() called with options but instance already exists; ignoring options`,
+      "warn",
+    );
   }
   return chunkerInstance;
 }

@@ -93,7 +93,20 @@ trae-ai-instructions =
     7. 从 Agents 列表中选择新的 MCP 服务器
     8. 确保 Zotero MCP 服务器正在运行
 
-custom-http-instructions = 
+qwen-code-instructions =
+    1. 使用 Qwen Code 的 MCP 添加命令：
+       qwen mcp add zotero-mcp http://127.0.0.1:23120/mcp -t http
+    2. 或者使用自定义选项添加：
+       qwen mcp add zotero-mcp http://127.0.0.1:23120/mcp -t http -H 'Content-Type: application/json' --trust
+    3. 验证服务器已添加：qwen mcp list
+    4. 使用 @ 语法开始使用工具：
+       示例: /analyze @zotero:search_library term:"machine learning"
+    5. 使用 /mcp 命令验证 MCP 服务器是否正常运行
+    6. 确保 Zotero 正在运行且 MCP 插件服务器已启用
+    7. 配置文件位置：~/.qwen/settings.json 或 .qwen/settings.json
+    8. 故障排除：如果连接失败，使用 'qwen mcp list' 检查服务器状态
+
+custom-http-instructions =
     1. 使用此配置作为模板
     2. 根据你的客户端要求调整格式
     3. 确保客户端支持 HTTP MCP 传输

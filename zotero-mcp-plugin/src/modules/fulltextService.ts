@@ -7,7 +7,6 @@ declare let Zotero: any;
 declare let ztoolkit: ZToolkit;
 
 export class FulltextService {
-  
   /**
    * Get comprehensive fulltext content for an item
    * @param itemKey - The item key
@@ -15,7 +14,10 @@ export class FulltextService {
    */
   async getItemFulltext(itemKey: string): Promise<any> {
     try {
-      const item = Zotero.Items.getByLibraryAndKey(Zotero.Libraries.userLibraryID, itemKey);
+      const item = Zotero.Items.getByLibraryAndKey(
+        Zotero.Libraries.userLibraryID,
+        itemKey,
+      );
       if (!item) {
         throw new Error(`Item with key ${itemKey} not found`);
       }
@@ -31,12 +33,12 @@ export class FulltextService {
           attachments: [] as any[],
           notes: [] as any[],
           webpage: null,
-          total_length: 0
+          total_length: 0,
         },
         metadata: {
           extractedAt: new Date().toISOString(),
-          sources: [] as string[]
-        }
+          sources: [] as string[],
+        },
       };
 
       // Get fulltext from attachments
@@ -51,7 +53,10 @@ export class FulltextService {
             (result.metadata.sources as string[]).push(attachmentText.type);
           }
         } catch (error) {
-          ztoolkit.log(`[FulltextService] Error extracting attachment ${attachmentID}: ${error}`, "warn");
+          ztoolkit.log(
+            `[FulltextService] Error extracting attachment ${attachmentID}: ${error}`,
+            "warn",
+          );
         }
       }
 
@@ -66,7 +71,10 @@ export class FulltextService {
             result.fulltext.total_length += noteContent.content.length;
           }
         } catch (error) {
-          ztoolkit.log(`[FulltextService] Error extracting note ${noteID}: ${error}`, "warn");
+          ztoolkit.log(
+            `[FulltextService] Error extracting note ${noteID}: ${error}`,
+            "warn",
+          );
         }
       }
 
@@ -75,14 +83,19 @@ export class FulltextService {
       if (webpageContent) {
         result.fulltext.webpage = webpageContent;
         result.fulltext.total_length += webpageContent.content.length;
-        (result.metadata.sources as string[]).push('webpage');
+        (result.metadata.sources as string[]).push("webpage");
       }
 
-      ztoolkit.log(`[FulltextService] Extracted ${result.fulltext.total_length} characters from ${result.metadata.sources.length} sources`);
+      ztoolkit.log(
+        `[FulltextService] Extracted ${result.fulltext.total_length} characters from ${result.metadata.sources.length} sources`,
+      );
 
       return result;
     } catch (error) {
-      ztoolkit.log(`[FulltextService] Error in getItemFulltext: ${error}`, "error");
+      ztoolkit.log(
+        `[FulltextService] Error in getItemFulltext: ${error}`,
+        "error",
+      );
       throw error;
     }
   }
@@ -102,55 +115,67 @@ export class FulltextService {
       const filename = attachment.attachmentFilename;
       const path = attachment.getFilePath();
 
-      ztoolkit.log(`[FulltextService] Processing attachment: ${filename} (${attachmentType})`);
+      ztoolkit.log(
+        `[FulltextService] Processing attachment: ${filename} (${attachmentType})`,
+      );
 
-      let content = '';
-      let extractionMethod = 'unknown';
+      let content = "";
+      let extractionMethod = "unknown";
 
       // Handle different attachment types
       if (this.isPDFAttachment(attachment, attachmentType)) {
         // Use PDFProcessor directly for PDF files
         try {
-          const { PDFProcessor } = await import('./pdfProcessor');
-          const { TextFormatter } = await import('./textFormatter');
+          const { PDFProcessor } = await import("./pdfProcessor");
+          const { TextFormatter } = await import("./textFormatter");
           const processor = new PDFProcessor(ztoolkit);
-          
+
           const filePath = attachment.getFilePath();
           if (filePath) {
             try {
               const rawText = await processor.extractText(filePath);
               content = TextFormatter.formatPDFText(rawText);
-              extractionMethod = 'pdf_processor';
+              extractionMethod = "pdf_processor";
             } catch (fileError) {
-              ztoolkit.log(`[FulltextService] PDF file not accessible at path: ${filePath} - ${fileError}`, "warn");
+              ztoolkit.log(
+                `[FulltextService] PDF file not accessible at path: ${filePath} - ${fileError}`,
+                "warn",
+              );
             } finally {
               processor.terminate();
             }
           } else {
-            ztoolkit.log(`[FulltextService] No file path available for PDF attachment ${attachment.key}`, "warn");
+            ztoolkit.log(
+              `[FulltextService] No file path available for PDF attachment ${attachment.key}`,
+              "warn",
+            );
           }
         } catch (pdfError) {
-          ztoolkit.log(`[FulltextService] PDF extraction failed for ${attachment.key}: ${pdfError}`, "warn");
-          content = '';
+          ztoolkit.log(
+            `[FulltextService] PDF extraction failed for ${attachment.key}: ${pdfError}`,
+            "warn",
+          );
+          content = "";
         }
-      } else if (attachmentType && (
-        attachmentType.includes('html') || 
-        attachmentType.includes('text') ||
-        attachmentType.includes('xml')
-      )) {
+      } else if (
+        attachmentType &&
+        (attachmentType.includes("html") ||
+          attachmentType.includes("text") ||
+          attachmentType.includes("xml"))
+      ) {
         // Handle HTML/text files
         content = await this.extractTextFromFile(path, attachmentType);
-        extractionMethod = 'file_reading';
+        extractionMethod = "file_reading";
       } else if (attachment.isWebAttachment()) {
         // Handle web attachments
         content = await this.extractWebAttachmentContent(attachment);
-        extractionMethod = 'web_extraction';
+        extractionMethod = "web_extraction";
       } else {
         // Try Zotero's built-in fulltext extraction
         const fulltextContent = await this.getZoteroFulltext(attachment);
         if (fulltextContent) {
           content = fulltextContent;
-          extractionMethod = 'zotero_builtin';
+          extractionMethod = "zotero_builtin";
         }
       }
 
@@ -167,10 +192,13 @@ export class FulltextService {
         content: content.trim(),
         length: content.length,
         extractionMethod,
-        extractedAt: new Date().toISOString()
+        extractedAt: new Date().toISOString(),
       };
     } catch (error) {
-      ztoolkit.log(`[FulltextService] Error extracting attachment content: ${error}`, "error");
+      ztoolkit.log(
+        `[FulltextService] Error extracting attachment content: ${error}`,
+        "error",
+      );
       return null;
     }
   }
@@ -182,7 +210,7 @@ export class FulltextService {
    */
   getItemAbstract(item: any): string | null {
     try {
-      const abstract = item.getField('abstractNote');
+      const abstract = item.getField("abstractNote");
       return abstract && abstract.trim().length > 0 ? abstract.trim() : null;
     } catch (error) {
       return null;
@@ -206,19 +234,22 @@ export class FulltextService {
       }
 
       // Strip HTML tags for plain text
-      const plainText = noteText.replace(/<[^>]*>/g, '').trim();
+      const plainText = noteText.replace(/<[^>]*>/g, "").trim();
 
       return {
         noteKey: note.key,
-        title: note.getNoteTitle() || 'Untitled Note',
+        title: note.getNoteTitle() || "Untitled Note",
         content: plainText,
         htmlContent: noteText,
         length: plainText.length,
         dateModified: note.dateModified,
-        type: 'note'
+        type: "note",
       };
     } catch (error) {
-      ztoolkit.log(`[FulltextService] Error extracting note content: ${error}`, "error");
+      ztoolkit.log(
+        `[FulltextService] Error extracting note content: ${error}`,
+        "error",
+      );
       return null;
     }
   }
@@ -230,7 +261,7 @@ export class FulltextService {
    */
   async getWebpageContent(item: any): Promise<any> {
     try {
-      const url = item.getField('url');
+      const url = item.getField("url");
       if (!url) {
         return null;
       }
@@ -239,8 +270,14 @@ export class FulltextService {
       const attachments = item.getAttachments();
       for (const attachmentID of attachments) {
         const attachment = Zotero.Items.get(attachmentID);
-        if (attachment.attachmentContentType && attachment.attachmentContentType.includes('html')) {
-          const content = await this.extractTextFromFile(attachment.getFilePath(), 'text/html');
+        if (
+          attachment.attachmentContentType &&
+          attachment.attachmentContentType.includes("html")
+        ) {
+          const content = await this.extractTextFromFile(
+            attachment.getFilePath(),
+            "text/html",
+          );
           if (content && content.length > 0) {
             return {
               url,
@@ -248,8 +285,8 @@ export class FulltextService {
               filePath: attachment.getFilePath(),
               content: content.trim(),
               length: content.length,
-              type: 'webpage_snapshot',
-              extractedAt: new Date().toISOString()
+              type: "webpage_snapshot",
+              extractedAt: new Date().toISOString(),
             };
           }
         }
@@ -257,7 +294,10 @@ export class FulltextService {
 
       return null;
     } catch (error) {
-      ztoolkit.log(`[FulltextService] Error extracting webpage content: ${error}`, "error");
+      ztoolkit.log(
+        `[FulltextService] Error extracting webpage content: ${error}`,
+        "error",
+      );
       return null;
     }
   }
@@ -274,26 +314,33 @@ export class FulltextService {
         itemKeys = null,
         contextLength = 200,
         maxResults = 50,
-        caseSensitive = false
+        caseSensitive = false,
       } = options;
 
       ztoolkit.log(`[FulltextService] Searching fulltext for: "${query}"`);
 
       const results = [];
       const searchRegex = new RegExp(
-        query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 
-        caseSensitive ? 'g' : 'gi'
+        query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        caseSensitive ? "g" : "gi",
       );
 
       // Get items to search
       let itemsToSearch;
       if (itemKeys && Array.isArray(itemKeys)) {
-        itemsToSearch = itemKeys.map(key => 
-          Zotero.Items.getByLibraryAndKey(Zotero.Libraries.userLibraryID, key)
-        ).filter(item => item);
+        itemsToSearch = itemKeys
+          .map((key) =>
+            Zotero.Items.getByLibraryAndKey(
+              Zotero.Libraries.userLibraryID,
+              key,
+            ),
+          )
+          .filter((item) => item);
       } else {
         // Search all items (limit for performance)
-        const allItems = await Zotero.Items.getAll(Zotero.Libraries.userLibraryID);
+        const allItems = await Zotero.Items.getAll(
+          Zotero.Libraries.userLibraryID,
+        );
         itemsToSearch = allItems.slice(0, 1000); // Limit for performance
       }
 
@@ -306,13 +353,24 @@ export class FulltextService {
 
           // Search in different content types
           const searchSources = [
-            { content: fulltext.abstract, type: 'abstract' },
-            ...fulltext.fulltext.attachments.map((att: any) => ({ content: att.content, type: 'attachment', filename: att.filename })),
-            ...fulltext.fulltext.notes.map((note: any) => ({ content: note.content, type: 'note', title: note.title }))
+            { content: fulltext.abstract, type: "abstract" },
+            ...fulltext.fulltext.attachments.map((att: any) => ({
+              content: att.content,
+              type: "attachment",
+              filename: att.filename,
+            })),
+            ...fulltext.fulltext.notes.map((note: any) => ({
+              content: note.content,
+              type: "note",
+              title: note.title,
+            })),
           ];
 
           if (fulltext.fulltext.webpage) {
-            searchSources.push({ content: fulltext.fulltext.webpage.content, type: 'webpage' });
+            searchSources.push({
+              content: fulltext.fulltext.webpage.content,
+              type: "webpage",
+            });
           }
 
           for (const source of searchSources) {
@@ -321,7 +379,10 @@ export class FulltextService {
             const sourceMatches = [...source.content.matchAll(searchRegex)];
             for (const match of sourceMatches) {
               const startPos = Math.max(0, match.index - contextLength);
-              const endPos = Math.min(source.content.length, match.index + match[0].length + contextLength);
+              const endPos = Math.min(
+                source.content.length,
+                match.index + match[0].length + contextLength,
+              );
               const context = source.content.substring(startPos, endPos);
 
               matches.push({
@@ -329,7 +390,7 @@ export class FulltextService {
                 filename: source.filename || source.title || null,
                 match: match[0],
                 context: context.trim(),
-                position: match.index
+                position: match.index,
               });
             }
           }
@@ -341,11 +402,14 @@ export class FulltextService {
               itemType: item.itemType,
               totalMatches: matches.length,
               matches: matches.slice(0, 10), // Limit matches per item
-              relevanceScore: matches.length
+              relevanceScore: matches.length,
             });
           }
         } catch (error) {
-          ztoolkit.log(`[FulltextService] Error searching item ${item.key}: ${error}`, "warn");
+          ztoolkit.log(
+            `[FulltextService] Error searching item ${item.key}: ${error}`,
+            "warn",
+          );
         }
       }
 
@@ -357,10 +421,13 @@ export class FulltextService {
         totalResults: results.length,
         results: results.slice(0, maxResults),
         searchOptions: options,
-        searchedAt: new Date().toISOString()
+        searchedAt: new Date().toISOString(),
       };
     } catch (error) {
-      ztoolkit.log(`[FulltextService] Error in searchFulltext: ${error}`, "error");
+      ztoolkit.log(
+        `[FulltextService] Error in searchFulltext: ${error}`,
+        "error",
+      );
       throw error;
     }
   }
@@ -371,25 +438,34 @@ export class FulltextService {
    * @param contentType - MIME content type
    * @returns Extracted text content
    */
-  private async extractTextFromFile(filePath: string, contentType: string): Promise<string> {
+  private async extractTextFromFile(
+    filePath: string,
+    contentType: string,
+  ): Promise<string> {
     try {
       if (!filePath) {
-        return '';
+        return "";
       }
 
-      if (contentType.includes('html') || contentType.includes('xml')) {
+      if (contentType.includes("html") || contentType.includes("xml")) {
         // Read HTML/XML and strip tags
         const htmlContent = await Zotero.File.getContentsAsync(filePath);
-        return htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-      } else if (contentType.includes('text')) {
+        return htmlContent
+          .replace(/<[^>]*>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      } else if (contentType.includes("text")) {
         // Read plain text
         return await Zotero.File.getContentsAsync(filePath);
       }
 
-      return '';
+      return "";
     } catch (error) {
-      ztoolkit.log(`[FulltextService] Error reading file ${filePath}: ${error}`, "error");
-      return '';
+      ztoolkit.log(
+        `[FulltextService] Error reading file ${filePath}: ${error}`,
+        "error",
+      );
+      return "";
     }
   }
 
@@ -400,23 +476,29 @@ export class FulltextService {
    */
   private async extractWebAttachmentContent(attachment: any): Promise<string> {
     try {
-      const url = attachment.getField('url');
-      if (!url) return '';
+      const url = attachment.getField("url");
+      if (!url) return "";
 
       // Try to get cached web content or snapshot
       const filePath = attachment.getFilePath();
       if (filePath) {
         try {
-          return await this.extractTextFromFile(filePath, 'text/html');
+          return await this.extractTextFromFile(filePath, "text/html");
         } catch (error) {
-          ztoolkit.log(`[FulltextService] Could not read web attachment file: ${filePath} - ${error}`, "warn");
+          ztoolkit.log(
+            `[FulltextService] Could not read web attachment file: ${filePath} - ${error}`,
+            "warn",
+          );
         }
       }
 
-      return '';
+      return "";
     } catch (error) {
-      ztoolkit.log(`[FulltextService] Error extracting web attachment: ${error}`, "error");
-      return '';
+      ztoolkit.log(
+        `[FulltextService] Error extracting web attachment: ${error}`,
+        "error",
+      );
+      return "";
     }
   }
 
@@ -434,7 +516,10 @@ export class FulltextService {
       }
       return null;
     } catch (error) {
-      ztoolkit.log(`[FulltextService] Error using Zotero fulltext: ${error}`, "warn");
+      ztoolkit.log(
+        `[FulltextService] Error using Zotero fulltext: ${error}`,
+        "warn",
+      );
       return null;
     }
   }
@@ -447,22 +532,22 @@ export class FulltextService {
    */
   private isPDFAttachment(attachment: any, contentType: string): boolean {
     // Check MIME type
-    if (contentType && contentType.includes('pdf')) {
+    if (contentType && contentType.includes("pdf")) {
       return true;
     }
-    
+
     // Check file extension
-    const filename = attachment.attachmentFilename || '';
-    if (filename.toLowerCase().endsWith('.pdf')) {
+    const filename = attachment.attachmentFilename || "";
+    if (filename.toLowerCase().endsWith(".pdf")) {
       return true;
     }
-    
+
     // Check path extension
-    const path = attachment.getFilePath() || '';
-    if (path.toLowerCase().endsWith('.pdf')) {
+    const path = attachment.getFilePath() || "";
+    if (path.toLowerCase().endsWith(".pdf")) {
       return true;
     }
-    
+
     return false;
   }
 
@@ -472,16 +557,17 @@ export class FulltextService {
    * @returns Category string
    */
   private categorizeAttachmentType(contentType: string): string {
-    if (!contentType) return 'unknown';
-    
-    if (contentType.includes('pdf')) return 'pdf';
-    if (contentType.includes('html')) return 'html';
-    if (contentType.includes('text')) return 'text';
-    if (contentType.includes('word') || contentType.includes('document')) return 'document';
-    if (contentType.includes('image')) return 'image';
-    if (contentType.includes('xml')) return 'xml';
-    
-    return 'other';
+    if (!contentType) return "unknown";
+
+    if (contentType.includes("pdf")) return "pdf";
+    if (contentType.includes("html")) return "html";
+    if (contentType.includes("text")) return "text";
+    if (contentType.includes("word") || contentType.includes("document"))
+      return "document";
+    if (contentType.includes("image")) return "image";
+    if (contentType.includes("xml")) return "xml";
+
+    return "other";
   }
 }
 

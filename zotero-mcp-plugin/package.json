@@ -1,7 +1,7 @@
 {
   "name": "zotero-mcp-plugin",
   "type": "module",
-  "version": "1.3.5",
+  "version": "1.4.0",
   "description": "Zotero MCP for Claude Code",
   "config": {
     "addonName": "Zotero MCP for Claude Code",
@@ -30,6 +30,7 @@
     "prepare-release": "node scripts/prepare-release.js",
     "release:init": "node scripts/init-release.js",
     "test": "zotero-plugin test",
+    "test:unit": "mocha",
     "test:update": "node scripts/test-update.js",
     "update-deps": "npm update --save"
   },
@@ -45,6 +46,7 @@
     "eslint": "^9.32.0",
     "mocha": "^11.7.1",
     "prettier": "^3.6.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.2",
     "zotero-plugin-scaffold": "^0.8.0",
     "zotero-types": "^4.1.0-beta.1"

@@ -183,6 +183,7 @@ export type FluentMessageId =
   | 'prefs-table-detail'
   | 'prefs-table-title'
   | 'prefs-title'
+  | 'qwen-code-instructions'
   | 'server-status-running'
   | 'server-status-stopped'
   | 'startup-begin'

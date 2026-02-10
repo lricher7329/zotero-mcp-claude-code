@@ -7,13 +7,13 @@ declare let Zotero: any;
 declare let ztoolkit: ZToolkit;
 
 export class MCPSettingsService {
-  private static readonly PREF_PREFIX = 'extensions.zotero.zotero-mcp-plugin.';
-  
+  private static readonly PREF_PREFIX = "extensions.zotero.zotero-mcp-plugin.";
+
   // Unified content processing modes - single, intuitive system
   private static readonly UNIFIED_MODES = {
-    'minimal': {
-      name: 'Minimal',
-      description: 'Fastest speed, least content (500 chars)',
+    minimal: {
+      name: "Minimal",
+      description: "Fastest speed, least content (500 chars)",
       maxContentLength: 500,
       maxAttachments: 2,
       maxNotes: 3,
@@ -22,11 +22,11 @@ export class MCPSettingsService {
       searchItemLimit: 30,
       maxAnnotationsPerRequest: 15,
       includeWebpage: false,
-      enableCompression: true
+      enableCompression: true,
     },
-    'preview': {
-      name: 'Preview',
-      description: 'Moderate content, quick preview (1.5K chars)',
+    preview: {
+      name: "Preview",
+      description: "Moderate content, quick preview (1.5K chars)",
       maxContentLength: 1500,
       maxAttachments: 5,
       maxNotes: 8,
@@ -35,11 +35,11 @@ export class MCPSettingsService {
       searchItemLimit: 50,
       maxAnnotationsPerRequest: 20,
       includeWebpage: false,
-      enableCompression: true
+      enableCompression: true,
     },
-    'standard': {
-      name: 'Standard',
-      description: 'Balanced processing, smart content (3K chars)',
+    standard: {
+      name: "Standard",
+      description: "Balanced processing, smart content (3K chars)",
       maxContentLength: 3000,
       maxAttachments: 10,
       maxNotes: 15,
@@ -48,11 +48,11 @@ export class MCPSettingsService {
       searchItemLimit: 100,
       maxAnnotationsPerRequest: 50,
       includeWebpage: true,
-      enableCompression: true
+      enableCompression: true,
     },
-    'complete': {
-      name: 'Complete',
-      description: 'All content, no length limit',
+    complete: {
+      name: "Complete",
+      description: "All content, no length limit",
       maxContentLength: -1,
       maxAttachments: -1,
       maxNotes: -1,
@@ -61,31 +61,31 @@ export class MCPSettingsService {
       searchItemLimit: 1000,
       maxAnnotationsPerRequest: 200,
       includeWebpage: true,
-      enableCompression: false
-    }
+      enableCompression: false,
+    },
   };
 
   // Simplified default settings with unified mode system
   private static readonly DEFAULTS: Record<string, any> = {
-    'ai.maxTokens': 10000,
-    'ui.includeMetadata': true,
+    "ai.maxTokens": 10000,
+    "ui.includeMetadata": true,
     // Unified content mode (replaces the old preset + output mode system)
-    'content.mode': 'standard', // minimal, preview, standard, complete, custom
+    "content.mode": "standard", // minimal, preview, standard, complete, custom
     // Custom mode settings (only used when mode is 'custom')
-    'custom.maxContentLength': 3000,
-    'custom.maxAttachments': 10,
-    'custom.maxNotes': 15,
-    'custom.keywordCount': 5,
-    'custom.smartTruncateLength': 200,
-    'custom.searchItemLimit': 100,
-    'custom.maxAnnotationsPerRequest': 50,
-    'custom.includeWebpage': true,
-    'custom.enableCompression': true,
+    "custom.maxContentLength": 3000,
+    "custom.maxAttachments": 10,
+    "custom.maxNotes": 15,
+    "custom.keywordCount": 5,
+    "custom.smartTruncateLength": 200,
+    "custom.searchItemLimit": 100,
+    "custom.maxAnnotationsPerRequest": 50,
+    "custom.includeWebpage": true,
+    "custom.enableCompression": true,
     // Text formatting options
-    'text.preserveFormatting': true,
-    'text.preserveHeadings': true,
-    'text.preserveLists': true,
-    'text.preserveEmphasis': false
+    "text.preserveFormatting": true,
+    "text.preserveHeadings": true,
+    "text.preserveLists": true,
+    "text.preserveEmphasis": false,
   };
 
   /**
@@ -101,10 +101,13 @@ export class MCPSettingsService {
           ztoolkit.log(`[MCPSettings] Set default ${key} = ${value}`);
         }
       });
-      
+
       ztoolkit.log(`[MCPSettings] Default settings initialized`);
     } catch (error) {
-      ztoolkit.log(`[MCPSettings] Error initializing defaults: ${error}`, 'error');
+      ztoolkit.log(
+        `[MCPSettings] Error initializing defaults: ${error}`,
+        "error",
+      );
     }
   }
 
@@ -118,7 +121,10 @@ export class MCPSettingsService {
       const value = Zotero.Prefs.get(prefKey, true);
       return value !== undefined && value !== null ? value : defaultValue;
     } catch (error) {
-      ztoolkit.log(`[MCPSettings] Error getting setting ${key}: ${error}`, 'error');
+      ztoolkit.log(
+        `[MCPSettings] Error getting setting ${key}: ${error}`,
+        "error",
+      );
       return this.DEFAULTS[key];
     }
   }
@@ -129,7 +135,7 @@ export class MCPSettingsService {
   static set(key: string, value: any): void {
     try {
       const prefKey = this.PREF_PREFIX + key;
-      
+
       // Validate the value
       const validationResult = this.validateSetting(key, value);
       if (!validationResult.valid) {
@@ -139,7 +145,7 @@ export class MCPSettingsService {
       Zotero.Prefs.set(prefKey, value, true);
       ztoolkit.log(`[MCPSettings] Set ${key} = ${value}`);
     } catch (error) {
-      ztoolkit.log(`[MCPSettings] Error setting ${key}: ${error}`, 'error');
+      ztoolkit.log(`[MCPSettings] Error setting ${key}: ${error}`, "error");
       throw error;
     }
   }
@@ -151,27 +157,27 @@ export class MCPSettingsService {
     const effectiveSettings = this.getEffectiveSettings();
     return {
       ai: {
-        maxTokens: this.get('ai.maxTokens')
+        maxTokens: this.get("ai.maxTokens"),
       },
       content: {
-        mode: this.get('content.mode')
+        mode: this.get("content.mode"),
       },
       custom: {
-        maxContentLength: this.get('custom.maxContentLength'),
-        maxAttachments: this.get('custom.maxAttachments'),
-        maxNotes: this.get('custom.maxNotes'),
-        keywordCount: this.get('custom.keywordCount'),
-        smartTruncateLength: this.get('custom.smartTruncateLength'),
-        searchItemLimit: this.get('custom.searchItemLimit'),
-        maxAnnotationsPerRequest: this.get('custom.maxAnnotationsPerRequest'),
-        includeWebpage: this.get('custom.includeWebpage'),
-        enableCompression: this.get('custom.enableCompression')
+        maxContentLength: this.get("custom.maxContentLength"),
+        maxAttachments: this.get("custom.maxAttachments"),
+        maxNotes: this.get("custom.maxNotes"),
+        keywordCount: this.get("custom.keywordCount"),
+        smartTruncateLength: this.get("custom.smartTruncateLength"),
+        searchItemLimit: this.get("custom.searchItemLimit"),
+        maxAnnotationsPerRequest: this.get("custom.maxAnnotationsPerRequest"),
+        includeWebpage: this.get("custom.includeWebpage"),
+        enableCompression: this.get("custom.enableCompression"),
       },
       ui: {
-        includeMetadata: this.get('ui.includeMetadata')
+        includeMetadata: this.get("ui.includeMetadata"),
       },
       // Current effective values
-      effective: effectiveSettings
+      effective: effectiveSettings,
     };
   }
 
@@ -204,9 +210,9 @@ export class MCPSettingsService {
         });
       }
 
-      ztoolkit.log('[MCPSettings] Bulk settings update completed');
+      ztoolkit.log("[MCPSettings] Bulk settings update completed");
     } catch (error) {
-      ztoolkit.log(`[MCPSettings] Error updating settings: ${error}`, 'error');
+      ztoolkit.log(`[MCPSettings] Error updating settings: ${error}`, "error");
       throw error;
     }
   }
@@ -220,10 +226,10 @@ export class MCPSettingsService {
         const prefKey = this.PREF_PREFIX + key;
         Zotero.Prefs.set(prefKey, value, true);
       });
-      
-      ztoolkit.log('[MCPSettings] All settings reset to defaults');
+
+      ztoolkit.log("[MCPSettings] All settings reset to defaults");
     } catch (error) {
-      ztoolkit.log(`[MCPSettings] Error resetting settings: ${error}`, 'error');
+      ztoolkit.log(`[MCPSettings] Error resetting settings: ${error}`, "error");
       throw error;
     }
   }
@@ -253,7 +259,10 @@ export class MCPSettingsService {
         ztoolkit.log(`[MCPSettings] Cleared setting ${key}`);
       }
     } catch (error) {
-      ztoolkit.log(`[MCPSettings] Error deleting setting ${key}: ${error}`, 'error');
+      ztoolkit.log(
+        `[MCPSettings] Error deleting setting ${key}: ${error}`,
+        "error",
+      );
     }
   }
 
@@ -276,31 +285,33 @@ export class MCPSettingsService {
     preserveLists: boolean;
     preserveEmphasis: boolean;
   } {
-    const contentMode = this.get('content.mode');
-    
-    if (contentMode === 'custom') {
+    const contentMode = this.get("content.mode");
+
+    if (contentMode === "custom") {
       // Use custom values
       return {
-        maxTokens: this.get('ai.maxTokens'),
-        maxContentLength: this.get('custom.maxContentLength'),
-        maxAttachments: this.get('custom.maxAttachments'),
-        maxNotes: this.get('custom.maxNotes'),
-        keywordCount: this.get('custom.keywordCount'),
-        smartTruncateLength: this.get('custom.smartTruncateLength'),
-        searchItemLimit: this.get('custom.searchItemLimit'),
-        maxAnnotationsPerRequest: this.get('custom.maxAnnotationsPerRequest'),
-        includeWebpage: this.get('custom.includeWebpage'),
-        enableCompression: this.get('custom.enableCompression'),
-        preserveFormatting: this.get('text.preserveFormatting'),
-        preserveHeadings: this.get('text.preserveHeadings'),
-        preserveLists: this.get('text.preserveLists'),
-        preserveEmphasis: this.get('text.preserveEmphasis')
+        maxTokens: this.get("ai.maxTokens"),
+        maxContentLength: this.get("custom.maxContentLength"),
+        maxAttachments: this.get("custom.maxAttachments"),
+        maxNotes: this.get("custom.maxNotes"),
+        keywordCount: this.get("custom.keywordCount"),
+        smartTruncateLength: this.get("custom.smartTruncateLength"),
+        searchItemLimit: this.get("custom.searchItemLimit"),
+        maxAnnotationsPerRequest: this.get("custom.maxAnnotationsPerRequest"),
+        includeWebpage: this.get("custom.includeWebpage"),
+        enableCompression: this.get("custom.enableCompression"),
+        preserveFormatting: this.get("text.preserveFormatting"),
+        preserveHeadings: this.get("text.preserveHeadings"),
+        preserveLists: this.get("text.preserveLists"),
+        preserveEmphasis: this.get("text.preserveEmphasis"),
       };
     } else {
       // Use unified mode values
-      const mode = this.UNIFIED_MODES[contentMode as keyof typeof this.UNIFIED_MODES] || this.UNIFIED_MODES.standard;
+      const mode =
+        this.UNIFIED_MODES[contentMode as keyof typeof this.UNIFIED_MODES] ||
+        this.UNIFIED_MODES.standard;
       return {
-        maxTokens: this.get('ai.maxTokens'),
+        maxTokens: this.get("ai.maxTokens"),
         maxContentLength: mode.maxContentLength,
         maxAttachments: mode.maxAttachments,
         maxNotes: mode.maxNotes,
@@ -310,10 +321,10 @@ export class MCPSettingsService {
         maxAnnotationsPerRequest: mode.maxAnnotationsPerRequest,
         includeWebpage: mode.includeWebpage,
         enableCompression: mode.enableCompression,
-        preserveFormatting: this.get('text.preserveFormatting'),
-        preserveHeadings: this.get('text.preserveHeadings'),
-        preserveLists: this.get('text.preserveLists'),
-        preserveEmphasis: this.get('text.preserveEmphasis')
+        preserveFormatting: this.get("text.preserveFormatting"),
+        preserveHeadings: this.get("text.preserveHeadings"),
+        preserveLists: this.get("text.preserveLists"),
+        preserveEmphasis: this.get("text.preserveEmphasis"),
       };
     }
   }
@@ -323,21 +334,25 @@ export class MCPSettingsService {
    */
   static applyMode(modeName: string): void {
     try {
-      if (modeName === 'custom') {
-        this.set('content.mode', 'custom');
+      if (modeName === "custom") {
+        this.set("content.mode", "custom");
         ztoolkit.log(`[MCPSettings] Switched to custom mode`);
         return;
       }
 
-      const mode = this.UNIFIED_MODES[modeName as keyof typeof this.UNIFIED_MODES];
+      const mode =
+        this.UNIFIED_MODES[modeName as keyof typeof this.UNIFIED_MODES];
       if (!mode) {
         throw new Error(`Unknown mode: ${modeName}`);
       }
 
-      this.set('content.mode', modeName);
+      this.set("content.mode", modeName);
       ztoolkit.log(`[MCPSettings] Applied ${modeName} mode`);
     } catch (error) {
-      ztoolkit.log(`[MCPSettings] Error applying mode ${modeName}: ${error}`, 'error');
+      ztoolkit.log(
+        `[MCPSettings] Error applying mode ${modeName}: ${error}`,
+        "error",
+      );
       throw error;
     }
   }
@@ -347,108 +362,144 @@ export class MCPSettingsService {
    */
   static getModesInfo(): any {
     return {
-      current: this.get('content.mode'),
+      current: this.get("content.mode"),
       available: {
         minimal: {
-          ...this.UNIFIED_MODES.minimal
+          ...this.UNIFIED_MODES.minimal,
         },
         preview: {
-          ...this.UNIFIED_MODES.preview
+          ...this.UNIFIED_MODES.preview,
         },
         standard: {
-          ...this.UNIFIED_MODES.standard
+          ...this.UNIFIED_MODES.standard,
         },
         complete: {
-          ...this.UNIFIED_MODES.complete
+          ...this.UNIFIED_MODES.complete,
         },
         custom: {
-          name: 'Custom',
-          description: 'Manually configure all parameters',
-          maxContentLength: this.get('custom.maxContentLength'),
-          maxAttachments: this.get('custom.maxAttachments'),
-          maxNotes: this.get('custom.maxNotes'),
-          keywordCount: this.get('custom.keywordCount'),
-          smartTruncateLength: this.get('custom.smartTruncateLength'),
-          searchItemLimit: this.get('custom.searchItemLimit'),
-          maxAnnotationsPerRequest: this.get('custom.maxAnnotationsPerRequest'),
-          includeWebpage: this.get('custom.includeWebpage'),
-          enableCompression: this.get('custom.enableCompression')
-        }
-      }
+          name: "Custom",
+          description: "Manually configure all parameters",
+          maxContentLength: this.get("custom.maxContentLength"),
+          maxAttachments: this.get("custom.maxAttachments"),
+          maxNotes: this.get("custom.maxNotes"),
+          keywordCount: this.get("custom.keywordCount"),
+          smartTruncateLength: this.get("custom.smartTruncateLength"),
+          searchItemLimit: this.get("custom.searchItemLimit"),
+          maxAnnotationsPerRequest: this.get("custom.maxAnnotationsPerRequest"),
+          includeWebpage: this.get("custom.includeWebpage"),
+          enableCompression: this.get("custom.enableCompression"),
+        },
+      },
     };
   }
 
   /**
    * Validate a setting value
    */
-  private static validateSetting(key: string, value: any): { valid: boolean; error?: string } {
+  private static validateSetting(
+    key: string,
+    value: any,
+  ): { valid: boolean; error?: string } {
     switch (key) {
-      case 'ai.maxTokens':
-        if (typeof value !== 'number' || value < 1000 || value > 100000) {
-          return { valid: false, error: 'maxTokens must be a number between 1000 and 100000' };
+      case "ai.maxTokens":
+        if (typeof value !== "number" || value < 1000 || value > 100000) {
+          return {
+            valid: false,
+            error: "maxTokens must be a number between 1000 and 100000",
+          };
         }
         break;
 
-      case 'content.mode':
-        if (!['minimal', 'preview', 'standard', 'complete', 'custom'].includes(value)) {
-          return { valid: false, error: 'content mode must be one of: minimal, preview, standard, complete, custom' };
+      case "content.mode":
+        if (
+          !["minimal", "preview", "standard", "complete", "custom"].includes(
+            value,
+          )
+        ) {
+          return {
+            valid: false,
+            error:
+              "content mode must be one of: minimal, preview, standard, complete, custom",
+          };
         }
         break;
 
-      case 'custom.maxContentLength':
-        if (typeof value !== 'number' || value < 100 || value > 50000) {
-          return { valid: false, error: 'maxContentLength must be a number between 100 and 50000' };
+      case "custom.maxContentLength":
+        if (typeof value !== "number" || value < 100 || value > 50000) {
+          return {
+            valid: false,
+            error: "maxContentLength must be a number between 100 and 50000",
+          };
         }
         break;
 
-      case 'custom.maxAttachments':
-        if (typeof value !== 'number' || value < 1 || value > 50) {
-          return { valid: false, error: 'maxAttachments must be a number between 1 and 50' };
+      case "custom.maxAttachments":
+        if (typeof value !== "number" || value < 1 || value > 50) {
+          return {
+            valid: false,
+            error: "maxAttachments must be a number between 1 and 50",
+          };
         }
         break;
 
-      case 'custom.maxNotes':
-        if (typeof value !== 'number' || value < 1 || value > 100) {
-          return { valid: false, error: 'maxNotes must be a number between 1 and 100' };
+      case "custom.maxNotes":
+        if (typeof value !== "number" || value < 1 || value > 100) {
+          return {
+            valid: false,
+            error: "maxNotes must be a number between 1 and 100",
+          };
         }
         break;
 
-      case 'custom.smartTruncateLength':
-        if (typeof value !== 'number' || value < 50 || value > 1000) {
-          return { valid: false, error: 'smartTruncateLength must be a number between 50 and 1000' };
+      case "custom.smartTruncateLength":
+        if (typeof value !== "number" || value < 50 || value > 1000) {
+          return {
+            valid: false,
+            error: "smartTruncateLength must be a number between 50 and 1000",
+          };
         }
         break;
 
-      case 'custom.keywordCount':
-        if (typeof value !== 'number' || value < 1 || value > 20) {
-          return { valid: false, error: 'keywordCount must be a number between 1 and 20' };
+      case "custom.keywordCount":
+        if (typeof value !== "number" || value < 1 || value > 20) {
+          return {
+            valid: false,
+            error: "keywordCount must be a number between 1 and 20",
+          };
         }
         break;
 
-      case 'custom.searchItemLimit':
-        if (typeof value !== 'number' || value < 10 || value > 1000) {
-          return { valid: false, error: 'searchItemLimit must be a number between 10 and 1000' };
+      case "custom.searchItemLimit":
+        if (typeof value !== "number" || value < 10 || value > 1000) {
+          return {
+            valid: false,
+            error: "searchItemLimit must be a number between 10 and 1000",
+          };
         }
         break;
 
-      case 'custom.maxAnnotationsPerRequest':
-        if (typeof value !== 'number' || value < 10 || value > 200) {
-          return { valid: false, error: 'maxAnnotationsPerRequest must be a number between 10 and 200' };
+      case "custom.maxAnnotationsPerRequest":
+        if (typeof value !== "number" || value < 10 || value > 200) {
+          return {
+            valid: false,
+            error:
+              "maxAnnotationsPerRequest must be a number between 10 and 200",
+          };
         }
         break;
 
-      case 'custom.includeWebpage':
-      case 'custom.enableCompression':
-      case 'ui.includeMetadata':
-        if (typeof value !== 'boolean') {
-          return { valid: false, error: 'Value must be a boolean' };
+      case "custom.includeWebpage":
+      case "custom.enableCompression":
+      case "ui.includeMetadata":
+        if (typeof value !== "boolean") {
+          return { valid: false, error: "Value must be a boolean" };
         }
         break;
 
       default:
         // For other settings, just check they're not null/undefined
         if (value === null || value === undefined) {
-          return { valid: false, error: 'Value cannot be null or undefined' };
+          return { valid: false, error: "Value cannot be null or undefined" };
         }
         break;
     }
@@ -471,10 +522,10 @@ export class MCPSettingsService {
     try {
       const settings = JSON.parse(jsonSettings);
       this.updateSettings(settings);
-      ztoolkit.log('[MCPSettings] Settings imported successfully');
+      ztoolkit.log("[MCPSettings] Settings imported successfully");
     } catch (error) {
-      ztoolkit.log(`[MCPSettings] Error importing settings: ${error}`, 'error');
-      throw new Error('Invalid settings JSON format');
+      ztoolkit.log(`[MCPSettings] Error importing settings: ${error}`, "error");
+      throw new Error("Invalid settings JSON format");
     }
   }
 
@@ -486,58 +537,58 @@ export class MCPSettingsService {
     return {
       ai: {
         maxTokens: {
-          current: this.get('ai.maxTokens'),
-          default: this.DEFAULTS['ai.maxTokens'],
-          range: '1000-100000',
-          description: 'Maximum tokens for AI processing'
-        }
+          current: this.get("ai.maxTokens"),
+          default: this.DEFAULTS["ai.maxTokens"],
+          range: "1000-100000",
+          description: "Maximum tokens for AI processing",
+        },
       },
       content: {
         mode: {
-          current: this.get('content.mode'),
-          default: this.DEFAULTS['content.mode'],
-          options: ['minimal', 'preview', 'standard', 'complete', 'custom'],
-          description: 'Unified content processing mode'
-        }
+          current: this.get("content.mode"),
+          default: this.DEFAULTS["content.mode"],
+          options: ["minimal", "preview", "standard", "complete", "custom"],
+          description: "Unified content processing mode",
+        },
       },
       effective: {
         maxContentLength: {
           current: effectiveSettings.maxContentLength,
-          description: 'Current effective content length limit'
+          description: "Current effective content length limit",
         },
         maxAttachments: {
           current: effectiveSettings.maxAttachments,
-          description: 'Current effective max attachments'
+          description: "Current effective max attachments",
         },
         maxNotes: {
           current: effectiveSettings.maxNotes,
-          description: 'Current effective max notes'
+          description: "Current effective max notes",
         },
         keywordCount: {
           current: effectiveSettings.keywordCount,
-          description: 'Current effective keyword count'
+          description: "Current effective keyword count",
         },
         smartTruncateLength: {
           current: effectiveSettings.smartTruncateLength,
-          description: 'Current effective truncate length'
+          description: "Current effective truncate length",
         },
         searchItemLimit: {
           current: effectiveSettings.searchItemLimit,
-          description: 'Current effective search limit'
+          description: "Current effective search limit",
         },
         maxAnnotationsPerRequest: {
           current: effectiveSettings.maxAnnotationsPerRequest,
-          description: 'Current effective max annotations'
+          description: "Current effective max annotations",
         },
         includeWebpage: {
           current: effectiveSettings.includeWebpage,
-          description: 'Current effective webpage inclusion'
+          description: "Current effective webpage inclusion",
         },
         enableCompression: {
           current: effectiveSettings.enableCompression,
-          description: 'Current effective compression setting'
-        }
-      }
+          description: "Current effective compression setting",
+        },
+      },
     };
   }
 }

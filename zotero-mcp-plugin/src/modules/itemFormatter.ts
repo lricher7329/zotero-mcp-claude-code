@@ -57,7 +57,7 @@ export async function formatItem(
 
   // Safe string getter function - consistent with other modules
   function safeGetString(value: any): string {
-    if (value === null || value === undefined) return '';
+    if (value === null || value === undefined) return "";
     return String(value);
   }
 
@@ -69,74 +69,102 @@ export async function formatItem(
             const attachmentIds = item.getAttachments(false);
             const attachments = Zotero.Items.get(attachmentIds);
             const processedAttachments = [];
-            
+
             for (const attachment of attachments) {
               try {
                 if (!attachment || !attachment.isAttachment()) {
                   continue;
                 }
-                
+
                 // Safely get individual fields
                 const attachmentData: any = {
-                  key: attachment.key || '',
+                  key: attachment.key || "",
                   linkMode: attachment.attachmentLinkMode || 0,
                   hasFulltext: false,
-                  size: 0
+                  size: 0,
                 };
-                
+
                 // Safely process each field
                 try {
-                  attachmentData.title = safeGetString(attachment.getField("title"));
+                  attachmentData.title = safeGetString(
+                    attachment.getField("title"),
+                  );
                 } catch (e) {
                   attachmentData.title = "";
-                  ztoolkit.log(`[ItemFormatter] Error getting attachment title: ${e}`, "error");
+                  ztoolkit.log(
+                    `[ItemFormatter] Error getting attachment title: ${e}`,
+                    "error",
+                  );
                 }
-                
+
                 try {
                   attachmentData.path = safeGetString(attachment.getFilePath());
                 } catch (e) {
                   attachmentData.path = "";
-                  ztoolkit.log(`[ItemFormatter] Error getting attachment path: ${e}`, "error");
+                  ztoolkit.log(
+                    `[ItemFormatter] Error getting attachment path: ${e}`,
+                    "error",
+                  );
                 }
-                
+
                 try {
-                  attachmentData.contentType = safeGetString(attachment.attachmentContentType);
+                  attachmentData.contentType = safeGetString(
+                    attachment.attachmentContentType,
+                  );
                 } catch (e) {
                   attachmentData.contentType = "";
-                  ztoolkit.log(`[ItemFormatter] Error getting attachment contentType: ${e}`, "error");
+                  ztoolkit.log(
+                    `[ItemFormatter] Error getting attachment contentType: ${e}`,
+                    "error",
+                  );
                 }
-                
+
                 try {
-                  attachmentData.filename = safeGetString(attachment.attachmentFilename);
+                  attachmentData.filename = safeGetString(
+                    attachment.attachmentFilename,
+                  );
                 } catch (e) {
                   attachmentData.filename = "";
-                  ztoolkit.log(`[ItemFormatter] Error getting attachment filename: ${e}`, "error");
+                  ztoolkit.log(
+                    `[ItemFormatter] Error getting attachment filename: ${e}`,
+                    "error",
+                  );
                 }
-                
+
                 try {
-                  attachmentData.url = safeGetString(attachment.getField("url"));
+                  attachmentData.url = safeGetString(
+                    attachment.getField("url"),
+                  );
                 } catch (e) {
                   attachmentData.url = "";
-                  ztoolkit.log(`[ItemFormatter] Error getting attachment url: ${e}`, "error");
+                  ztoolkit.log(
+                    `[ItemFormatter] Error getting attachment url: ${e}`,
+                    "error",
+                  );
                 }
-                
+
                 try {
                   attachmentData.hasFulltext = hasExtractableText(attachment);
                 } catch (e) {
-                  ztoolkit.log(`[ItemFormatter] Error checking extractable text: ${e}`, "error");
+                  ztoolkit.log(
+                    `[ItemFormatter] Error checking extractable text: ${e}`,
+                    "error",
+                  );
                 }
-                
+
                 try {
                   attachmentData.size = await getAttachmentSize(attachment);
                 } catch (e) {
-                  ztoolkit.log(`[ItemFormatter] Error getting attachment size: ${e}`, "error");
+                  ztoolkit.log(
+                    `[ItemFormatter] Error getting attachment size: ${e}`,
+                    "error",
+                  );
                 }
-                
+
                 // Only add valid attachments
                 if (attachmentData.key) {
                   processedAttachments.push(attachmentData);
                 }
-                
               } catch (e) {
                 ztoolkit.log(
                   `[ItemFormatter] Error processing attachment: ${e}`,
@@ -146,7 +174,7 @@ export async function formatItem(
                 continue;
               }
             }
-            
+
             formattedItem[field] = processedAttachments;
           } catch (e) {
             ztoolkit.log(
@@ -161,9 +189,10 @@ export async function formatItem(
             formattedItem[field] = item.getCreators().map((creator) => ({
               firstName: safeGetString(creator.firstName),
               lastName: safeGetString(creator.lastName),
-              creatorType: safeGetString(
-                Zotero.CreatorTypes.getName(creator.creatorTypeID)
-              ) || "unknown",
+              creatorType:
+                safeGetString(
+                  Zotero.CreatorTypes.getName(creator.creatorTypeID),
+                ) || "unknown",
             }));
           } catch (e) {
             ztoolkit.log(
@@ -241,24 +270,31 @@ export async function formatItem(
 function hasExtractableText(attachment: Zotero.Item): boolean {
   try {
     if (!attachment.isAttachment()) return false;
-    
+
     const contentType = attachment.attachmentContentType || "";
     const path = attachment.getFilePath() || "";
-    
+
     // Check for PDF files
     if (contentType.includes("pdf") || path.toLowerCase().endsWith(".pdf")) {
       return true;
     }
-    
+
     // Check for text files
-    if (contentType.includes("text") || 
-        [".txt", ".md", ".html", ".htm", ".xml"].some(ext => path.toLowerCase().endsWith(ext))) {
+    if (
+      contentType.includes("text") ||
+      [".txt", ".md", ".html", ".htm", ".xml"].some((ext) =>
+        path.toLowerCase().endsWith(ext),
+      )
+    ) {
       return true;
     }
-    
+
     return false;
   } catch (error) {
-    ztoolkit.log(`[ItemFormatter] Error checking extractable text: ${error}`, "error");
+    ztoolkit.log(
+      `[ItemFormatter] Error checking extractable text: ${error}`,
+      "error",
+    );
     return false;
   }
 }
@@ -269,10 +305,10 @@ function hasExtractableText(attachment: Zotero.Item): boolean {
 async function getAttachmentSize(attachment: Zotero.Item): Promise<number> {
   try {
     if (!attachment.isAttachment()) return 0;
-    
+
     const path = attachment.getFilePath();
     if (!path) return 0;
-    
+
     // Try to get file size using OS.File
     if (typeof OS !== "undefined" && OS.File && OS.File.stat) {
       try {
@@ -282,11 +318,12 @@ async function getAttachmentSize(attachment: Zotero.Item): Promise<number> {
         ztoolkit.log(`[ItemFormatter] OS.File.stat failed: ${e}`, "error");
       }
     }
-    
+
     // Fallback: try to use nsIFile
     try {
-      const file = (Components.classes as any)["@mozilla.org/file/local;1"]
-        .createInstance(Components.interfaces.nsIFile);
+      const file = (Components.classes as any)[
+        "@mozilla.org/file/local;1"
+      ].createInstance(Components.interfaces.nsIFile);
       file.initWithPath(path);
       if (file.exists()) {
         return file.fileSize || 0;
@@ -294,10 +331,13 @@ async function getAttachmentSize(attachment: Zotero.Item): Promise<number> {
     } catch (e) {
       ztoolkit.log(`[ItemFormatter] nsIFile method failed: ${e}`, "error");
     }
-    
+
     return 0;
   } catch (error) {
-    ztoolkit.log(`[ItemFormatter] Error getting attachment size: ${error}`, "error");
+    ztoolkit.log(
+      `[ItemFormatter] Error getting attachment size: ${error}`,
+      "error",
+    );
     return 0;
   }
 }
@@ -312,31 +352,48 @@ export async function formatItems(
   items: Zotero.Item[],
   fields?: string[],
 ): Promise<Array<Record<string, any>>> {
-  ztoolkit.log(`[ItemFormatter] formatItems called with ${items.length} items, fields: ${fields?.join(", ") || "default"}`);
-  
+  ztoolkit.log(
+    `[ItemFormatter] formatItems called with ${items.length} items, fields: ${fields?.join(", ") || "default"}`,
+  );
+
   try {
-    const results = await Promise.all(items.map(async (item, index) => {
-      try {
-        ztoolkit.log(`[ItemFormatter] Processing item ${index + 1}/${items.length}: ${item.key} (${item.getField("title") || "No title"})`);
-        const formatted = await formatItem(item, fields);
-        ztoolkit.log(`[ItemFormatter] Successfully formatted item ${item.key}`);
-        return formatted;
-      } catch (error) {
-        ztoolkit.log(`[ItemFormatter] Error formatting item ${item.key}: ${error}`, "error");
-        // Return basic info instead of skipping
-        return {
-          key: item.key || '',
-          title: 'Error formatting item',
-          error: true,
-          errorMessage: error instanceof Error ? error.message : String(error)
-        };
-      }
-    }));
-    
-    ztoolkit.log(`[ItemFormatter] formatItems completed: ${results.length} items formatted`);
+    const results = await Promise.all(
+      items.map(async (item, index) => {
+        try {
+          ztoolkit.log(
+            `[ItemFormatter] Processing item ${index + 1}/${items.length}: ${item.key} (${item.getField("title") || "No title"})`,
+          );
+          const formatted = await formatItem(item, fields);
+          ztoolkit.log(
+            `[ItemFormatter] Successfully formatted item ${item.key}`,
+          );
+          return formatted;
+        } catch (error) {
+          ztoolkit.log(
+            `[ItemFormatter] Error formatting item ${item.key}: ${error}`,
+            "error",
+          );
+          // Return basic info instead of skipping
+          return {
+            key: item.key || "",
+            title: "Error formatting item",
+            error: true,
+            errorMessage:
+              error instanceof Error ? error.message : String(error),
+          };
+        }
+      }),
+    );
+
+    ztoolkit.log(
+      `[ItemFormatter] formatItems completed: ${results.length} items formatted`,
+    );
     return results;
   } catch (error) {
-    ztoolkit.log(`[ItemFormatter] Fatal error in formatItems: ${error}`, "error");
+    ztoolkit.log(
+      `[ItemFormatter] Fatal error in formatItems: ${error}`,
+      "error",
+    );
     throw error;
   }
 }

@@ -5,10 +5,15 @@ import { getString, initLocale } from "./utils/locale";
 import { registerPrefsScripts } from "./modules/preferenceScript";
 import { createZToolkit } from "./utils/ztoolkit";
 import { MCPSettingsService } from "./modules/mcpSettingsService";
-import { registerSemanticIndexColumn, unregisterSemanticIndexColumn, refreshSemanticColumn } from "./modules/semanticIndexColumn";
+import {
+  registerSemanticIndexColumn,
+  unregisterSemanticIndexColumn,
+  refreshSemanticColumn,
+} from "./modules/semanticIndexColumn";
 
 // Preference key for auto-update setting
-const PREF_SEMANTIC_AUTO_UPDATE = 'extensions.zotero.zotero-mcp-plugin.semantic.autoUpdate';
+const PREF_SEMANTIC_AUTO_UPDATE =
+  "extensions.zotero.zotero-mcp-plugin.semantic.autoUpdate";
 
 // Store notifier ID for cleanup
 let itemNotifierID: string | null = null;
@@ -37,7 +42,10 @@ let isShuttingDown = false;
 /**
  * Create a tracked setTimeout that will be cleaned up on shutdown
  */
-function trackedSetTimeout(callback: () => void, delay: number): ReturnType<typeof setTimeout> {
+function trackedSetTimeout(
+  callback: () => void,
+  delay: number,
+): ReturnType<typeof setTimeout> {
   const timer = setTimeout(() => {
     pendingTimeouts.delete(timer);
     if (!isShuttingDown) {
@@ -69,7 +77,9 @@ async function processPendingAutoUpdates() {
   const keysToUpdate = Array.from(pendingAutoUpdateKeys);
   pendingAutoUpdateKeys.clear();
 
-  ztoolkit.log(`[MCP Plugin] Auto-updating semantic index for ${keysToUpdate.length} items`);
+  ztoolkit.log(
+    `[MCP Plugin] Auto-updating semantic index for ${keysToUpdate.length} items`,
+  );
 
   // Set flag to prevent recursive calls during indexing
   isAutoIndexing = true;
@@ -81,24 +91,30 @@ async function processPendingAutoUpdates() {
     // Check if service is ready
     const isReady = await semanticService.isReady();
     if (!isReady) {
-      ztoolkit.log("[MCP Plugin] Semantic service not ready, skipping auto-update");
+      ztoolkit.log(
+        "[MCP Plugin] Semantic service not ready, skipping auto-update",
+      );
       return;
     }
 
     // Build index for new items only (rebuild: false to avoid clearing all data)
     await semanticService.buildIndex({
       itemKeys: keysToUpdate,
-      rebuild: false,  // Only add new indexes, don't clear existing data
+      rebuild: false, // Only add new indexes, don't clear existing data
       onProgress: (progress) => {
-        ztoolkit.log(`[MCP Plugin] Auto-update progress: ${progress.processed}/${progress.total}`);
-      }
+        ztoolkit.log(
+          `[MCP Plugin] Auto-update progress: ${progress.processed}/${progress.total}`,
+        );
+      },
     });
 
     // Refresh semantic column to show updated status
     refreshSemanticColumn();
-    ztoolkit.log(`[MCP Plugin] Auto-update completed for ${keysToUpdate.length} items`);
+    ztoolkit.log(
+      `[MCP Plugin] Auto-update completed for ${keysToUpdate.length} items`,
+    );
   } catch (error) {
-    ztoolkit.log(`[MCP Plugin] Auto-update failed: ${error}`, 'error');
+    ztoolkit.log(`[MCP Plugin] Auto-update failed: ${error}`, "error");
   } finally {
     // Always reset the flag
     isAutoIndexing = false;
@@ -143,23 +159,29 @@ async function handleItemsDeleted(itemIds: number[], extraData: any) {
     }
 
     if (itemKeys.length === 0) {
-      ztoolkit.log(`[MCP Plugin] No item keys found for deleted items, skipping index cleanup`);
+      ztoolkit.log(
+        `[MCP Plugin] No item keys found for deleted items, skipping index cleanup`,
+      );
       return;
     }
 
-    ztoolkit.log(`[MCP Plugin] Cleaning up indexes for ${itemKeys.length} deleted items`);
+    ztoolkit.log(
+      `[MCP Plugin] Cleaning up indexes for ${itemKeys.length} deleted items`,
+    );
 
     for (const itemKey of itemKeys) {
       try {
         // Delete vectors and content cache (item is permanently deleted)
         await vectorStore.deleteItemVectors(itemKey, true);
-        ztoolkit.log(`[MCP Plugin] Deleted index and cache for item: ${itemKey}`);
+        ztoolkit.log(
+          `[MCP Plugin] Deleted index and cache for item: ${itemKey}`,
+        );
       } catch (e) {
         // Ignore errors for items that weren't indexed
       }
     }
   } catch (error) {
-    ztoolkit.log(`[MCP Plugin] Error handling deleted items: ${error}`, 'warn');
+    ztoolkit.log(`[MCP Plugin] Error handling deleted items: ${error}`, "warn");
   }
 }
 
@@ -174,44 +196,57 @@ function registerItemNotifier() {
     Zotero.Prefs.set(PREF_SEMANTIC_AUTO_UPDATE, false, true);
   }
 
-  itemNotifierID = Zotero.Notifier.registerObserver({
-    notify: async (event: string, type: string, ids: (string | number)[], extraData: any) => {
-      // Don't process during shutdown
-      if (isShuttingDown) return;
+  itemNotifierID = Zotero.Notifier.registerObserver(
+    {
+      notify: async (
+        event: string,
+        type: string,
+        ids: (string | number)[],
+        extraData: any,
+      ) => {
+        // Don't process during shutdown
+        if (isShuttingDown) return;
 
-      // Don't process during auto-indexing (prevent loops)
-      if (isAutoIndexing) return;
+        // Don't process during auto-indexing (prevent loops)
+        if (isAutoIndexing) return;
 
-      // Only process item events
-      if (type !== 'item') return;
+        // Only process item events
+        if (type !== "item") return;
 
-      // Check if auto-update is enabled
-      const enabled = Zotero.Prefs.get(PREF_SEMANTIC_AUTO_UPDATE, true);
-      if (!enabled) return;
+        // Check if auto-update is enabled
+        const enabled = Zotero.Prefs.get(PREF_SEMANTIC_AUTO_UPDATE, true);
+        if (!enabled) return;
 
-      // Only process add and delete events (not modify - to avoid loops)
-      if (event !== 'add' && event !== 'delete') return;
+        // Only process add and delete events (not modify - to avoid loops)
+        if (event !== "add" && event !== "delete") return;
 
-      ztoolkit.log(`[MCP Plugin] Item notifier: event=${event}, type=${type}, ids=${ids.length}`);
+        ztoolkit.log(
+          `[MCP Plugin] Item notifier: event=${event}, type=${type}, ids=${ids.length}`,
+        );
 
-      const numericIds = ids.map(id => typeof id === 'string' ? parseInt(id, 10) : id);
+        const numericIds = ids.map((id) =>
+          typeof id === "string" ? parseInt(id, 10) : id,
+        );
 
-      if (event === 'add') {
-        // For add events, schedule indexing for new items
-        const items = Zotero.Items.get(numericIds);
-        for (const item of items) {
-          // Only index regular items (not attachments, notes, etc.)
-          if (item.isRegularItem?.()) {
-            scheduleAutoUpdate(item.key);
+        if (event === "add") {
+          // For add events, schedule indexing for new items
+          const items = Zotero.Items.get(numericIds);
+          for (const item of items) {
+            // Only index regular items (not attachments, notes, etc.)
+            if (item.isRegularItem?.()) {
+              scheduleAutoUpdate(item.key);
+            }
           }
+        } else if (event === "delete") {
+          // For delete events, remove index for deleted items
+          // Extract item keys from extraData (items are already deleted)
+          handleItemsDeleted(numericIds, extraData);
         }
-      } else if (event === 'delete') {
-        // For delete events, remove index for deleted items
-        // Extract item keys from extraData (items are already deleted)
-        handleItemsDeleted(numericIds, extraData);
-      }
-    }
-  }, ['item'], 'zotero-mcp-plugin-auto-update');
+      },
+    },
+    ["item"],
+    "zotero-mcp-plugin-auto-update",
+  );
 
   ztoolkit.log(`[MCP Plugin] Item notifier registered: ${itemNotifierID}`);
 
@@ -244,7 +279,9 @@ function startAutoIndexCheck() {
     triggerAutoIndexBuild();
   }, AUTO_INDEX_CHECK_INTERVAL_MS);
 
-  ztoolkit.log(`[MCP Plugin] Auto-index check timer started (interval: ${AUTO_INDEX_CHECK_INTERVAL_MS / 1000}s)`);
+  ztoolkit.log(
+    `[MCP Plugin] Auto-index check timer started (interval: ${AUTO_INDEX_CHECK_INTERVAL_MS / 1000}s)`,
+  );
 }
 
 /**
@@ -278,7 +315,9 @@ async function triggerAutoIndexBuild() {
   try {
     const enabled = Zotero.Prefs.get(PREF_SEMANTIC_AUTO_UPDATE, true);
     if (!enabled) {
-      ztoolkit.log("[MCP Plugin] Auto-update disabled, skipping auto index check");
+      ztoolkit.log(
+        "[MCP Plugin] Auto-update disabled, skipping auto index check",
+      );
       return;
     }
 
@@ -290,13 +329,15 @@ async function triggerAutoIndexBuild() {
     // Check if service is ready (API configured)
     const isReady = await semanticService.isReady();
     if (!isReady) {
-      ztoolkit.log("[MCP Plugin] Semantic service not ready (API not configured), skipping");
+      ztoolkit.log(
+        "[MCP Plugin] Semantic service not ready (API not configured), skipping",
+      );
       return;
     }
 
     // Check current index status
     const stats = await semanticService.getStats();
-    if (stats.indexProgress.status === 'indexing') {
+    if (stats.indexProgress.status === "indexing") {
       ztoolkit.log("[MCP Plugin] Indexing already in progress, skipping");
       return;
     }
@@ -305,30 +346,49 @@ async function triggerAutoIndexBuild() {
     isAutoIndexing = true;
 
     // Start building index for unindexed items (rebuild=false means only index new items)
-    ztoolkit.log("[MCP Plugin] Starting auto index build for unindexed items...");
-    semanticService.buildIndex({
-      rebuild: false,  // Only index items that haven't been indexed
-      onProgress: (progress) => {
-        if (progress.processed % 10 === 0) {
-          ztoolkit.log(`[MCP Plugin] Auto index progress: ${progress.processed}/${progress.total}`);
+    ztoolkit.log(
+      "[MCP Plugin] Starting auto index build for unindexed items...",
+    );
+    semanticService
+      .buildIndex({
+        rebuild: false, // Only index items that haven't been indexed
+        onProgress: (progress) => {
+          if (progress.processed % 10 === 0) {
+            ztoolkit.log(
+              `[MCP Plugin] Auto index progress: ${progress.processed}/${progress.total}`,
+            );
+          }
+        },
+      })
+      .then((result) => {
+        if (result.processed > 0) {
+          ztoolkit.log(
+            `[MCP Plugin] Auto index completed: ${result.processed}/${result.total} items`,
+          );
+          try {
+            refreshSemanticColumn();
+          } catch (e) {
+            ztoolkit.log(
+              `[MCP Plugin] Failed to refresh semantic column: ${e}`,
+              "error",
+            );
+          }
+        } else {
+          ztoolkit.log("[MCP Plugin] Auto index check: no new items to index");
         }
-      }
-    }).then((result) => {
-      if (result.processed > 0) {
-        ztoolkit.log(`[MCP Plugin] Auto index completed: ${result.processed}/${result.total} items`);
-        refreshSemanticColumn();
-      } else {
-        ztoolkit.log("[MCP Plugin] Auto index check: no new items to index");
-      }
-    }).catch((error) => {
-      ztoolkit.log(`[MCP Plugin] Auto index failed: ${error}`, 'error');
-    }).finally(() => {
-      // Always reset the flag
-      isAutoIndexing = false;
-    });
-
+      })
+      .catch((error) => {
+        ztoolkit.log(`[MCP Plugin] Auto index failed: ${error}`, "error");
+      })
+      .finally(() => {
+        // Always reset the flag
+        isAutoIndexing = false;
+      });
   } catch (error) {
-    ztoolkit.log(`[MCP Plugin] Error in triggerAutoIndexBuild: ${error}`, 'error');
+    ztoolkit.log(
+      `[MCP Plugin] Error in triggerAutoIndexBuild: ${error}`,
+      "error",
+    );
     isAutoIndexing = false;
   }
 }
@@ -369,8 +429,11 @@ async function onStartup() {
   // Zotero.addShutdownListener() callbacks are awaited during Zotero.shutdown(),
   // which runs BEFORE the Sqlite.sys.mjs barrier check.
   Zotero.addShutdownListener(async () => {
-    ztoolkit.log("[MCP Plugin] Shutdown listener: closing vector store database");
+    ztoolkit.log(
+      "[MCP Plugin] Shutdown listener: closing vector store database",
+    );
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getSemanticSearchService } = require("./modules/semantic");
       const semanticService = getSemanticSearchService();
       semanticService.abortIndex();
@@ -379,12 +442,16 @@ async function onStartup() {
       // Service may not have been initialized — safe to ignore
     }
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getVectorStore } = require("./modules/semantic/vectorStore");
       const vectorStore = getVectorStore();
       await vectorStore.closeAsync();
       ztoolkit.log("[MCP Plugin] Shutdown listener: vector store closed");
     } catch (e) {
-      ztoolkit.log(`[MCP Plugin] Shutdown listener: error closing vector store: ${e}`, "warn");
+      ztoolkit.log(
+        `[MCP Plugin] Shutdown listener: error closing vector store: ${e}`,
+        "warn",
+      );
     }
   });
 
@@ -395,7 +462,10 @@ async function onStartup() {
     MCPSettingsService.initializeDefaults();
     ztoolkit.log(`===MCP=== [hooks.ts] MCP settings initialized successfully`);
   } catch (error) {
-    ztoolkit.log(`===MCP=== [hooks.ts] Error initializing MCP settings: ${error}`, 'error');
+    ztoolkit.log(
+      `===MCP=== [hooks.ts] Error initializing MCP settings: ${error}`,
+      "error",
+    );
   }
 
   // Check if this is first installation and show config prompt
@@ -403,50 +473,88 @@ async function onStartup() {
 
   // Add detailed diagnostics before starting HTTP server
   try {
-    ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Starting server initialization...`);
-    
+    ztoolkit.log(
+      `===MCP=== [hooks.ts] [DIAGNOSTIC] Starting server initialization...`,
+    );
+
     // Log initialization environment info
-    ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Zotero version: ${Zotero.version || 'unknown'}`);
+    ztoolkit.log(
+      `===MCP=== [hooks.ts] [DIAGNOSTIC] Zotero version: ${Zotero.version || "unknown"}`,
+    );
     try {
-      ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Platform: ${(globalThis as any).navigator?.platform || 'unknown'}`);
-      ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] User agent: ${(globalThis as any).navigator?.userAgent || 'unknown'}`);
+      ztoolkit.log(
+        `===MCP=== [hooks.ts] [DIAGNOSTIC] Platform: ${(globalThis as any).navigator?.platform || "unknown"}`,
+      );
+      ztoolkit.log(
+        `===MCP=== [hooks.ts] [DIAGNOSTIC] User agent: ${(globalThis as any).navigator?.userAgent || "unknown"}`,
+      );
     } catch (e) {
-      ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Platform info unavailable`);
+      ztoolkit.log(
+        `===MCP=== [hooks.ts] [DIAGNOSTIC] Platform info unavailable`,
+      );
     }
-    
-    ztoolkit.log(`===MCP=== [hooks.ts] Attempting to get server preferences...`);
+
+    ztoolkit.log(
+      `===MCP=== [hooks.ts] Attempting to get server preferences...`,
+    );
     const port = serverPreferences.getPort();
     const enabled = serverPreferences.isServerEnabled();
 
     ztoolkit.log(
       `===MCP=== [hooks.ts] Port retrieved: ${port} (type: ${typeof port})`,
     );
-    ztoolkit.log(`===MCP=== [hooks.ts] Server enabled: ${enabled} (type: ${typeof enabled})`);
-    
+    ztoolkit.log(
+      `===MCP=== [hooks.ts] Server enabled: ${enabled} (type: ${typeof enabled})`,
+    );
+
     // Additional check: query underlying preferences directly
     try {
-      const directEnabled = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.mcp.server.enabled", true);
-      const directPort = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.mcp.server.port", true);
-      ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Direct pref check - enabled: ${directEnabled}, port: ${directPort}`);
-      
+      const directEnabled = Zotero.Prefs.get(
+        "extensions.zotero.zotero-mcp-plugin.mcp.server.enabled",
+        true,
+      );
+      const directPort = Zotero.Prefs.get(
+        "extensions.zotero.zotero-mcp-plugin.mcp.server.port",
+        true,
+      );
+      ztoolkit.log(
+        `===MCP=== [hooks.ts] [DIAGNOSTIC] Direct pref check - enabled: ${directEnabled}, port: ${directPort}`,
+      );
+
       if (enabled !== directEnabled) {
-        ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] WARNING: Enabled state mismatch! serverPreferences: ${enabled}, direct: ${directEnabled}`);
+        ztoolkit.log(
+          `===MCP=== [hooks.ts] [DIAGNOSTIC] WARNING: Enabled state mismatch! serverPreferences: ${enabled}, direct: ${directEnabled}`,
+        );
       }
     } catch (error) {
-      ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Error in direct preference check: ${error}`, 'error');
+      ztoolkit.log(
+        `===MCP=== [hooks.ts] [DIAGNOSTIC] Error in direct preference check: ${error}`,
+        "error",
+      );
     }
-    
+
     // Only start server when enabled; don't affect other plugin functionality
     if (enabled === false) {
-      ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Server is disabled - skipping server startup`);
-      ztoolkit.log(`===MCP=== [hooks.ts] Note: Plugin will continue to initialize (settings panel, etc.)`);
+      ztoolkit.log(
+        `===MCP=== [hooks.ts] [DIAGNOSTIC] Server is disabled - skipping server startup`,
+      );
+      ztoolkit.log(
+        `===MCP=== [hooks.ts] Note: Plugin will continue to initialize (settings panel, etc.)`,
+      );
 
       // Check if this was reset after first startup
-      const hasBeenEnabled = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.debug.hasBeenEnabled", false);
+      const hasBeenEnabled = Zotero.Prefs.get(
+        "extensions.zotero.zotero-mcp-plugin.debug.hasBeenEnabled",
+        false,
+      );
       if (!hasBeenEnabled) {
-        ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] First time setup - server was never enabled before`);
+        ztoolkit.log(
+          `===MCP=== [hooks.ts] [DIAGNOSTIC] First time setup - server was never enabled before`,
+        );
       } else {
-        ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Server was previously enabled but is now disabled`);
+        ztoolkit.log(
+          `===MCP=== [hooks.ts] [DIAGNOSTIC] Server was previously enabled but is now disabled`,
+        );
       }
 
       // Save httpServer reference for later use (even if not started)
@@ -454,7 +562,11 @@ async function onStartup() {
     } else {
       // Server is enabled, start it
       // Record that server has been enabled before
-      Zotero.Prefs.set("extensions.zotero.zotero-mcp-plugin.debug.hasBeenEnabled", true, true);
+      Zotero.Prefs.set(
+        "extensions.zotero.zotero-mcp-plugin.debug.hasBeenEnabled",
+        true,
+        true,
+      );
 
       if (!port || isNaN(port)) {
         throw new Error(`Invalid port value: ${port}`);
@@ -484,7 +596,10 @@ async function onStartup() {
   serverPreferences.addObserver(async (name) => {
     ztoolkit.log(`[MCP Plugin] Preference changed: ${name}`);
 
-    if (name === "extensions.zotero.zotero-mcp-plugin.mcp.server.port" || name === "extensions.zotero.zotero-mcp-plugin.mcp.server.enabled") {
+    if (
+      name === "extensions.zotero.zotero-mcp-plugin.mcp.server.port" ||
+      name === "extensions.zotero.zotero-mcp-plugin.mcp.server.enabled"
+    ) {
       try {
         // Stop server first
         if (httpServer.isServerRunning()) {
@@ -572,13 +687,18 @@ function onShutdown(): void {
     ztoolkit.log("[MCP Plugin] Item notifier unregistered during shutdown");
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    ztoolkit.log(`[MCP Plugin] Error unregistering item notifier: ${err.message}`, "error");
+    ztoolkit.log(
+      `[MCP Plugin] Error unregistering item notifier: ${err.message}`,
+      "error",
+    );
   }
 
   // Unregister semantic index status column
   try {
     unregisterSemanticIndexColumn();
-    ztoolkit.log("[MCP Plugin] Semantic index column unregistered during shutdown");
+    ztoolkit.log(
+      "[MCP Plugin] Semantic index column unregistered during shutdown",
+    );
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     ztoolkit.log(
@@ -605,6 +725,7 @@ function onShutdown(): void {
   // registered in onStartup(), which properly awaits closeDatabase().
   // Here we just abort indexing and release references as a synchronous fallback.
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getSemanticSearchService } = require("./modules/semantic");
     const semanticService = getSemanticSearchService();
     semanticService.abortIndex();
@@ -613,6 +734,7 @@ function onShutdown(): void {
     // Service may not have been initialized — safe to ignore
   }
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getVectorStore } = require("./modules/semantic/vectorStore");
     const vectorStore = getVectorStore();
     // close() is a no-op if closeAsync() already ran (db is already null)
@@ -652,47 +774,74 @@ async function onNotify(
  */
 async function onPrefsEvent(type: string, data: { [key: string]: any }) {
   ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Preferences event: ${type}`);
-  
+
   switch (type) {
     case "load":
-      ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Loading preference scripts...`);
-      
+      ztoolkit.log(
+        `===MCP=== [hooks.ts] [DIAGNOSTIC] Loading preference scripts...`,
+      );
+
       // Diagnose preference panel loading environment
       try {
         if (data.window) {
-          ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Preference window available`);
-          
+          ztoolkit.log(
+            `===MCP=== [hooks.ts] [DIAGNOSTIC] Preference window available`,
+          );
+
           // Check current preference state
-          const currentEnabled = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.mcp.server.enabled", true);
-          const currentPort = Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.mcp.server.port", true);
-          ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Current prefs at panel load - enabled: ${currentEnabled}, port: ${currentPort}`);
-          
+          const currentEnabled = Zotero.Prefs.get(
+            "extensions.zotero.zotero-mcp-plugin.mcp.server.enabled",
+            true,
+          );
+          const currentPort = Zotero.Prefs.get(
+            "extensions.zotero.zotero-mcp-plugin.mcp.server.port",
+            true,
+          );
+          ztoolkit.log(
+            `===MCP=== [hooks.ts] [DIAGNOSTIC] Current prefs at panel load - enabled: ${currentEnabled}, port: ${currentPort}`,
+          );
+
           // Check if preference elements exist
           trackedSetTimeout(() => {
             try {
               const doc = data.window.document;
-              const enabledElement = doc?.querySelector('#zotero-prefpane-zotero-mcp-plugin-mcp-server-enabled');
-              const portElement = doc?.querySelector('#zotero-prefpane-zotero-mcp-plugin-mcp-server-port');
+              const enabledElement = doc?.querySelector(
+                "#zotero-prefpane-zotero-mcp-plugin-mcp-server-enabled",
+              );
+              const portElement = doc?.querySelector(
+                "#zotero-prefpane-zotero-mcp-plugin-mcp-server-port",
+              );
 
-              ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Preference elements - enabled: ${!!enabledElement}, port: ${!!portElement}`);
+              ztoolkit.log(
+                `===MCP=== [hooks.ts] [DIAGNOSTIC] Preference elements - enabled: ${!!enabledElement}, port: ${!!portElement}`,
+              );
 
               if (enabledElement) {
-                const hasChecked = enabledElement.hasAttribute('checked');
-                ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Enabled checkbox state: ${hasChecked}`);
+                const hasChecked = enabledElement.hasAttribute("checked");
+                ztoolkit.log(
+                  `===MCP=== [hooks.ts] [DIAGNOSTIC] Enabled checkbox state: ${hasChecked}`,
+                );
               }
-
             } catch (error) {
-              ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Error checking preference elements: ${error}`, 'error');
+              ztoolkit.log(
+                `===MCP=== [hooks.ts] [DIAGNOSTIC] Error checking preference elements: ${error}`,
+                "error",
+              );
             }
           }, 500);
-          
         } else {
-          ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] WARNING: No preference window in data`, 'error');
+          ztoolkit.log(
+            `===MCP=== [hooks.ts] [DIAGNOSTIC] WARNING: No preference window in data`,
+            "error",
+          );
         }
       } catch (error) {
-        ztoolkit.log(`===MCP=== [hooks.ts] [DIAGNOSTIC] Error in preference load diagnostic: ${error}`, 'error');
+        ztoolkit.log(
+          `===MCP=== [hooks.ts] [DIAGNOSTIC] Error in preference load diagnostic: ${error}`,
+          "error",
+        );
       }
-      
+
       registerPrefsScripts(data.window);
       break;
     default:
@@ -709,18 +858,24 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
  */
 function checkFirstInstallation() {
   try {
-    const hasShownPrompt = Zotero.Prefs.get("mcp.firstInstallPromptShown", false);
+    const hasShownPrompt = Zotero.Prefs.get(
+      "mcp.firstInstallPromptShown",
+      false,
+    );
     if (!hasShownPrompt) {
       // Mark as shown immediately to prevent multiple prompts
       Zotero.Prefs.set("mcp.firstInstallPromptShown", true);
-      
+
       // Show prompt after a short delay to ensure UI is ready
       trackedSetTimeout(() => {
         showFirstInstallPrompt();
       }, 3000);
     }
   } catch (error) {
-    ztoolkit.log(`[MCP Plugin] Error checking first installation: ${error}`, "error");
+    ztoolkit.log(
+      `[MCP Plugin] Error checking first installation: ${error}`,
+      "error",
+    );
   }
 }
 
@@ -730,21 +885,22 @@ function checkFirstInstallation() {
 function showFirstInstallPrompt() {
   try {
     const title = "Welcome to Zotero MCP for Claude Code";
-    const promptText = "Thank you for installing Zotero MCP for Claude Code! To get started, you need to generate configuration files for your AI clients. Would you like to open the settings page now to generate configurations?";
+    const promptText =
+      "Thank you for installing Zotero MCP for Claude Code! To get started, you need to generate configuration files for your AI clients. Would you like to open the settings page now to generate configurations?";
     const openPrefsText = "Open Settings";
     const laterText = "Configure Later";
-    
+
     // Use a simple window confirm instead of Services.prompt for compatibility
     const message = `${title}\n\n${promptText}\n\n${openPrefsText} (OK) / ${laterText} (Cancel)`;
-    
+
     const mainWindow = Zotero.getMainWindow();
     if (!mainWindow) {
       ztoolkit.log("[MCP Plugin] No main window available", "error");
       return;
     }
-    
+
     const result = mainWindow.confirm(message);
-    
+
     if (result) {
       // User chose to open preferences
       trackedSetTimeout(() => {
@@ -752,7 +908,10 @@ function showFirstInstallPrompt() {
       }, 100);
     }
   } catch (error) {
-    ztoolkit.log(`[MCP Plugin] Error showing first install prompt: ${error}`, "error");
+    ztoolkit.log(
+      `[MCP Plugin] Error showing first install prompt: ${error}`,
+      "error",
+    );
   }
 }
 
@@ -762,19 +921,25 @@ function showFirstInstallPrompt() {
 function openPreferencesWindow() {
   try {
     const windowName = `${addon.data.config.addonRef}-preferences`;
-    const existingWindow = Zotero.getMainWindow().ZoteroPane.openPreferences(null, windowName);
-    
+    const existingWindow = Zotero.getMainWindow().ZoteroPane.openPreferences(
+      null,
+      windowName,
+    );
+
     if (existingWindow) {
       existingWindow.focus();
     }
   } catch (error) {
     ztoolkit.log(`[MCP Plugin] Error opening preferences: ${error}`, "error");
-    
+
     // Fallback: try to open standard preferences
     try {
       Zotero.getMainWindow().openPreferences();
     } catch (fallbackError) {
-      ztoolkit.log(`[MCP Plugin] Fallback preferences open failed: ${fallbackError}`, "error");
+      ztoolkit.log(
+        `[MCP Plugin] Fallback preferences open failed: ${fallbackError}`,
+        "error",
+      );
     }
   }
 }
@@ -789,7 +954,9 @@ function registerSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
     // Find the item context menu
     const itemMenu = doc.getElementById("zotero-itemmenu");
     if (!itemMenu) {
-      ztoolkit.log("[MCP Plugin] Item menu not found, skipping context menu registration");
+      ztoolkit.log(
+        "[MCP Plugin] Item menu not found, skipping context menu registration",
+      );
       return;
     }
 
@@ -800,7 +967,10 @@ function registerSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
     // Create parent menu
     const parentMenu = doc.createXULElement("menu");
     parentMenu.id = "zotero-mcp-semantic-menu";
-    parentMenu.setAttribute("label", getString("menu-semantic-index" as any) || "Update Semantic Index");
+    parentMenu.setAttribute(
+      "label",
+      getString("menu-semantic-index" as any) || "Update Semantic Index",
+    );
 
     // Create popup for submenu
     const popup = doc.createXULElement("menupopup");
@@ -809,7 +979,11 @@ function registerSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
     // Create "Index Selected Items" menu item
     const indexSelectedItem = doc.createXULElement("menuitem");
     indexSelectedItem.id = "zotero-mcp-index-selected";
-    indexSelectedItem.setAttribute("label", getString("menu-semantic-index-selected" as any) || "Index Selected Items");
+    indexSelectedItem.setAttribute(
+      "label",
+      getString("menu-semantic-index-selected" as any) ||
+        "Index Selected Items",
+    );
     indexSelectedItem.addEventListener("command", () => {
       handleIndexSelected(win);
     });
@@ -817,7 +991,10 @@ function registerSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
     // Create "Index All Items" menu item
     const indexAllItem = doc.createXULElement("menuitem");
     indexAllItem.id = "zotero-mcp-index-all";
-    indexAllItem.setAttribute("label", getString("menu-semantic-index-all" as any) || "Index All Items");
+    indexAllItem.setAttribute(
+      "label",
+      getString("menu-semantic-index-all" as any) || "Index All Items",
+    );
     indexAllItem.addEventListener("command", () => {
       handleIndexAll(win);
     });
@@ -825,7 +1002,11 @@ function registerSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
     // Create "Clear Selected Items Index" menu item
     const clearSelectedItem = doc.createXULElement("menuitem");
     clearSelectedItem.id = "zotero-mcp-clear-selected";
-    clearSelectedItem.setAttribute("label", getString("menu-semantic-clear-selected" as any) || "Clear Selected Items Index");
+    clearSelectedItem.setAttribute(
+      "label",
+      getString("menu-semantic-clear-selected" as any) ||
+        "Clear Selected Items Index",
+    );
     clearSelectedItem.addEventListener("command", () => {
       handleClearSelectedIndex(win);
     });
@@ -842,7 +1023,10 @@ function registerSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
 
     ztoolkit.log("[MCP Plugin] Semantic index context menu registered");
   } catch (error) {
-    ztoolkit.log(`[MCP Plugin] Error registering context menu: ${error}`, "error");
+    ztoolkit.log(
+      `[MCP Plugin] Error registering context menu: ${error}`,
+      "error",
+    );
   }
 
   // Also register collection context menu
@@ -859,7 +1043,9 @@ function registerCollectionSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
     // Find the collection context menu
     const collectionMenu = doc.getElementById("zotero-collectionmenu");
     if (!collectionMenu) {
-      ztoolkit.log("[MCP Plugin] Collection menu not found, skipping collection context menu registration");
+      ztoolkit.log(
+        "[MCP Plugin] Collection menu not found, skipping collection context menu registration",
+      );
       return;
     }
 
@@ -870,7 +1056,10 @@ function registerCollectionSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
     // Create parent menu
     const parentMenu = doc.createXULElement("menu");
     parentMenu.id = "zotero-mcp-collection-semantic-menu";
-    parentMenu.setAttribute("label", getString("menu-collection-semantic-index" as any) || "Semantic Index");
+    parentMenu.setAttribute(
+      "label",
+      getString("menu-collection-semantic-index" as any) || "Semantic Index",
+    );
 
     // Create popup for submenu
     const popup = doc.createXULElement("menupopup");
@@ -879,7 +1068,10 @@ function registerCollectionSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
     // Create "Build Index" menu item (incremental, only unindexed items)
     const buildIndexItem = doc.createXULElement("menuitem");
     buildIndexItem.id = "zotero-mcp-collection-build-index";
-    buildIndexItem.setAttribute("label", getString("menu-collection-build-index" as any) || "Build Index");
+    buildIndexItem.setAttribute(
+      "label",
+      getString("menu-collection-build-index" as any) || "Build Index",
+    );
     buildIndexItem.addEventListener("command", () => {
       handleIndexCollection(win, false);
     });
@@ -887,7 +1079,10 @@ function registerCollectionSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
     // Create "Rebuild Index" menu item (rebuild all items in collection)
     const rebuildIndexItem = doc.createXULElement("menuitem");
     rebuildIndexItem.id = "zotero-mcp-collection-rebuild-index";
-    rebuildIndexItem.setAttribute("label", getString("menu-collection-rebuild-index" as any) || "Rebuild Index");
+    rebuildIndexItem.setAttribute(
+      "label",
+      getString("menu-collection-rebuild-index" as any) || "Rebuild Index",
+    );
     rebuildIndexItem.addEventListener("command", () => {
       handleIndexCollection(win, true);
     });
@@ -895,7 +1090,10 @@ function registerCollectionSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
     // Create "Clear Index" menu item
     const clearIndexItem = doc.createXULElement("menuitem");
     clearIndexItem.id = "zotero-mcp-collection-clear-index";
-    clearIndexItem.setAttribute("label", getString("menu-collection-clear-index" as any) || "Clear Index");
+    clearIndexItem.setAttribute(
+      "label",
+      getString("menu-collection-clear-index" as any) || "Clear Index",
+    );
     clearIndexItem.addEventListener("command", () => {
       handleClearCollectionIndex(win);
     });
@@ -910,9 +1108,14 @@ function registerCollectionSemanticIndexMenu(win: _ZoteroTypes.MainWindow) {
     collectionMenu.appendChild(separator);
     collectionMenu.appendChild(parentMenu);
 
-    ztoolkit.log("[MCP Plugin] Collection semantic index context menu registered");
+    ztoolkit.log(
+      "[MCP Plugin] Collection semantic index context menu registered",
+    );
   } catch (error) {
-    ztoolkit.log(`[MCP Plugin] Error registering collection context menu: ${error}`, "error");
+    ztoolkit.log(
+      `[MCP Plugin] Error registering collection context menu: ${error}`,
+      "error",
+    );
   }
 }
 
@@ -947,7 +1150,10 @@ function getAllItemIDsFromCollection(collection: any): number[] {
  * Handle indexing a collection
  * @param rebuild If true, rebuild index for all items (even if already indexed)
  */
-async function handleIndexCollection(win: _ZoteroTypes.MainWindow, rebuild: boolean = false) {
+async function handleIndexCollection(
+  win: _ZoteroTypes.MainWindow,
+  rebuild: boolean = false,
+) {
   try {
     const ZoteroPane = win.ZoteroPane;
     if (!ZoteroPane) {
@@ -959,17 +1165,27 @@ async function handleIndexCollection(win: _ZoteroTypes.MainWindow, rebuild: bool
     const collection = ZoteroPane.getSelectedCollection?.();
     if (!collection) {
       ztoolkit.log("[MCP Plugin] No collection selected");
-      showNotification(win, getString("menu-semantic-index-no-collection" as any) || "Please select a collection");
+      showNotification(
+        win,
+        getString("menu-semantic-index-no-collection" as any) ||
+          "Please select a collection",
+      );
       return;
     }
 
-    ztoolkit.log(`[MCP Plugin] ${rebuild ? 'Rebuilding' : 'Building'} index for collection: ${collection.name}`);
+    ztoolkit.log(
+      `[MCP Plugin] ${rebuild ? "Rebuilding" : "Building"} index for collection: ${collection.name}`,
+    );
 
     // Get all items in the collection (including nested subcollections)
     const itemIDs = getAllItemIDsFromCollection(collection);
     if (!itemIDs || itemIDs.length === 0) {
       ztoolkit.log("[MCP Plugin] Collection has no items");
-      showNotification(win, getString("menu-semantic-index-no-items" as any) || "Collection has no items");
+      showNotification(
+        win,
+        getString("menu-semantic-index-no-items" as any) ||
+          "Collection has no items",
+      );
       return;
     }
 
@@ -981,11 +1197,17 @@ async function handleIndexCollection(win: _ZoteroTypes.MainWindow, rebuild: bool
 
     if (itemKeys.length === 0) {
       ztoolkit.log("[MCP Plugin] No regular items in collection");
-      showNotification(win, getString("menu-semantic-index-no-items" as any) || "No indexable items in collection");
+      showNotification(
+        win,
+        getString("menu-semantic-index-no-items" as any) ||
+          "No indexable items in collection",
+      );
       return;
     }
 
-    ztoolkit.log(`[MCP Plugin] ${rebuild ? 'Rebuilding' : 'Building'} index for ${itemKeys.length} items from collection "${collection.name}"`);
+    ztoolkit.log(
+      `[MCP Plugin] ${rebuild ? "Rebuilding" : "Building"} index for ${itemKeys.length} items from collection "${collection.name}"`,
+    );
 
     // Import and use semantic search service
     const { getSemanticSearchService } = await import("./modules/semantic");
@@ -997,31 +1219,47 @@ async function handleIndexCollection(win: _ZoteroTypes.MainWindow, rebuild: bool
     showNotification(win, startMessage);
 
     // Build index for collection items
-    semanticService.buildIndex({
-      itemKeys,
-      rebuild,
-      onProgress: (progress) => {
-        ztoolkit.log(`[MCP Plugin] Index progress: ${progress.processed}/${progress.total}`);
-      }
-    }).then((result) => {
-      ztoolkit.log(`[MCP Plugin] Collection indexing completed: ${result.processed}/${result.total} items`);
-      // Refresh semantic column to show updated status
-      refreshSemanticColumn();
-      // Show success notification
-      const completedMsg = `${getString("menu-semantic-index-completed" as any) || "Indexing completed"}: ${collection.name} (${result.processed}/${result.total})`;
-      showNotification(win, completedMsg);
-    }).catch((error) => {
-      ztoolkit.log(`[MCP Plugin] Collection indexing failed: ${error}`, "error");
-      // Refresh column anyway to show current status
-      refreshSemanticColumn();
-      // Show error notification
-      const errorMsg = `${getString("menu-semantic-index-error" as any) || "Indexing failed"}: ${error.message || error}`;
-      showNotification(win, errorMsg);
-    });
-
+    semanticService
+      .buildIndex({
+        itemKeys,
+        rebuild,
+        onProgress: (progress) => {
+          ztoolkit.log(
+            `[MCP Plugin] Index progress: ${progress.processed}/${progress.total}`,
+          );
+        },
+      })
+      .then((result) => {
+        ztoolkit.log(
+          `[MCP Plugin] Collection indexing completed: ${result.processed}/${result.total} items`,
+        );
+        // Refresh semantic column to show updated status
+        refreshSemanticColumn();
+        // Show success notification
+        const completedMsg = `${getString("menu-semantic-index-completed" as any) || "Indexing completed"}: ${collection.name} (${result.processed}/${result.total})`;
+        showNotification(win, completedMsg);
+      })
+      .catch((error) => {
+        ztoolkit.log(
+          `[MCP Plugin] Collection indexing failed: ${error}`,
+          "error",
+        );
+        // Refresh column anyway to show current status
+        refreshSemanticColumn();
+        // Show error notification
+        const errorMsg = `${getString("menu-semantic-index-error" as any) || "Indexing failed"}: ${error.message || error}`;
+        showNotification(win, errorMsg);
+      });
   } catch (error) {
-    ztoolkit.log(`[MCP Plugin] Error handling collection index: ${error}`, "error");
-    showNotification(win, getString("menu-semantic-index-error" as any) || "Semantic indexing failed");
+    ztoolkit.log(
+      `[MCP Plugin] Error handling collection index: ${error}`,
+      "error",
+    );
+    showNotification(
+      win,
+      getString("menu-semantic-index-error" as any) ||
+        "Semantic indexing failed",
+    );
   }
 }
 
@@ -1040,24 +1278,35 @@ async function handleClearCollectionIndex(win: _ZoteroTypes.MainWindow) {
     const collection = ZoteroPane.getSelectedCollection?.();
     if (!collection) {
       ztoolkit.log("[MCP Plugin] No collection selected");
-      showNotification(win, getString("menu-semantic-index-no-collection" as any) || "Please select a collection");
+      showNotification(
+        win,
+        getString("menu-semantic-index-no-collection" as any) ||
+          "Please select a collection",
+      );
       return;
     }
 
     // Confirm before clearing
-    const confirmMsg = getString("menu-collection-clear-confirm" as any) ||
+    const confirmMsg =
+      getString("menu-collection-clear-confirm" as any) ||
       `Are you sure you want to clear the semantic index for "${collection.name}"?`;
     if (!win.confirm(confirmMsg)) {
       return;
     }
 
-    ztoolkit.log(`[MCP Plugin] Clearing index for collection: ${collection.name}`);
+    ztoolkit.log(
+      `[MCP Plugin] Clearing index for collection: ${collection.name}`,
+    );
 
     // Get all items in the collection (including nested subcollections)
     const itemIDs = getAllItemIDsFromCollection(collection);
     if (!itemIDs || itemIDs.length === 0) {
       ztoolkit.log("[MCP Plugin] Collection has no items");
-      showNotification(win, getString("menu-semantic-index-no-items" as any) || "Collection has no items");
+      showNotification(
+        win,
+        getString("menu-semantic-index-no-items" as any) ||
+          "Collection has no items",
+      );
       return;
     }
 
@@ -1087,7 +1336,9 @@ async function handleClearCollectionIndex(win: _ZoteroTypes.MainWindow) {
       }
     }
 
-    ztoolkit.log(`[MCP Plugin] Cleared index for ${clearedCount} items in collection "${collection.name}"`);
+    ztoolkit.log(
+      `[MCP Plugin] Cleared index for ${clearedCount} items in collection "${collection.name}"`,
+    );
 
     // Refresh semantic column
     refreshSemanticColumn();
@@ -1095,10 +1346,15 @@ async function handleClearCollectionIndex(win: _ZoteroTypes.MainWindow) {
     // Show notification
     const message = `${getString("menu-collection-index-cleared" as any) || "Index cleared"}: ${collection.name} (${clearedCount})`;
     showNotification(win, message);
-
   } catch (error) {
-    ztoolkit.log(`[MCP Plugin] Error clearing collection index: ${error}`, "error");
-    showNotification(win, getString("menu-semantic-index-error" as any) || "Failed to clear index");
+    ztoolkit.log(
+      `[MCP Plugin] Error clearing collection index: ${error}`,
+      "error",
+    );
+    showNotification(
+      win,
+      getString("menu-semantic-index-error" as any) || "Failed to clear index",
+    );
   }
 }
 
@@ -1130,13 +1386,16 @@ async function handleClearSelectedIndex(win: _ZoteroTypes.MainWindow) {
     }
 
     // Confirm before clearing
-    const confirmMsg = getString("menu-semantic-clear-selected-confirm" as any) ||
+    const confirmMsg =
+      getString("menu-semantic-clear-selected-confirm" as any) ||
       `Are you sure you want to clear the semantic index for ${itemKeys.length} selected item(s)?`;
     if (!win.confirm(confirmMsg)) {
       return;
     }
 
-    ztoolkit.log(`[MCP Plugin] Clearing index for ${itemKeys.length} selected items...`);
+    ztoolkit.log(
+      `[MCP Plugin] Clearing index for ${itemKeys.length} selected items...`,
+    );
 
     // Delete vectors for these items
     const { getVectorStore } = await import("./modules/semantic/vectorStore");
@@ -1161,10 +1420,15 @@ async function handleClearSelectedIndex(win: _ZoteroTypes.MainWindow) {
     // Show notification
     const message = `${getString("menu-semantic-clear-selected-done" as any) || "Index cleared for"} ${clearedCount} ${getString("menu-semantic-items" as any) || "items"}`;
     showNotification(win, message);
-
   } catch (error) {
-    ztoolkit.log(`[MCP Plugin] Error clearing selected items index: ${error}`, "error");
-    showNotification(win, getString("menu-semantic-index-error" as any) || "Failed to clear index");
+    ztoolkit.log(
+      `[MCP Plugin] Error clearing selected items index: ${error}`,
+      "error",
+    );
+    showNotification(
+      win,
+      getString("menu-semantic-index-error" as any) || "Failed to clear index",
+    );
   }
 }
 
@@ -1203,34 +1467,50 @@ async function handleIndexSelected(win: _ZoteroTypes.MainWindow) {
     await semanticService.initialize();
 
     // Show starting notification
-    showNotification(win, `${getString("menu-semantic-index-started" as any) || "Semantic indexing started"}: ${itemKeys.length} ${getString("menu-semantic-items" as any) || "items"}`);
+    showNotification(
+      win,
+      `${getString("menu-semantic-index-started" as any) || "Semantic indexing started"}: ${itemKeys.length} ${getString("menu-semantic-items" as any) || "items"}`,
+    );
 
     // Build index for selected items
-    semanticService.buildIndex({
-      itemKeys,
-      rebuild: false,
-      onProgress: (progress) => {
-        ztoolkit.log(`[MCP Plugin] Index progress: ${progress.processed}/${progress.total}`);
-      }
-    }).then((result) => {
-      ztoolkit.log(`[MCP Plugin] Indexing completed: ${result.processed}/${result.total} items`);
-      // Refresh semantic column to show updated status
-      refreshSemanticColumn();
-      // Show success notification
-      const completedMsg = `${getString("menu-semantic-index-completed" as any) || "Indexing completed"}: ${result.processed}/${result.total} ${getString("menu-semantic-items" as any) || "items"}`;
-      showNotification(win, completedMsg);
-    }).catch((error) => {
-      ztoolkit.log(`[MCP Plugin] Indexing failed: ${error}`, "error");
-      // Refresh column anyway to show current status
-      refreshSemanticColumn();
-      // Show error notification
-      const errorMsg = `${getString("menu-semantic-index-error" as any) || "Indexing failed"}: ${error.message || error}`;
-      showNotification(win, errorMsg);
-    });
-
+    semanticService
+      .buildIndex({
+        itemKeys,
+        rebuild: false,
+        onProgress: (progress) => {
+          ztoolkit.log(
+            `[MCP Plugin] Index progress: ${progress.processed}/${progress.total}`,
+          );
+        },
+      })
+      .then((result) => {
+        ztoolkit.log(
+          `[MCP Plugin] Indexing completed: ${result.processed}/${result.total} items`,
+        );
+        // Refresh semantic column to show updated status
+        refreshSemanticColumn();
+        // Show success notification
+        const completedMsg = `${getString("menu-semantic-index-completed" as any) || "Indexing completed"}: ${result.processed}/${result.total} ${getString("menu-semantic-items" as any) || "items"}`;
+        showNotification(win, completedMsg);
+      })
+      .catch((error) => {
+        ztoolkit.log(`[MCP Plugin] Indexing failed: ${error}`, "error");
+        // Refresh column anyway to show current status
+        refreshSemanticColumn();
+        // Show error notification
+        const errorMsg = `${getString("menu-semantic-index-error" as any) || "Indexing failed"}: ${error.message || error}`;
+        showNotification(win, errorMsg);
+      });
   } catch (error) {
-    ztoolkit.log(`[MCP Plugin] Error handling index selected: ${error}`, "error");
-    showNotification(win, getString("menu-semantic-index-error" as any) || "Semantic indexing failed");
+    ztoolkit.log(
+      `[MCP Plugin] Error handling index selected: ${error}`,
+      "error",
+    );
+    showNotification(
+      win,
+      getString("menu-semantic-index-error" as any) ||
+        "Semantic indexing failed",
+    );
   }
 }
 
@@ -1247,33 +1527,47 @@ async function handleIndexAll(win: _ZoteroTypes.MainWindow) {
     await semanticService.initialize();
 
     // Show starting notification
-    showNotification(win, getString("menu-semantic-index-started" as any) || "Semantic indexing started");
+    showNotification(
+      win,
+      getString("menu-semantic-index-started" as any) ||
+        "Semantic indexing started",
+    );
 
     // Build index for all items
-    semanticService.buildIndex({
-      rebuild: false,
-      onProgress: (progress) => {
-        ztoolkit.log(`[MCP Plugin] Index progress: ${progress.processed}/${progress.total}`);
-      }
-    }).then((result) => {
-      ztoolkit.log(`[MCP Plugin] Indexing completed: ${result.processed}/${result.total} items`);
-      // Refresh semantic column to show updated status
-      refreshSemanticColumn();
-      // Show success notification
-      const completedMsg = `${getString("menu-semantic-index-completed" as any) || "Indexing completed"}: ${result.processed}/${result.total} ${getString("menu-semantic-items" as any) || "items"}`;
-      showNotification(win, completedMsg);
-    }).catch((error) => {
-      ztoolkit.log(`[MCP Plugin] Indexing failed: ${error}`, "error");
-      // Refresh column anyway to show current status
-      refreshSemanticColumn();
-      // Show error notification
-      const errorMsg = `${getString("menu-semantic-index-error" as any) || "Indexing failed"}: ${error.message || error}`;
-      showNotification(win, errorMsg);
-    });
-
+    semanticService
+      .buildIndex({
+        rebuild: false,
+        onProgress: (progress) => {
+          ztoolkit.log(
+            `[MCP Plugin] Index progress: ${progress.processed}/${progress.total}`,
+          );
+        },
+      })
+      .then((result) => {
+        ztoolkit.log(
+          `[MCP Plugin] Indexing completed: ${result.processed}/${result.total} items`,
+        );
+        // Refresh semantic column to show updated status
+        refreshSemanticColumn();
+        // Show success notification
+        const completedMsg = `${getString("menu-semantic-index-completed" as any) || "Indexing completed"}: ${result.processed}/${result.total} ${getString("menu-semantic-items" as any) || "items"}`;
+        showNotification(win, completedMsg);
+      })
+      .catch((error) => {
+        ztoolkit.log(`[MCP Plugin] Indexing failed: ${error}`, "error");
+        // Refresh column anyway to show current status
+        refreshSemanticColumn();
+        // Show error notification
+        const errorMsg = `${getString("menu-semantic-index-error" as any) || "Indexing failed"}: ${error.message || error}`;
+        showNotification(win, errorMsg);
+      });
   } catch (error) {
     ztoolkit.log(`[MCP Plugin] Error handling index all: ${error}`, "error");
-    showNotification(win, getString("menu-semantic-index-error" as any) || "Semantic indexing failed");
+    showNotification(
+      win,
+      getString("menu-semantic-index-error" as any) ||
+        "Semantic indexing failed",
+    );
   }
 }
 

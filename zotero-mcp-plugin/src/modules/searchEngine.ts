@@ -199,8 +199,12 @@ function matchesFieldQuery(
       return fieldStr.endsWith(queryStr);
     case "regex":
       try {
+        // Reject patterns with nested quantifiers that cause catastrophic backtracking
+        if (/(\+|\*|\{)\)?(\+|\*|\{)/.test(queryValue)) {
+          return false;
+        }
         const regex = new RegExp(queryValue, "i");
-        return regex.test(fieldStr);
+        return regex.test(fieldStr.slice(0, 100000));
       } catch {
         return false;
       }
@@ -247,15 +251,17 @@ function calculateRelevanceScore(
       let fieldValue: string = "";
 
       if (field === "creator") {
-        fieldValue = item
-          .getCreators()
-          .map((c) => `${c.firstName} ${c.lastName}`)
-          .join(" ");
+        fieldValue =
+          item
+            .getCreators?.()
+            ?.map((c) => `${c.firstName} ${c.lastName}`)
+            ?.join(" ") || "";
       } else if (field === "tags") {
-        fieldValue = item
-          .getTags()
-          .map((t) => t.tag)
-          .join(" ");
+        fieldValue =
+          item
+            .getTags?.()
+            ?.map((t) => t.tag)
+            ?.join(" ") || "";
       } else {
         try {
           fieldValue = item.getField(field as any) || "";
@@ -281,9 +287,9 @@ function calculateRelevanceScore(
   }
 
   if (params.creator) {
-    const creators = item
-      .getCreators()
-      .map((c) => `${c.firstName} ${c.lastName}`.toLowerCase());
+    const creators = (item.getCreators?.() || []).map((c) =>
+      `${c.firstName} ${c.lastName}`.toLowerCase(),
+    );
     if (creators.some((c) => c.includes(params.creator!.toLowerCase()))) {
       score += fieldWeights.creator || 2.0;
       if (!matchedFields.includes("creator")) matchedFields.push("creator");
@@ -305,69 +311,74 @@ async function performFulltextSearch(
   query: string,
   libraryID: number,
   mode: "attachment" | "note" | "both" = "both",
-  operator: "contains" | "exact" | "regex" = "contains"
-): Promise<{ itemIDs: number[], matchDetails: Map<number, any> }> {
+  operator: "contains" | "exact" | "regex" = "contains",
+): Promise<{ itemIDs: number[]; matchDetails: Map<number, any> }> {
   const matchDetails = new Map<number, any>();
-  let itemIDs: number[] = [];
+  const itemIDs: number[] = [];
 
   try {
     if (mode === "attachment" || mode === "both") {
       // Use Zotero.Search to search attachment fulltext
       const attachmentSearch = new Zotero.Search();
       (attachmentSearch as any).libraryID = libraryID;
-      
+
       // Search attachment content
       const searchOperator = operator === "exact" ? "is" : "contains";
       attachmentSearch.addCondition("fulltextContent", searchOperator, query);
       attachmentSearch.addCondition("itemType", "is", "attachment");
-      
+
       const attachmentIDs = await attachmentSearch.search();
-      
+
       for (const attachmentID of attachmentIDs) {
         const attachment = Zotero.Items.get(attachmentID);
         if (attachment && attachment.isAttachment()) {
           const parentItem = attachment.parentItem;
           const targetID = parentItem ? parentItem.id : attachment.id;
-          
+
           if (parentItem && !itemIDs.includes(parentItem.id)) {
             itemIDs.push(parentItem.id);
           } else if (!parentItem && !itemIDs.includes(attachment.id)) {
             itemIDs.push(attachment.id);
           }
-          
+
           // Record match details
           if (!matchDetails.has(targetID)) {
             matchDetails.set(targetID, {
               attachments: [],
               notes: [],
-              score: 0
+              score: 0,
             });
           }
-          
+
           const details = matchDetails.get(targetID);
-          
+
           // Try to get matching snippet
-          let snippet = '';
+          let snippet = "";
           try {
-            const content = await attachment.attachmentText || '';
+            const content = (await attachment.attachmentText) || "";
             if (content) {
-              const queryPos = content.toLowerCase().indexOf(query.toLowerCase());
+              const queryPos = content
+                .toLowerCase()
+                .indexOf(query.toLowerCase());
               if (queryPos >= 0) {
                 const start = Math.max(0, queryPos - 50);
-                const end = Math.min(content.length, queryPos + query.length + 50);
-                snippet = '...' + content.substring(start, end) + '...';
+                const end = Math.min(
+                  content.length,
+                  queryPos + query.length + 50,
+                );
+                snippet = "..." + content.substring(start, end) + "...";
               }
             }
           } catch (e) {
             // Failed to get snippet, use empty string
-            snippet = '';
+            snippet = "";
           }
-          
+
           details.attachments.push({
             attachmentID: attachment.id,
-            filename: attachment.attachmentFilename || '',
+            filename: attachment.attachmentFilename || "",
             snippet: snippet,
-            score: 1
+            score: 1,
           });
           details.score += 1;
         }
@@ -379,13 +390,13 @@ async function performFulltextSearch(
       const s = new Zotero.Search();
       (s as any).libraryID = libraryID;
       s.addCondition("itemType", "is", "note");
-      
+
       // Set search condition based on operator
       const searchOperator = operator === "exact" ? "is" : "contains";
       s.addCondition("note", searchOperator, query);
-      
+
       const noteIDs = await s.search();
-      
+
       for (const noteID of noteIDs) {
         const note = Zotero.Items.get(noteID);
         if (note && note.isNote()) {
@@ -393,35 +404,42 @@ async function performFulltextSearch(
           if (parentItem && !itemIDs.includes(parentItem.id)) {
             itemIDs.push(parentItem.id);
           }
-          
+
           const targetID = parentItem ? parentItem.id : note.id;
           if (!matchDetails.has(targetID)) {
             matchDetails.set(targetID, {
               attachments: [],
               notes: [],
-              score: 0
+              score: 0,
             });
           }
-          
+
           const details = matchDetails.get(targetID);
           const noteContent = note.getNote();
-          let snippet = '';
-          
+          let snippet = "";
+
           // Extract matching snippet
           if (noteContent) {
-            const cleanContent = noteContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
-            const queryPos = cleanContent.toLowerCase().indexOf(query.toLowerCase());
+            const cleanContent = noteContent
+              .replace(/<[^>]*>/g, " ")
+              .replace(/\s+/g, " ");
+            const queryPos = cleanContent
+              .toLowerCase()
+              .indexOf(query.toLowerCase());
             if (queryPos >= 0) {
               const start = Math.max(0, queryPos - 50);
-              const end = Math.min(cleanContent.length, queryPos + query.length + 50);
-              snippet = '...' + cleanContent.substring(start, end) + '...';
+              const end = Math.min(
+                cleanContent.length,
+                queryPos + query.length + 50,
+              );
+              snippet = "..." + cleanContent.substring(start, end) + "...";
             }
           }
-          
+
           details.notes.push({
             noteID: note.id,
             snippet: snippet,
-            score: 1
+            score: 1,
           });
           details.score += 1;
         }
@@ -498,8 +516,7 @@ function applyAdvancedFilters(
     }
 
     if (params.creatorOperator && params.creator) {
-      const creators = item
-        .getCreators()
+      const creators = (item.getCreators?.() || [])
         .map((c) => `${c.firstName} ${c.lastName}`)
         .join(" ");
       if (
@@ -606,7 +623,12 @@ export async function handleSearchRequest(
   if (params.fulltext) {
     const mode = params.fulltextMode || "both";
     const operator = params.fulltextOperator || "contains";
-    const fulltextResult = await performFulltextSearch(params.fulltext, libraryID, mode, operator);
+    const fulltextResult = await performFulltextSearch(
+      params.fulltext,
+      libraryID,
+      mode,
+      operator,
+    );
     fulltextItemIDs = fulltextResult.itemIDs;
     fulltextMatchDetails = fulltextResult.matchDetails;
 
@@ -616,7 +638,7 @@ export async function handleSearchRequest(
         pagination: { limit, offset, total: 0, hasMore: false },
         searchTime: `${Date.now() - startTime}ms`,
         results: [],
-        searchFeatures: ["fulltext"]
+        searchFeatures: ["fulltext"],
       };
     }
   }
@@ -682,7 +704,7 @@ export async function handleSearchRequest(
 
   // --- 4. Execute initial search ---
   let initialItemIDs: number[];
-  
+
   if (params.fulltext && fulltextItemIDs.length > 0) {
     // If fulltext search specified, use fulltext search results
     initialItemIDs = fulltextItemIDs;
@@ -690,7 +712,7 @@ export async function handleSearchRequest(
     // Otherwise execute standard search
     initialItemIDs = await s.search();
   }
-  
+
   if (initialItemIDs.length === 0) {
     return {
       query: params,
@@ -715,7 +737,7 @@ export async function handleSearchRequest(
 
     const filteredItems: Zotero.Item[] = [];
     items.forEach((item) => {
-      const itemTags = item.getTags().map((t) => t.tag);
+      const itemTags = (item.getTags?.() || []).map((t) => t.tag);
       const matchedTags: string[] = [];
 
       for (const queryTag of queryTags) {
@@ -811,14 +833,8 @@ export async function handleSearchRequest(
       items.sort((a, b) => {
         let valA: any, valB: any;
         if (sort === "creator") {
-          valA = a
-            .getCreators()
-            .map((c) => c.lastName)
-            .join(", ");
-          valB = b
-            .getCreators()
-            .map((c) => c.lastName)
-            .join(", ");
+          valA = (a.getCreators?.() || []).map((c) => c.lastName).join(", ");
+          valB = (b.getCreators?.() || []).map((c) => c.lastName).join(", ");
         } else {
           valA = a.getField(sort as any) || "";
           valB = b.getField(sort as any) || "";
@@ -836,14 +852,8 @@ export async function handleSearchRequest(
     items.sort((a, b) => {
       let valA: any, valB: any;
       if (sort === "creator") {
-        valA = a
-          .getCreators()
-          .map((c) => c.lastName)
-          .join(", ");
-        valB = b
-          .getCreators()
-          .map((c) => c.lastName)
-          .join(", ");
+        valA = (a.getCreators?.() || []).map((c) => c.lastName).join(", ");
+        valB = (b.getCreators?.() || []).map((c) => c.lastName).join(", ");
       } else {
         valA = a.getField(sort as any) || "";
         valB = b.getField(sort as any) || "";
@@ -867,24 +877,29 @@ export async function handleSearchRequest(
     try {
       const attachmentIDs = item.getAttachments();
       if (attachmentIDs && attachmentIDs.length > 0) {
-        formatted.attachments = attachmentIDs.map((id: number) => {
-          const attachment = Zotero.Items.get(id);
-          if (attachment && attachment.isAttachment()) {
-            return {
-              key: attachment.key,
-              filename: attachment.attachmentFilename || '',
-              filePath: attachment.getFilePath() || '',
-              contentType: attachment.attachmentContentType || '',
-              linkMode: attachment.attachmentLinkMode
-            };
-          }
-          return null;
-        }).filter((att: any) => att !== null);
+        formatted.attachments = attachmentIDs
+          .map((id: number) => {
+            const attachment = Zotero.Items.get(id);
+            if (attachment && attachment.isAttachment()) {
+              return {
+                key: attachment.key,
+                filename: attachment.attachmentFilename || "",
+                filePath: attachment.getFilePath() || "",
+                contentType: attachment.attachmentContentType || "",
+                linkMode: attachment.attachmentLinkMode,
+              };
+            }
+            return null;
+          })
+          .filter((att: any) => att !== null);
       } else {
         formatted.attachments = [];
       }
     } catch (error) {
-      ztoolkit.log(`[SearchEngine] Error getting attachments for item ${item.key}: ${error}`, "warn");
+      ztoolkit.log(
+        `[SearchEngine] Error getting attachments for item ${item.key}: ${error}`,
+        "warn",
+      );
       formatted.attachments = [];
     }
 
@@ -910,7 +925,7 @@ export async function handleSearchRequest(
         mode: params.fulltextMode || "both",
         attachments: matchDetails.attachments || [],
         notes: matchDetails.notes || [],
-        totalScore: matchDetails.score || 0
+        totalScore: matchDetails.score || 0,
       };
     }
 

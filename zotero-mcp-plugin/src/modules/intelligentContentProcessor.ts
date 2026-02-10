@@ -7,39 +7,39 @@
 declare let ztoolkit: ZToolkit;
 
 export interface ContentControl {
-  preserveOriginal?: boolean;        // Preserve original text integrity (default true)
-  allowExtended?: boolean;           // Allow exceeding mode default length (default false)
-  expandIfImportant?: boolean;       // Auto-expand for important content (default true)
+  preserveOriginal?: boolean; // Preserve original text integrity (default true)
+  allowExtended?: boolean; // Allow exceeding mode default length (default false)
+  expandIfImportant?: boolean; // Auto-expand for important content (default true)
 
   // Length control overrides
-  maxContentLength?: number;         // Override mode default length limit
-  maxAttachments?: number;           // Override attachment count limit
-  maxNotes?: number;                 // Override note count limit
+  maxContentLength?: number; // Override mode default length limit
+  maxAttachments?: number; // Override attachment count limit
+  maxNotes?: number; // Override note count limit
 
   // Quality control
-  prioritizeCompleteness?: boolean;  // Prioritize completeness over length (default false)
-  requireContext?: boolean;          // Require context completeness (default true)
-  minSentenceLength?: number;        // Minimum sentence length threshold
+  prioritizeCompleteness?: boolean; // Prioritize completeness over length (default false)
+  requireContext?: boolean; // Require context completeness (default true)
+  minSentenceLength?: number; // Minimum sentence length threshold
 
   // Smart expansion strategy
   smartExpansion?: {
-    enabled?: boolean;               // Enable smart expansion (default false)
-    trigger?: 'high_importance' | 'user_query' | 'context_needed';
-    maxExpansionRatio?: number;      // Max expansion ratio (e.g. 1.5x)
+    enabled?: boolean; // Enable smart expansion (default false)
+    trigger?: "high_importance" | "user_query" | "context_needed";
+    maxExpansionRatio?: number; // Max expansion ratio (e.g. 1.5x)
   };
 }
 
 export interface ProcessedSentence {
   content: string;
-  position: number;                  // Position in document (0-1)
-  importance: number;                // Combined importance score (0-1)
-  tfIdfScore: number;               // TF-IDF score
-  textRankScore: number;            // TextRank score
-  positionWeight: number;           // Position weight
-  length: number;                   // Sentence length
-  keywords: string[];               // Keywords
-  isComplete: boolean;              // Whether it is a complete sentence
-  contentType?: 'main_content' | 'reference' | 'supplementary'; // Content type
+  position: number; // Position in document (0-1)
+  importance: number; // Combined importance score (0-1)
+  tfIdfScore: number; // TF-IDF score
+  textRankScore: number; // TextRank score
+  positionWeight: number; // Position weight
+  length: number; // Sentence length
+  keywords: string[]; // Keywords
+  isComplete: boolean; // Whether it is a complete sentence
+  contentType?: "main_content" | "reference" | "supplementary"; // Content type
 }
 
 export interface ProcessingResult {
@@ -60,46 +60,66 @@ export interface ProcessingResult {
 }
 
 export class IntelligentContentProcessor {
-  
   /**
    * Process text content with intelligent algorithms
    */
   async processContent(
-    text: string, 
-    mode: string, 
-    contentControl: ContentControl = {}
+    text: string,
+    mode: string,
+    contentControl: ContentControl = {},
   ): Promise<ProcessingResult> {
     try {
-      ztoolkit.log(`[IntelligentProcessor] Processing content with mode: ${mode}`);
-      
+      ztoolkit.log(
+        `[IntelligentProcessor] Processing content with mode: ${mode}`,
+      );
+
       if (!text || text.trim().length === 0) {
         return this.createEmptyResult();
       }
 
       // Step 1: Split text into sentences
       const sentences = this.splitIntoSentences(text);
-      
+
       // Step 2: Calculate importance scores for each sentence
-      const scoredSentences = await this.calculateImportanceScores(sentences, text);
-      
+      const scoredSentences = await this.calculateImportanceScores(
+        sentences,
+        text,
+      );
+
       // Step 3: Apply mode-based selection with contentControl
-      const selectedSentences = this.selectContentByMode(scoredSentences, mode, contentControl);
-      
+      const selectedSentences = this.selectContentByMode(
+        scoredSentences,
+        mode,
+        contentControl,
+      );
+
       // Step 4: Generate final processed text
-      const processedText = this.reconstructText(selectedSentences, contentControl);
-      
+      const processedText = this.reconstructText(
+        selectedSentences,
+        contentControl,
+      );
+
       // Step 5: Generate metadata
-      const metadata = this.generateMetadata(text, processedText, sentences, selectedSentences, mode, contentControl);
+      const metadata = this.generateMetadata(
+        text,
+        processedText,
+        sentences,
+        selectedSentences,
+        mode,
+        contentControl,
+      );
 
       return {
         originalText: text,
         processedText,
         sentences: selectedSentences,
-        metadata
+        metadata,
       };
-
     } catch (error) {
-      ztoolkit.log(`[IntelligentProcessor] Error processing content: ${error}`, "error");
+      ztoolkit.log(
+        `[IntelligentProcessor] Error processing content: ${error}`,
+        "error",
+      );
       // Fallback to simple truncation
       return this.fallbackProcessing(text, mode);
     }
@@ -116,13 +136,16 @@ export class IntelligentContentProcessor {
     let match;
 
     while ((match = sentenceRegex.exec(text)) !== null) {
-      const sentence = text.substring(lastIndex, match.index + match[0].length).trim();
-      if (sentence.length > 10) { // Filter out very short fragments
+      const sentence = text
+        .substring(lastIndex, match.index + match[0].length)
+        .trim();
+      if (sentence.length > 10) {
+        // Filter out very short fragments
         sentences.push(sentence);
       }
       lastIndex = match.index + match[0].length;
     }
-    
+
     // Add remaining text as last sentence
     const remaining = text.substring(lastIndex).trim();
     if (remaining.length > 10) {
@@ -139,22 +162,27 @@ export class IntelligentContentProcessor {
       positionWeight: 0,
       length: sentence.length,
       keywords: [],
-      isComplete: this.isCompleteSentence(sentence)
+      isComplete: this.isCompleteSentence(sentence),
     }));
   }
 
   /**
    * Calculate comprehensive importance scores using multiple algorithms
    */
-  private async calculateImportanceScores(sentences: ProcessedSentence[], fullText: string): Promise<ProcessedSentence[]> {
-    ztoolkit.log(`[IntelligentProcessor] Calculating importance scores for ${sentences.length} sentences`);
+  private async calculateImportanceScores(
+    sentences: ProcessedSentence[],
+    fullText: string,
+  ): Promise<ProcessedSentence[]> {
+    ztoolkit.log(
+      `[IntelligentProcessor] Calculating importance scores for ${sentences.length} sentences`,
+    );
 
     // Calculate TF-IDF scores
     const tfIdfScores = this.calculateTfIdf(sentences, fullText);
-    
+
     // Calculate TextRank scores
     const textRankScores = this.calculateTextRank(sentences);
-    
+
     // Calculate position weights
     const positionWeights = this.calculatePositionWeights(sentences);
 
@@ -163,28 +191,31 @@ export class IntelligentContentProcessor {
       const tfIdf = tfIdfScores[index] || 0;
       const textRank = textRankScores[index] || 0;
       const posWeight = positionWeights[index] || 0;
-      
+
       // Classify content section
-      const contentType = this.classifyContentSection(sentence.content, sentence.position);
-      
+      const contentType = this.classifyContentSection(
+        sentence.content,
+        sentence.position,
+      );
+
       // Apply content type modifiers
       let contentTypeModifier = 1.0;
       switch (contentType) {
-        case 'reference':
+        case "reference":
           contentTypeModifier = 0.1; // Heavily penalize references
           break;
-        case 'supplementary':
+        case "supplementary":
           contentTypeModifier = 0.3; // Moderately penalize supplementary content
           break;
-        case 'main_content':
+        case "main_content":
           contentTypeModifier = 1.0; // Keep main content at full value
           break;
       }
-      
+
       // Weighted combination: 40% TF-IDF + 35% TextRank + 25% Position
-      const baseImportance = (0.4 * tfIdf) + (0.35 * textRank) + (0.25 * posWeight);
+      const baseImportance = 0.4 * tfIdf + 0.35 * textRank + 0.25 * posWeight;
       const adjustedImportance = baseImportance * contentTypeModifier;
-      
+
       return {
         ...sentence,
         tfIdfScore: tfIdf,
@@ -192,7 +223,7 @@ export class IntelligentContentProcessor {
         positionWeight: posWeight,
         importance: Math.min(1.0, adjustedImportance), // Normalize to 0-1
         keywords: this.extractKeywords(sentence.content, 3),
-        contentType // Add content type for debugging
+        contentType, // Add content type for debugging
       };
     });
   }
@@ -200,17 +231,20 @@ export class IntelligentContentProcessor {
   /**
    * TF-IDF calculation implementation
    */
-  private calculateTfIdf(sentences: ProcessedSentence[], fullText: string): number[] {
+  private calculateTfIdf(
+    sentences: ProcessedSentence[],
+    fullText: string,
+  ): number[] {
     // Tokenize all text
     const allWords = this.tokenize(fullText.toLowerCase());
     const wordCount = allWords.length;
     const uniqueWords = [...new Set(allWords)];
-    
+
     // Calculate document frequency for each word
     const documentFreq = new Map<string, number>();
-    uniqueWords.forEach(word => {
+    uniqueWords.forEach((word) => {
       let count = 0;
-      sentences.forEach(sentence => {
+      sentences.forEach((sentence) => {
         if (sentence.content.toLowerCase().includes(word)) {
           count++;
         }
@@ -219,29 +253,29 @@ export class IntelligentContentProcessor {
     });
 
     // Calculate TF-IDF for each sentence
-    return sentences.map(sentence => {
+    return sentences.map((sentence) => {
       const sentenceWords = this.tokenize(sentence.content.toLowerCase());
       const sentenceWordCount = sentenceWords.length;
-      
+
       if (sentenceWordCount === 0) return 0;
-      
+
       // Calculate term frequency and IDF
       let totalTfIdf = 0;
       const wordFreq = new Map<string, number>();
-      
+
       // Count word frequency in sentence
-      sentenceWords.forEach(word => {
+      sentenceWords.forEach((word) => {
         wordFreq.set(word, (wordFreq.get(word) || 0) + 1);
       });
-      
+
       // Calculate TF-IDF for each unique word in sentence
-      [...wordFreq.keys()].forEach(word => {
+      [...wordFreq.keys()].forEach((word) => {
         const tf = wordFreq.get(word)! / sentenceWordCount;
         const df = documentFreq.get(word) || 1;
         const idf = Math.log(sentences.length / df);
         totalTfIdf += tf * idf;
       });
-      
+
       return totalTfIdf / wordFreq.size; // Average TF-IDF
     });
   }
@@ -255,39 +289,41 @@ export class IntelligentContentProcessor {
 
     // Create similarity matrix
     const similarityMatrix = this.createSimilarityMatrix(sentences);
-    
+
     // Initialize ranks
     let ranks = new Array(numSentences).fill(1.0 / numSentences);
     const dampingFactor = 0.85;
     const iterations = 10; // Simplified iteration count
-    
+
     // Iterative calculation
     for (let iter = 0; iter < iterations; iter++) {
       const newRanks = new Array(numSentences).fill(0);
-      
+
       for (let i = 0; i < numSentences; i++) {
         let sum = 0;
         for (let j = 0; j < numSentences; j++) {
           if (i !== j && similarityMatrix[j][i] > 0) {
             // Calculate sum of outbound similarities for sentence j
-            const outboundSum = similarityMatrix[j].reduce((acc, val, idx) => 
-              idx !== j ? acc + val : acc, 0);
+            const outboundSum = similarityMatrix[j].reduce(
+              (acc, val, idx) => (idx !== j ? acc + val : acc),
+              0,
+            );
             if (outboundSum > 0) {
               sum += (similarityMatrix[j][i] / outboundSum) * ranks[j];
             }
           }
         }
-        newRanks[i] = (1 - dampingFactor) + dampingFactor * sum;
+        newRanks[i] = 1 - dampingFactor + dampingFactor * sum;
       }
       ranks = newRanks;
     }
-    
+
     // Normalize to 0-1 range
     const maxRank = Math.max(...ranks);
     const minRank = Math.min(...ranks);
     const range = maxRank - minRank;
-    
-    return range > 0 ? ranks.map(rank => (rank - minRank) / range) : ranks;
+
+    return range > 0 ? ranks.map((rank) => (rank - minRank) / range) : ranks;
   }
 
   /**
@@ -295,29 +331,39 @@ export class IntelligentContentProcessor {
    */
   private createSimilarityMatrix(sentences: ProcessedSentence[]): number[][] {
     const numSentences = sentences.length;
-    const matrix = Array(numSentences).fill(null).map(() => Array(numSentences).fill(0));
-    
+    const matrix = Array(numSentences)
+      .fill(null)
+      .map(() => Array(numSentences).fill(0));
+
     for (let i = 0; i < numSentences; i++) {
       for (let j = 0; j < numSentences; j++) {
         if (i !== j) {
-          matrix[i][j] = this.calculateSentenceSimilarity(sentences[i], sentences[j]);
+          matrix[i][j] = this.calculateSentenceSimilarity(
+            sentences[i],
+            sentences[j],
+          );
         }
       }
     }
-    
+
     return matrix;
   }
 
   /**
    * Calculate similarity between two sentences using word overlap
    */
-  private calculateSentenceSimilarity(sent1: ProcessedSentence, sent2: ProcessedSentence): number {
+  private calculateSentenceSimilarity(
+    sent1: ProcessedSentence,
+    sent2: ProcessedSentence,
+  ): number {
     const words1 = new Set(this.tokenize(sent1.content.toLowerCase()));
     const words2 = new Set(this.tokenize(sent2.content.toLowerCase()));
-    
-    const intersection = new Set([...words1].filter(word => words2.has(word)));
+
+    const intersection = new Set(
+      [...words1].filter((word) => words2.has(word)),
+    );
     const union = new Set([...words1, ...words2]);
-    
+
     return union.size > 0 ? intersection.size / union.size : 0;
   }
 
@@ -325,14 +371,14 @@ export class IntelligentContentProcessor {
    * Calculate position weights (beginning and end more important)
    */
   private calculatePositionWeights(sentences: ProcessedSentence[]): number[] {
-    return sentences.map(sentence => {
+    return sentences.map((sentence) => {
       const pos = sentence.position;
       // U-shaped curve: beginning (0) and end (1) get higher weights
-      if (pos <= 0.1) return 1.0;        // First 10%
-      if (pos >= 0.9) return 0.9;        // Last 10%
-      if (pos <= 0.3) return 0.7;        // First 30%
-      if (pos >= 0.7) return 0.6;        // Last 30%
-      return 0.3;                        // Middle gets lower weight
+      if (pos <= 0.1) return 1.0; // First 10%
+      if (pos >= 0.9) return 0.9; // Last 10%
+      if (pos <= 0.3) return 0.7; // First 30%
+      if (pos >= 0.7) return 0.6; // Last 30%
+      return 0.3; // Middle gets lower weight
     });
   }
 
@@ -340,48 +386,59 @@ export class IntelligentContentProcessor {
    * Select content based on mode and content control parameters
    */
   private selectContentByMode(
-    sentences: ProcessedSentence[], 
-    mode: string, 
-    contentControl: ContentControl
+    sentences: ProcessedSentence[],
+    mode: string,
+    contentControl: ContentControl,
   ): ProcessedSentence[] {
     // Get effective limits (considering contentControl overrides)
     const limits = this.resolveContentLimits(mode, contentControl);
-    
-    ztoolkit.log(`[IntelligentProcessor] Mode: ${mode}, Limits: ${JSON.stringify(limits)}`);
-    
+
+    ztoolkit.log(
+      `[IntelligentProcessor] Mode: ${mode}, Limits: ${JSON.stringify(limits)}`,
+    );
+
     // Special handling for minimal mode to prioritize main content
-    if (mode === 'minimal') {
+    if (mode === "minimal") {
       return this.selectMinimalContent(sentences, limits, contentControl);
     }
-    
+
     // Sort by importance (descending)
-    const sortedSentences = [...sentences].sort((a, b) => b.importance - a.importance);
-    
-    let selectedSentences: ProcessedSentence[] = [];
+    const sortedSentences = [...sentences].sort(
+      (a, b) => b.importance - a.importance,
+    );
+
+    const selectedSentences: ProcessedSentence[] = [];
     let currentLength = 0;
-    
+
     // Select sentences based on importance and length constraints
     for (const sentence of sortedSentences) {
-      const wouldExceedLimit = limits.maxContentLength > 0 && 
-                              (currentLength + sentence.length) > limits.maxContentLength;
-      
+      const wouldExceedLimit =
+        limits.maxContentLength > 0 &&
+        currentLength + sentence.length > limits.maxContentLength;
+
       if (wouldExceedLimit) {
         // Check if we should expand for important content
         if (contentControl.expandIfImportant && sentence.importance > 0.8) {
-          ztoolkit.log(`[IntelligentProcessor] Expanding for high importance content: ${sentence.importance}`);
+          ztoolkit.log(
+            `[IntelligentProcessor] Expanding for high importance content: ${sentence.importance}`,
+          );
           // Allow expansion up to maxExpansionRatio
-          const maxExpanded = limits.maxContentLength * (contentControl.smartExpansion?.maxExpansionRatio || 1.5);
+          const maxExpanded =
+            limits.maxContentLength *
+            (contentControl.smartExpansion?.maxExpansionRatio || 1.5);
           if (currentLength + sentence.length <= maxExpanded) {
             selectedSentences.push(sentence);
             currentLength += sentence.length;
           }
         }
         // Check if prioritizing completeness
-        else if (contentControl.prioritizeCompleteness && sentence.importance > 0.5) {
+        else if (
+          contentControl.prioritizeCompleteness &&
+          sentence.importance > 0.5
+        ) {
           selectedSentences.push(sentence);
           currentLength += sentence.length;
-        }
-        else {
+        } else {
           break; // Stop adding sentences
         }
       } else {
@@ -389,7 +446,7 @@ export class IntelligentContentProcessor {
         currentLength += sentence.length;
       }
     }
-    
+
     // Sort selected sentences back to original order for coherent reading
     return selectedSentences.sort((a, b) => a.position - b.position);
   }
@@ -398,50 +455,66 @@ export class IntelligentContentProcessor {
    * Special selection logic for minimal mode to prioritize main content
    */
   private selectMinimalContent(
-    sentences: ProcessedSentence[], 
-    limits: any, 
-    contentControl: ContentControl
+    sentences: ProcessedSentence[],
+    limits: any,
+    contentControl: ContentControl,
   ): ProcessedSentence[] {
     // First, separate sentences by content type
-    const mainContent = sentences.filter(s => s.contentType === 'main_content');
-    const otherContent = sentences.filter(s => s.contentType !== 'main_content');
-    
-    ztoolkit.log(`[IntelligentProcessor] Minimal mode: ${mainContent.length} main, ${otherContent.length} other sentences`);
-    
+    const mainContent = sentences.filter(
+      (s) => s.contentType === "main_content",
+    );
+    const otherContent = sentences.filter(
+      (s) => s.contentType !== "main_content",
+    );
+
+    ztoolkit.log(
+      `[IntelligentProcessor] Minimal mode: ${mainContent.length} main, ${otherContent.length} other sentences`,
+    );
+
     // Sort main content by importance (descending)
-    const sortedMainContent = [...mainContent].sort((a, b) => b.importance - a.importance);
-    
-    let selectedSentences: ProcessedSentence[] = [];
+    const sortedMainContent = [...mainContent].sort(
+      (a, b) => b.importance - a.importance,
+    );
+
+    const selectedSentences: ProcessedSentence[] = [];
     let currentLength = 0;
-    
+
     // First, try to fill the limit with main content
     for (const sentence of sortedMainContent) {
-      if (limits.maxContentLength > 0 && (currentLength + sentence.length) > limits.maxContentLength) {
+      if (
+        limits.maxContentLength > 0 &&
+        currentLength + sentence.length > limits.maxContentLength
+      ) {
         break;
       }
       selectedSentences.push(sentence);
       currentLength += sentence.length;
     }
-    
-    // If we still have room and no main content was selected, 
+
+    // If we still have room and no main content was selected,
     // fall back to highest-importance other content
     if (selectedSentences.length === 0 && otherContent.length > 0) {
-      const sortedOtherContent = [...otherContent].sort((a, b) => b.importance - a.importance);
-      
+      const sortedOtherContent = [...otherContent].sort(
+        (a, b) => b.importance - a.importance,
+      );
+
       for (const sentence of sortedOtherContent) {
-        if (limits.maxContentLength > 0 && (currentLength + sentence.length) > limits.maxContentLength) {
+        if (
+          limits.maxContentLength > 0 &&
+          currentLength + sentence.length > limits.maxContentLength
+        ) {
           break;
         }
         selectedSentences.push(sentence);
         currentLength += sentence.length;
-        
+
         // For minimal mode, prefer one high-quality sentence over many low-quality ones
         if (selectedSentences.length >= 2) {
           break;
         }
       }
     }
-    
+
     // Sort selected sentences back to original order for coherent reading
     return selectedSentences.sort((a, b) => a.position - b.position);
   }
@@ -449,14 +522,21 @@ export class IntelligentContentProcessor {
   /**
    * Resolve effective content limits considering mode and overrides
    */
-  private resolveContentLimits(mode: string, contentControl: ContentControl): any {
+  private resolveContentLimits(
+    mode: string,
+    contentControl: ContentControl,
+  ): any {
     const baseLimits = this.getModeConfiguration(mode);
-    
+
     return {
-      maxContentLength: contentControl.maxContentLength ?? 
-                       (contentControl.allowExtended ? baseLimits.maxContentLength * 1.5 : baseLimits.maxContentLength),
-      maxAttachments: contentControl.maxAttachments ?? baseLimits.maxAttachments,
-      maxNotes: contentControl.maxNotes ?? baseLimits.maxNotes
+      maxContentLength:
+        contentControl.maxContentLength ??
+        (contentControl.allowExtended
+          ? baseLimits.maxContentLength * 1.5
+          : baseLimits.maxContentLength),
+      maxAttachments:
+        contentControl.maxAttachments ?? baseLimits.maxAttachments,
+      maxNotes: contentControl.maxNotes ?? baseLimits.maxNotes,
     };
   }
 
@@ -465,28 +545,34 @@ export class IntelligentContentProcessor {
    */
   private getModeConfiguration(mode: string): any {
     const configs = {
-      'minimal': { maxContentLength: 500, maxAttachments: 2, maxNotes: 3 },
-      'preview': { maxContentLength: 1500, maxAttachments: 5, maxNotes: 8 },
-      'smart': { maxContentLength: 3000, maxAttachments: 10, maxNotes: 15 },
-      'full': { maxContentLength: -1, maxAttachments: -1, maxNotes: -1 }
+      minimal: { maxContentLength: 500, maxAttachments: 2, maxNotes: 3 },
+      preview: { maxContentLength: 1500, maxAttachments: 5, maxNotes: 8 },
+      smart: { maxContentLength: 3000, maxAttachments: 10, maxNotes: 15 },
+      full: { maxContentLength: -1, maxAttachments: -1, maxNotes: -1 },
     };
-    
-    return configs[mode as keyof typeof configs] || configs['smart'];
+
+    return configs[mode as keyof typeof configs] || configs["smart"];
   }
 
   /**
    * Reconstruct text from selected sentences
    */
-  private reconstructText(sentences: ProcessedSentence[], contentControl: ContentControl): string {
-    if (sentences.length === 0) return '';
-    
-    let result = sentences.map(s => s.content).join(' ');
-    
+  private reconstructText(
+    sentences: ProcessedSentence[],
+    contentControl: ContentControl,
+  ): string {
+    if (sentences.length === 0) return "";
+
+    let result = sentences.map((s) => s.content).join(" ");
+
     // Ensure text ends properly if truncated
-    if (contentControl.requireContext !== false && !this.isCompleteSentence(result)) {
-      result += '...';
+    if (
+      contentControl.requireContext !== false &&
+      !this.isCompleteSentence(result)
+    ) {
+      result += "...";
     }
-    
+
     return result.trim();
   }
 
@@ -494,28 +580,34 @@ export class IntelligentContentProcessor {
    * Generate comprehensive metadata
    */
   private generateMetadata(
-    originalText: string, 
-    processedText: string, 
-    allSentences: ProcessedSentence[], 
+    originalText: string,
+    processedText: string,
+    allSentences: ProcessedSentence[],
     selectedSentences: ProcessedSentence[],
     mode: string,
-    contentControl: ContentControl
+    contentControl: ContentControl,
   ): any {
-    const avgImportance = selectedSentences.length > 0 
-      ? selectedSentences.reduce((sum, s) => sum + s.importance, 0) / selectedSentences.length 
-      : 0;
+    const avgImportance =
+      selectedSentences.length > 0
+        ? selectedSentences.reduce((sum, s) => sum + s.importance, 0) /
+          selectedSentences.length
+        : 0;
 
     return {
       originalLength: originalText.length,
       processedLength: processedText.length,
-      preservationRatio: originalText.length > 0 ? processedText.length / originalText.length : 1,
+      preservationRatio:
+        originalText.length > 0
+          ? processedText.length / originalText.length
+          : 1,
       selectedSentences: selectedSentences.length,
       totalSentences: allSentences.length,
       averageImportance: avgImportance,
-      processingMethod: 'intelligent-scoring',
+      processingMethod: "intelligent-scoring",
       appliedLimits: this.resolveContentLimits(mode, contentControl),
-      expansionTriggered: contentControl.expandIfImportant && 
-                         selectedSentences.some(s => s.importance > 0.8)
+      expansionTriggered:
+        contentControl.expandIfImportant &&
+        selectedSentences.some((s) => s.importance > 0.8),
     };
   }
 
@@ -523,20 +615,21 @@ export class IntelligentContentProcessor {
    * Utility methods
    */
   private tokenize(text: string): string[] {
-    return text.toLowerCase()
-               .replace(/[^\w\s]/g, ' ')
-               .split(/\s+/)
-               .filter(word => word.length > 2);
+    return text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, " ")
+      .split(/\s+/)
+      .filter((word) => word.length > 2);
   }
 
   private extractKeywords(text: string, count: number): string[] {
     const words = this.tokenize(text);
     const wordFreq = new Map<string, number>();
-    
-    words.forEach(word => {
+
+    words.forEach((word) => {
       wordFreq.set(word, (wordFreq.get(word) || 0) + 1);
     });
-    
+
     return [...wordFreq.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, count)
@@ -553,83 +646,104 @@ export class IntelligentContentProcessor {
   private isReference(sentence: string): boolean {
     const content = sentence.trim();
     const lowerContent = content.toLowerCase();
-    
+
     // Reference section headers
-    if (/^(references?|bibliography|works?\s+cited|literature\s+cited)\s*$/i.test(content)) {
+    if (
+      /^(references?|bibliography|works?\s+cited|literature\s+cited)\s*$/i.test(
+        content,
+      )
+    ) {
       return true;
     }
-    
+
     // Common reference patterns
     const referencePatterns = [
-      /^\d+\.\s+[A-Z][a-z]+,?\s+[A-Z][\.\w]*/, // "1. Smith, J." or "1. Smith, John"
+      /^\d+\.\s+[A-Z][a-z]+,?\s+[A-Z][.\w]*/, // "1. Smith, J." or "1. Smith, John"
       /^\[\d+\]\s*/, // "[1]" style citations
-      /^[A-Z][a-z]+,\s*[A-Z][\.\w]*.*\(\d{4}[a-z]?\)/, // "Smith, J. (2020)" 
-      /^[A-Z][a-z]+,\s*[A-Z][\.\w]*,?\s+.*\d{4}[a-z]?[\.,]/, // "Smith, J., Title, 2020."
+      /^[A-Z][a-z]+,\s*[A-Z][.\w]*.*\(\d{4}[a-z]?\)/, // "Smith, J. (2020)"
+      /^[A-Z][a-z]+,\s*[A-Z][.\w]*,?\s+.*\d{4}[a-z]?[.,]/, // "Smith, J., Title, 2020."
       /et\s+al\..*\(\d{4}\)/, // "Smith et al. (2020)"
       /doi\s*:\s*10\.\d+/, // DOI patterns
       /https?:\/\/[^\s]+/, // URLs
       /www\.[^\s]+/, // www URLs
     ];
-    
+
     // Check against patterns
-    const hasReferencePattern = referencePatterns.some(pattern => pattern.test(content));
-    
+    const hasReferencePattern = referencePatterns.some((pattern) =>
+      pattern.test(content),
+    );
+
     // Academic terms that often appear in references
     const academicTerms = [
-      'journal', 'proceedings', 'conference', 'symposium',
-      'vol\\.', 'volume', 'issue', 'pp\\.', 'pages',
-      'editor', 'eds\\.', 'publisher', 'press',
-      'retrieved from', 'available at'
+      "journal",
+      "proceedings",
+      "conference",
+      "symposium",
+      "vol\\.",
+      "volume",
+      "issue",
+      "pp\\.",
+      "pages",
+      "editor",
+      "eds\\.",
+      "publisher",
+      "press",
+      "retrieved from",
+      "available at",
     ];
-    const hasAcademicTerms = academicTerms.some(term => 
-      new RegExp(term, 'i').test(lowerContent)
+    const hasAcademicTerms = academicTerms.some((term) =>
+      new RegExp(term, "i").test(lowerContent),
     );
-    
+
     // Additional heuristics
-    const hasYear = /\(\d{4}[a-z]?\)|\b\d{4}[a-z]?[\.,]/.test(content);
+    const hasYear = /\(\d{4}[a-z]?\)|\b\d{4}[a-z]?[.,]/.test(content);
     const hasAuthorPattern = /^[A-Z][a-z]+,\s*[A-Z]/.test(content);
     const startsWithNumber = /^\d+\./.test(content);
-    const hasMultipleAuthors = /,\s*[A-Z]\./g.test(content) || /&|and\s+[A-Z][a-z]+,/.test(content);
-    
+    const hasMultipleAuthors =
+      /,\s*[A-Z]\./g.test(content) || /&|and\s+[A-Z][a-z]+,/.test(content);
+
     // Combine criteria - need at least two indicators for high confidence
     let indicators = 0;
     if (hasReferencePattern) indicators += 3; // Strong indicator
     if (hasAcademicTerms && hasYear) indicators += 2; // Medium-strong
-    if (hasAuthorPattern && hasYear) indicators += 2; // Medium-strong  
+    if (hasAuthorPattern && hasYear) indicators += 2; // Medium-strong
     if (startsWithNumber && hasAuthorPattern) indicators += 2; // Medium-strong
     if (hasMultipleAuthors) indicators += 1; // Weak
     if (hasYear) indicators += 1; // Weak
-    
+
     return indicators >= 2;
   }
 
   /**
    * Detect content sections and classify importance
    */
-  private classifyContentSection(sentence: string, position: number): 'main_content' | 'reference' | 'supplementary' {
+  private classifyContentSection(
+    sentence: string,
+    position: number,
+  ): "main_content" | "reference" | "supplementary" {
     // Check for reference
     if (this.isReference(sentence)) {
-      return 'reference';
+      return "reference";
     }
-    
+
     // Check for supplementary content (acknowledgments, appendices, etc.)
     const supplementaryPatterns = [
       /acknowledgment|acknowledgement|thanks|funding|grant|support/i,
       /appendix|supplementary|additional|extra/i,
-      /conflict\s+of\s+interest|competing\s+interest/i
+      /conflict\s+of\s+interest|competing\s+interest/i,
     ];
-    
-    if (supplementaryPatterns.some(pattern => pattern.test(sentence))) {
-      return 'supplementary';
+
+    if (supplementaryPatterns.some((pattern) => pattern.test(sentence))) {
+      return "supplementary";
     }
-    
-    return 'main_content';
+
+    return "main_content";
   }
 
   private createEmptyResult(): ProcessingResult {
     return {
-      originalText: '',
-      processedText: '',
+      originalText: "",
+      processedText: "",
       sentences: [],
       metadata: {
         originalLength: 0,
@@ -638,19 +752,20 @@ export class IntelligentContentProcessor {
         selectedSentences: 0,
         totalSentences: 0,
         averageImportance: 0,
-        processingMethod: 'empty',
+        processingMethod: "empty",
         appliedLimits: {},
-        expansionTriggered: false
-      }
+        expansionTriggered: false,
+      },
     };
   }
 
   private fallbackProcessing(text: string, mode: string): ProcessingResult {
     const config = this.getModeConfiguration(mode);
-    const truncatedText = config.maxContentLength > 0 && text.length > config.maxContentLength
-      ? text.substring(0, config.maxContentLength) + '...'
-      : text;
-    
+    const truncatedText =
+      config.maxContentLength > 0 && text.length > config.maxContentLength
+        ? text.substring(0, config.maxContentLength) + "..."
+        : text;
+
     return {
       originalText: text,
       processedText: truncatedText,
@@ -662,10 +777,10 @@ export class IntelligentContentProcessor {
         selectedSentences: 0,
         totalSentences: 0,
         averageImportance: 0,
-        processingMethod: 'fallback-truncation',
+        processingMethod: "fallback-truncation",
         appliedLimits: config,
-        expansionTriggered: false
-      }
+        expansionTriggered: false,
+      },
     };
   }
 }

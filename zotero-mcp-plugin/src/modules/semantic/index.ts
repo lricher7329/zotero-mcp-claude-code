@@ -12,8 +12,8 @@ export {
   type SemanticSearchOptions,
   type SemanticSearchResult,
   type IndexProgress,
-  type SemanticServiceStats
-} from './semanticSearchService';
+  type SemanticServiceStats,
+} from "./semanticSearchService";
 
 // Embedding service
 export {
@@ -23,25 +23,26 @@ export {
   type EmbeddingResult,
   type BatchEmbeddingItem,
   type EmbeddingConfig,
-  type EmbeddingServiceStatus
-} from './embeddingService';
+  type EmbeddingServiceStatus,
+} from "./embeddingService";
 
 // Vector storage
 export {
   VectorStore,
   getVectorStore,
   resetVectorStore,
+  DimensionMismatchError,
   type VectorRecord,
   type QuantizedVector,
   type SearchResult,
   type IndexStatus,
-  type VectorStoreStats
-} from './vectorStore';
+  type VectorStoreStats,
+} from "./vectorStore";
 
 // Text processing
 export {
   TextChunker,
   getTextChunker,
   type ChunkerOptions,
-  type TextChunk
-} from './textChunker';
+  type TextChunk,
+} from "./textChunker";
