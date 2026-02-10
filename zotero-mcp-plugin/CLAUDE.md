@@ -18,16 +18,43 @@ A Zotero plugin that provides MCP (Model Context Protocol) server functionality,
 - `.scaffold/build/` - Build output
 - `update.json` - Zotero auto-update manifest
 
-## Available Skills
-
-- `release` - Automate version bump and GitHub release process
-
 ## Build Commands
 
 ```bash
 npm run build      # Production build
 npm run start      # Development with hot reload
+npm run lint:check # Check formatting and linting
+npm run lint:fix   # Fix formatting and linting issues
 ```
+
+## Release Process
+
+A GitHub Actions workflow at `/.github/workflows/release.yml` automates releases. Pushing a version tag triggers it.
+
+### Steps
+
+1. Bump version in three files:
+   - `package.json` — `"version": "X.Y.Z"`
+   - `src/modules/httpServer.ts` — `version: "X.Y.Z"` in serverInfo
+   - `update.json` — add new entry with version and update_link
+2. Update lockfile: `npm install --package-lock-only`
+3. Verify build: `npm run build`
+4. Commit, tag, and push:
+   ```bash
+   git add package.json package-lock.json src/modules/httpServer.ts update.json
+   git commit -m "chore: bump version to X.Y.Z"
+   git tag vX.Y.Z
+   git push origin main --tags
+   ```
+5. GitHub Actions builds the XPI and creates the release with `zotero-mcp-for-claude-code.xpi` and `update.json` as assets.
+
+### Version files summary
+
+| File | Field | Purpose |
+|------|-------|---------|
+| `package.json` | `version` | npm/build version, used by scaffold |
+| `src/modules/httpServer.ts` | `serverInfo.version` | Reported in `/capabilities` endpoint |
+| `update.json` | `updates[]` entry | Zotero auto-update manifest (append, don't replace) |
 
 ## Important Patterns
 
@@ -41,10 +68,6 @@ npm run start      # Development with hot reload
 
 - English: `addon/locale/en-US/preferences.ftl`
 - Chinese: `addon/locale/zh-CN/preferences.ftl`
-
-### Release Workflow
-
-See `.claude/skills/release.md` for automated release process.
 
 ## Code Style
 
