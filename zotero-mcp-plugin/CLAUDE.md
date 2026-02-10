@@ -33,15 +33,16 @@ A GitHub Actions workflow at `/.github/workflows/release.yml` automates releases
 
 ### Steps
 
-1. Bump version in three files:
+1. Bump version in four files:
    - `package.json` — `"version": "X.Y.Z"`
    - `src/modules/httpServer.ts` — `version: "X.Y.Z"` in serverInfo
    - `update.json` — add new entry with version and update_link
+   - `../README.md` — update version badge to `X.Y.Z`
 2. Update lockfile: `npm install --package-lock-only`
 3. Verify build: `npm run build`
 4. Commit, tag, and push:
    ```bash
-   git add package.json package-lock.json src/modules/httpServer.ts update.json
+   git add package.json package-lock.json src/modules/httpServer.ts update.json ../README.md
    git commit -m "chore: bump version to X.Y.Z"
    git tag vX.Y.Z
    git push origin main --tags
@@ -55,6 +56,7 @@ A GitHub Actions workflow at `/.github/workflows/release.yml` automates releases
 | `package.json`              | `version`            | npm/build version, used by scaffold                 |
 | `src/modules/httpServer.ts` | `serverInfo.version` | Reported in `/capabilities` endpoint                |
 | `update.json`               | `updates[]` entry    | Zotero auto-update manifest (append, don't replace) |
+| `../README.md`              | Version badge        | Display version in repo README                      |
 
 ## Important Patterns
 
