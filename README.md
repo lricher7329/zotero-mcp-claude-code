@@ -1,257 +1,184 @@
-# Zotero MCP - Model Context Protocol Integration for Zotero
+# Zotero MCP for Claude Code
 
-Zotero MCP is an open-source project designed to seamlessly integrate powerful AI capabilities with the leading reference management tool, Zotero, through the Model Context Protocol (MCP). This project consists of two core components: a Zotero plugin and an MCP server, which work together to provide AI assistants (like Claude) with the ability to interact with your local Zotero library.
-_This README is also available in: [:cn: 简体中文](./README-zh.md) | :gb: English._
-[![GitHub](https://img.shields.io/badge/GitHub-zotero--mcp-blue?logo=github)](https://github.com/cookjohn/zotero-mcp)
-[![zotero target version](https://img.shields.io/badge/Zotero-7-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-green)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue)](https://www.typescriptlang.org)
-[![Version](https://img.shields.io/badge/Version-1.3.0-brightgreen)]()
-[![EN doc](https://img.shields.io/badge/Document-English-blue.svg)](README.md)
-[![中文文档](https://img.shields.io/badge/文档-中文-blue.svg)](README-zh.md)
+A Zotero plugin that exposes your library to AI assistants via the [Model Context Protocol](https://modelcontextprotocol.org/) (MCP). This fork adds Claude Code compatibility and write operations.
+
+[![GitHub](https://img.shields.io/badge/GitHub-zotero--mcp--claude--code-blue?logo=github)](https://github.com/lricher7329/zotero-mcp-claude-code)
+[![Zotero](https://img.shields.io/badge/Zotero-7-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
+[![Version](https://img.shields.io/badge/Version-1.4.0-brightgreen)]()
+[![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
 ---
-## Fork us on Wechat
- | MP | Forum |
-| :--- | :---: |
-| ![Reading PDF](./IMG/MP.jpg) | ![Contact us](./IMG/2f1aa2fdf89a6093e7d256f4d8844233.jpg) |
-## 📚 Project Overview
 
-The Zotero MCP server is a tool server based on the Model Context Protocol that provides seamless integration with the Zotero reference management system for AI applications like Claude Desktop. Through this server, AI assistants can:
+## What it does
 
-- 🔍 Intelligently search your Zotero library
-- 📖 Get detailed information about references
-- 🏷️ Filter references by tags, creators, year, and more
-- 🔗 Precisely locate references via identifiers like DOI and ISBN
+The plugin runs an MCP server inside Zotero that AI clients connect to over HTTP. No separate server process needed.
 
-This enables AI assistants to help you with academic tasks such as literature reviews, citation management, and research assistance.
-
-## 🚀 Project Structure
-
-This project now features a **unified architecture** with an integrated MCP server:
-
-- **`zotero-mcp-plugin/`**: A Zotero plugin with **integrated MCP server** that communicates directly with AI clients via Streamable HTTP protocol
-- **`IMG/`**: Screenshots and documentation images
-- **`README.md`** / **`README-zh.md`**: Documentation files
-
-**Unified Architecture:**
 ```
-AI Client ↔ Streamable HTTP ↔ Zotero Plugin (with integrated MCP server)
+AI Client  <--Streamable HTTP-->  Zotero Plugin (integrated MCP server)
 ```
 
-This eliminates the need for a separate MCP server process, providing a more streamlined and efficient integration.
+Your AI assistant can then search your library, read PDFs, extract annotations, create items, manage collections, and more.
 
----
+## Quick start
 
-## 🚀 Quick Start Guide
+### 1. Install the plugin
 
-This guide is intended to help general users quickly configure and use Zotero MCP, enabling your AI assistant to work seamlessly with your Zotero library.
+Download the latest `.xpi` from the [Releases page](https://github.com/lricher7329/zotero-mcp-claude-code/releases) and install it in Zotero via **Tools > Add-ons**.
 
-### 1. Installation (For General Users)
+### 2. Connect Claude Code
 
-**What is Zotero MCP?**
+```bash
+claude mcp add zotero-mcp http://127.0.0.1:23120/mcp -t http
+```
 
-Simply put, Zotero MCP is a bridge connecting your AI client (like Cherry Studio, Gemini CLI, Claude Desktop, etc.) and your local Zotero reference management software. It allows your AI assistant to directly search, query, and cite references from your Zotero library, greatly enhancing academic research and writing efficiency.
+Or add to your MCP config (`~/.claude.json` or `.mcp.json`):
 
-**Two-Step Quick Start:**
-
-1.  **Install the Plugin**:
-    *   Go to the project's [Releases Page](https://github.com/cookjohn/zotero-mcp/releases) to download the latest `zotero-mcp-plugin-x.x.x.xpi` file.
-    *   In Zotero, install the `.xpi` file via `Tools -> Add-ons`.
-    *   Restart Zotero.
-
-2.  **Configure the Plugin**:
-    *   In Zotero's `Preferences -> Zotero MCP Plugin` tab, configure your connection settings:
-        - **Enable Server**: Start the integrated MCP server
-        - **Port**: Default is `23120` (you can change this if needed)
-        - **Generate Client Configuration**: Click this button to get configuration for your AI client
-
----
-
-### 2. Connect to AI Clients
-
-**Important**: The Zotero plugin now includes an **integrated MCP server** that uses the Streamable HTTP protocol. No separate server installation is needed.
-
-#### Streamable HTTP Connection
-
-The plugin uses Streamable HTTP, which enables real-time bidirectional communication with AI clients:
-
-1. **Enable Server** in the Zotero plugin preferences
-2. **Generate Client Configuration** by clicking the button in plugin preferences
-3. **Copy the generated configuration** to your AI client
-
-#### Supported AI Clients
-
-- **Claude Code**: Native HTTP MCP support (`claude mcp add zotero-mcp http://127.0.0.1:23120/mcp -t http`)
-- **Claude Desktop**: Streamable HTTP via mcp-remote
-- **Cherry Studio**: Streamable HTTP support
-- **Cursor IDE**: Streamable HTTP via mcp-remote
-- **Gemini CLI**: HTTP MCP support
-- **Cline (VS Code)**: Streamable HTTP via mcp-remote
-- **Continue.dev**: Streamable HTTP via mcp-remote
-- **Qwen Code**: HTTP MCP support
-- **Chatbox**: Streamable HTTP via mcp-remote
-- **Trae AI**: Streamable HTTP via mcp-remote
-- **Custom HTTP clients**: Generic Streamable HTTP protocol
-
-The plugin preferences include a **Client Configuration Generator** that produces ready-to-use JSON config for each client.
-
----
-
-## 👨‍💻 Developer Guide
-
-### Prerequisites
-
-- **Zotero** 7.0 or higher
-- **Node.js** 18.0 or higher
-- **npm** or **yarn**
-- **Git**
-
-### Step 1: Install and Configure the Zotero Plugin
-
-1.  Download the latest `zotero-mcp-plugin.xpi` from the [Releases Page](https://github.com/cookjohn/zotero-mcp/releases).
-2.  Install it in Zotero via `Tools -> Add-ons`.
-3.  Enable the server in `Preferences -> Zotero MCP Plugin`.
-
-### Step 2: Development Setup
-
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/cookjohn/zotero-mcp.git
-    cd zotero-mcp
-    ```
-    
-2.  Set up the plugin development environment:
-    ```bash
-    cd zotero-mcp-plugin
-    npm install
-    npm run build
-    ```
-    
-3.  Load the plugin in Zotero:
-    ```bash
-    # For development with auto-reload
-    npm run start
-    
-    # Or install the built .xpi file manually
-    npm run build
-    ```
-
-### Step 3: Connect AI Clients (Development)
-
-The plugin includes an integrated MCP server that uses Streamable HTTP:
-
-1.  **Enable the server** in Zotero plugin preferences
-2.  **Generate client configuration** using the plugin's built-in generator
-3.  **Configure your AI client** with the generated Streamable HTTP configuration
-
-Example configuration for Claude Desktop:
 ```json
 {
   "mcpServers": {
-    "zotero": {
-      "transport": "streamable_http",
+    "zotero-mcp": {
+      "type": "http",
       "url": "http://127.0.0.1:23120/mcp"
     }
   }
 }
 ```
 
----
+### 3. Verify
 
-## 🧩 Features
+```bash
+claude mcp list
+```
 
-### `zotero-mcp-plugin` Features
+You should see `zotero-mcp` with the available tools listed.
 
--   **Integrated MCP Server**: Built-in MCP server using Streamable HTTP protocol
--   **Streamable HTTP Protocol**: Real-time bidirectional communication with AI clients
--   **Advanced Search Engine**: Full-text search with filtering by title, creator, year, tags, item type, etc.
--   **🆕 Semantic Search**: AI-powered semantic search using embedding vectors
-    - Supports OpenAI and Ollama embedding APIs (auto-detection)
-    - Vector indexing with SQLite-vec storage
-    - Index status column in main library view
-    - Collection/item context menu for index management
-    - Rate limiting and API usage tracking
--   **Collection Management**: Browse, search, and retrieve items from specific collections
--   **Tag Search System**: Powerful tag queries (`any`, `all`, `none` modes) with matching options (`exact`, `contains`, `startsWith`)
--   **PDF Processing**: Full-text extraction from PDF attachments with page-specific access
--   **Annotation Retrieval**: Extract highlights, notes, and annotations from PDFs
--   **Client Configuration Generator**: Automatically generates configuration for various AI clients
--   **Security**: Local-only operation ensuring complete data privacy
--   **User-Friendly**: Easy configuration through Zotero preferences interface
+## Supported clients
 
----
-## 📸 Screenshots
+| Client | Connection |
+|--------|-----------|
+| **Claude Code** | Native HTTP MCP (recommended) |
+| **Claude Desktop** | Streamable HTTP via mcp-remote |
+| **Cursor IDE** | Streamable HTTP via mcp-remote |
+| **Cherry Studio** | Native Streamable HTTP |
+| **Gemini CLI** | Native HTTP MCP |
+| **Cline (VS Code)** | Streamable HTTP via mcp-remote |
+| **Continue.dev** | Streamable HTTP via mcp-remote |
+| **Qwen Code** | Native HTTP MCP |
+| **Chatbox** | Streamable HTTP via mcp-remote |
+| **Trae AI** | Streamable HTTP via mcp-remote |
 
-Here are some screenshots demonstrating the functionality of Zotero MCP:
+The plugin preferences include a **Client Configuration Generator** that produces ready-to-use config for each client.
 
-| Feature | Screenshot |
-| :--- | :---: |
-| **Feature Demonstration** | ![Feature Demonstration](./IMG/功能说明.png) |
-| **Literature Search** | ![Literature Search](./IMG/文献检索.png) |
-| **Viewing Metadata** | ![Viewing Metadata](./IMG/元数据查看.png) |
-| **Full-text Reading 1** | ![Full-text Reading 1](./IMG/全文读取1.png) |
-| **Full-text Reading 2** | ![Full-text Reading 2](./IMG/全文读取2.png) |
-| **Searching Attachments (Gemini CLI)** | ![Searching Attachments](./IMG/geminicli-附件检索.png) |
-| **Reading PDF (Gemini CLI)** | ![Reading PDF](./IMG/geminicli-pdf读取.png) |
+## MCP tools
 
----
+### Read tools (always available)
 
+| Tool | Description |
+|------|-------------|
+| `search_library` | Search with advanced filtering (title, creator, year, tags, item type, boolean operators, relevance scoring, pagination) |
+| `search_annotations` | Search annotations/highlights by query, color, or tags |
+| `get_item_details` | Get full metadata for an item |
+| `get_item_abstract` | Get an item's abstract |
+| `get_annotations` | Get annotations for specific items |
+| `get_content` | Extract content from PDFs, notes, and attachments |
+| `get_collections` | List all collections |
+| `search_collections` | Search collections by name |
+| `get_collection_details` | Get collection metadata |
+| `get_collection_items` | List items in a collection |
+| `get_subcollections` | List child collections |
+| `search_fulltext` | Full-text search across attachments with context snippets |
+| `semantic_search` | AI-powered semantic search using embedding vectors |
+| `find_similar` | Find items similar to a given item |
+| `semantic_status` | Check semantic index status |
+| `fulltext_database` | Query the full-text content cache (list, search, get, stats) |
 
-## 🔧 API Reference
+### Write tools (when enabled in preferences)
 
-The integrated MCP server provides the following tools:
+| Tool | Description |
+|------|-------------|
+| `create_item` | Create a new library item (journal article, book, etc.) with fields, creators, tags, collections |
+| `update_item` | Update fields and creators on an existing item |
+| `add_note` | Create a standalone or child note |
+| `add_tags` | Add tags to an item |
+| `remove_tags` | Remove tags from an item |
+| `create_collection` | Create a new collection or subcollection |
+| `add_to_collection` | Add an item to a collection |
+| `remove_from_collection` | Remove an item from a collection |
+| `batch_tag` | Tag multiple items at once (max 100) |
+| `batch_add_to_collection` | Add multiple items to a collection at once (max 100) |
 
-### `search_library`
+Write tools are gated behind the **"Allow write operations"** checkbox in Zotero preferences (**Settings > Zotero MCP for Claude Code > MCP Server**). They only appear in the tool list when enabled.
 
-Searches the Zotero library. Supports parameters like `q`, `title`, `creator`, `year`, `tag`, `itemType`, `limit`, `sort`, etc.
+## Plugin preferences
 
-### `get_item_details`
+Configure in **Zotero > Settings > Zotero MCP for Claude Code**:
 
-Retrieves full information for a single item.
--   **`itemKey`** (string, required): The unique key of the item.
+- **MCP Server** -- Enable/disable, port (default 23120), remote access, write operations
+- **Client Configuration Generator** -- Generate config JSON for any supported AI client
+- **MCP Content Settings** -- Content processing mode (minimal/preview/standard/complete/custom), max tokens
+- **Semantic Search** -- Embedding provider (OpenAI, Ollama, etc.), model, dimensions, API key
+- **Semantic Index** -- Build/rebuild/clear index, auto-update, progress monitoring
 
-### `find_item_by_identifier`
+## Semantic search
 
-Finds an item by DOI or ISBN.
--   **`doi`** (string, optional)
--   **`isbn`** (string, optional)
+The plugin supports AI-powered semantic search using embedding vectors:
 
-*At least one identifier is required.*
+1. Configure an embedding provider in preferences (OpenAI, Ollama, or any OpenAI-compatible API)
+2. Build the index (indexes item titles, abstracts, and full text)
+3. Use `semantic_search` for natural language queries or `find_similar` to find related items
 
-### `semantic_search` 🆕
+The vector index is stored locally in SQLite with Int8 quantization for efficient storage.
 
-Performs semantic search on indexed items using embedding vectors.
--   **`query`** (string, required): Natural language query
--   **`limit`** (number, optional): Maximum results (default: 10)
--   **`threshold`** (number, optional): Similarity threshold (0-1)
+## Development
 
-### `semantic_index` 🆕
+### Prerequisites
 
-Manages the semantic search index.
--   **`action`** (string, required): `build`, `rebuild`, or `clear`
--   **`itemKeys`** (array, optional): Specific items to index
+- Zotero 7+
+- Node.js 18+
 
----
+### Setup
 
-## 🤝 Contributing
+```bash
+cd zotero-mcp-plugin
+npm install
+npm run build    # Production build
+npm run start    # Dev mode with auto-reload
+```
 
-Contributions are welcome! Please feel free to submit pull requests, report issues, or suggest enhancements.
+### Testing
 
-1.  Fork the repository.
-2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4.  Push to the branch (`git push origin feature/AmazingFeature`).
-5.  Open a Pull Request.
+```bash
+npm run test:unit    # 37 unit tests (mathUtils, textChunker)
+npm run lint:check   # Prettier + ESLint
+```
 
-## 📄 License
+### Endpoints
 
-This project is licensed under the [MIT License](./LICENSE).
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/mcp` | POST | MCP JSON-RPC requests |
+| `/mcp` | GET | SSE event stream |
+| `/mcp` | DELETE | Session termination |
+| `/ping` | GET | Health check |
+| `/mcp/status` | GET | Server status |
+| `/capabilities` | GET | Server capabilities |
 
-## 🙏 Acknowledgements
+## Fork changes
 
--   [Zotero](https://www.zotero.org/) - An excellent open-source reference management tool.
--   [Model Context Protocol](https://modelcontextprotocol.org/) - The protocol for AI tool integration.
--   [![Using Zotero Plugin Template](https://img.shields.io/badge/Using-Zotero%20Plugin%20Template-blue?style=flat-square&logo=github)](https://github.com/windingwind/zotero-plugin-template)
-Contact us 
-![Contact us](./%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87_20250918120057_58_267.jpg) 
+This fork ([lricher7329/zotero-mcp-claude-code](https://github.com/lricher7329/zotero-mcp-claude-code)) adds the following on top of the upstream [cookjohn/zotero-mcp](https://github.com/cookjohn/zotero-mcp):
+
+- **Claude Code compatibility** -- Proper request body reading, Accept header validation, DELETE method, notification handling, batch requests, multi-version protocol support
+- **Write operations** -- 10 MCP write tools for creating items, notes, tags, and collections
+- **Security hardening** -- ReDoS protection, request size limits, SQL injection fixes, rate limiting, strong session IDs
+- **Codebase audit** -- Typed errors, API validation, singleton fixes, batched queries, module refactoring, 37 unit tests
+
+## License
+
+[MIT](./LICENSE)
+
+## Acknowledgements
+
+- [Zotero](https://www.zotero.org/) -- Open-source reference management
+- [cookjohn/zotero-mcp](https://github.com/cookjohn/zotero-mcp) -- Original upstream project
+- [Model Context Protocol](https://modelcontextprotocol.org/) -- The protocol standard
+- [Zotero Plugin Template](https://github.com/windingwind/zotero-plugin-template) -- Plugin scaffolding
