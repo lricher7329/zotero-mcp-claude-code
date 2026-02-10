@@ -4,8 +4,10 @@ A Zotero plugin that exposes your library to AI assistants via the [Model Contex
 
 [![GitHub](https://img.shields.io/badge/GitHub-zotero--mcp--claude--code-blue?logo=github)](https://github.com/lricher7329/zotero-mcp-claude-code)
 [![Zotero](https://img.shields.io/badge/Zotero-7-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![Version](https://img.shields.io/badge/Version-1.4.0-brightgreen)]()
+[![Version](https://img.shields.io/badge/Version-1.5.1-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
+
+> **Note:** This fork has been developed and tested with **Claude Code**. It uses standard MCP over Streamable HTTP, so it should work with any MCP-compatible client, but other clients have not been tested by this fork's author.
 
 ---
 
@@ -54,24 +56,24 @@ You should see `zotero-mcp` with the available tools listed.
 
 ## Supported clients
 
-| Client | Connection |
-|--------|-----------|
-| **Claude Code** | Native HTTP MCP (recommended) |
-| **Claude Desktop** | Streamable HTTP via mcp-remote |
-| **Cursor IDE** | Streamable HTTP via mcp-remote |
-| **Cherry Studio** | Native Streamable HTTP |
-| **Gemini CLI** | Native HTTP MCP |
-| **Cline (VS Code)** | Streamable HTTP via mcp-remote |
-| **Continue.dev** | Streamable HTTP via mcp-remote |
-| **Qwen Code** | Native HTTP MCP |
-| **Chatbox** | Streamable HTTP via mcp-remote |
-| **Trae AI** | Streamable HTTP via mcp-remote |
+| Client | Connection | Tested |
+|--------|-----------|--------|
+| **Claude Code** | Native HTTP MCP (recommended) | Yes |
+| **Claude Desktop** | Streamable HTTP via mcp-remote | No |
+| **Cursor IDE** | Streamable HTTP via mcp-remote | No |
+| **Cherry Studio** | Native Streamable HTTP | No |
+| **Gemini CLI** | Native HTTP MCP | No |
+| **Cline (VS Code)** | Streamable HTTP via mcp-remote | No |
+| **Continue.dev** | Streamable HTTP via mcp-remote | No |
+| **Qwen Code** | Native HTTP MCP | No |
+| **Chatbox** | Streamable HTTP via mcp-remote | No |
+| **Trae AI** | Streamable HTTP via mcp-remote | No |
 
 The plugin preferences include a **Client Configuration Generator** that produces ready-to-use config for each client.
 
-## MCP tools
+## MCP tools (36 total)
 
-### Read tools (always available)
+### Read tools (21 — always available)
 
 | Tool | Description |
 |------|-------------|
@@ -87,25 +89,49 @@ The plugin preferences include a **Client Configuration Generator** that produce
 | `get_collection_items` | List items in a collection |
 | `get_subcollections` | List child collections |
 | `search_fulltext` | Full-text search across attachments with context snippets |
+| `get_tags` | List all tags with optional filtering |
+| `get_related_items` | Get items linked via Zotero's Related feature |
+| `generate_bibliography` | Generate formatted citations using Zotero's citation engine |
+| `search_by_identifier` | Find library items by DOI, ISBN, or PMID |
+| `get_library_stats` | Library summary: item counts by type, tag/collection/trash counts |
+| `get_item_types` | List all valid Zotero item types with localized names |
+| `get_creator_types` | List valid creator types, optionally filtered by item type |
+| `get_item_type_fields` | List valid fields for a given item type |
+| `get_trash_items` | List items in the trash with pagination |
+| `get_recently_modified` | Get items modified within N days |
 | `semantic_search` | AI-powered semantic search using embedding vectors |
 | `find_similar` | Find items similar to a given item |
 | `semantic_status` | Check semantic index status |
 | `fulltext_database` | Query the full-text content cache (list, search, get, stats) |
 
-### Write tools (when enabled in preferences)
+### Write tools (15 — when enabled in preferences)
 
 | Tool | Description |
 |------|-------------|
-| `create_item` | Create a new library item (journal article, book, etc.) with fields, creators, tags, collections |
+| `create_item` | Create a new library item with fields, creators, tags, collections |
 | `update_item` | Update fields and creators on an existing item |
 | `add_note` | Create a standalone or child note |
+| `update_note` | Update an existing note's content and tags |
+| `trash_item` | Move an item to the trash |
 | `add_tags` | Add tags to an item |
 | `remove_tags` | Remove tags from an item |
+| `rename_tag` | Rename a tag across all items in the library |
+| `delete_tag` | Delete a tag from the entire library |
 | `create_collection` | Create a new collection or subcollection |
+| `rename_collection` | Rename a collection |
+| `delete_collection` | Delete a collection (items optionally deleted) |
+| `move_collection` | Move a collection to a new parent or root |
 | `add_to_collection` | Add an item to a collection |
 | `remove_from_collection` | Remove an item from a collection |
+| `move_item_to_collection` | Atomically move an item between collections |
+| `add_related_item` | Create a bidirectional Related link between items |
+| `remove_related_item` | Remove a Related link between items |
+| `import_attachment_url` | Import a file from a URL as an attachment |
 | `batch_tag` | Tag multiple items at once (max 100) |
-| `batch_add_to_collection` | Add multiple items to a collection at once (max 100) |
+| `batch_add_to_collection` | Add multiple items to a collection (max 100) |
+| `batch_remove_from_collection` | Remove multiple items from a collection (max 100) |
+| `batch_trash` | Trash multiple items at once (max 100) |
+| `restore_from_trash` | Restore a trashed item back to the library |
 
 Write tools are gated behind the **"Allow write operations"** checkbox in Zotero preferences (**Settings > Zotero MCP for Claude Code > MCP Server**). They only appear in the tool list when enabled.
 
@@ -168,7 +194,8 @@ npm run lint:check   # Prettier + ESLint
 This fork ([lricher7329/zotero-mcp-claude-code](https://github.com/lricher7329/zotero-mcp-claude-code)) adds the following on top of the upstream [cookjohn/zotero-mcp](https://github.com/cookjohn/zotero-mcp):
 
 - **Claude Code compatibility** -- Proper request body reading, Accept header validation, DELETE method, notification handling, batch requests, multi-version protocol support
-- **Write operations** -- 10 MCP write tools for creating items, notes, tags, and collections
+- **Write operations** -- 15 MCP write tools for creating/updating items, notes, tags, collections, relations, and attachments, plus batch operations and trash management
+- **Library introspection** -- Schema discovery tools (item types, creator types, field lists), library stats, trash listing, recently modified items
 - **Security hardening** -- ReDoS protection, request size limits, SQL injection fixes, rate limiting, strong session IDs
 - **Codebase audit** -- Typed errors, API validation, singleton fixes, batched queries, module refactoring, 37 unit tests
 
