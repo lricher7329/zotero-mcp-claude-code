@@ -215,9 +215,17 @@ export function bindEmbeddingSettings(doc: Document) {
           );
         }
 
-        // Update model placeholder hint (don't change the value)
+        // Set model value if empty, and update placeholder
         if (modelInput) {
           modelInput.placeholder = preset.modelPlaceholder;
+          if (!modelInput.value.trim()) {
+            modelInput.value = preset.modelPlaceholder;
+            Zotero.Prefs.set(
+              "extensions.zotero.zotero-mcp-plugin.embedding.model",
+              preset.modelPlaceholder,
+              true,
+            );
+          }
         }
 
         // Update API key placeholder hint based on whether it's needed
