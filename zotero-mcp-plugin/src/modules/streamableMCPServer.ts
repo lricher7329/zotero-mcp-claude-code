@@ -14,6 +14,19 @@ import { SmartAnnotationExtractor } from "./smartAnnotationExtractor";
 import { MCPSettingsService } from "./mcpSettingsService";
 import { AIInstructionsManager } from "./aiInstructionsManager";
 import { getSemanticSearchService, SemanticSearchService } from "./semantic";
+import {
+  isWriteEnabled,
+  handleAddNote,
+  handleAddTags,
+  handleRemoveTags,
+  handleAddToCollection,
+  handleRemoveFromCollection,
+  handleCreateCollection,
+  handleCreateItem,
+  handleUpdateItem,
+  handleBatchTag,
+  handleBatchAddToCollection,
+} from "./writeHandlers";
 
 export interface MCPRequest {
   jsonrpc: "2.0";
@@ -690,7 +703,11 @@ export class StreamableMCPServer {
   }
 
   private handleToolsList(request: MCPRequest): MCPResponse {
-    const tools = [
+    const tools: Array<{
+      name: string;
+      description: string;
+      inputSchema: Record<string, any>;
+    }> = [
       {
         name: "search_library",
         description:
@@ -1275,6 +1292,247 @@ export class StreamableMCPServer {
       },
     ];
 
+    // Conditionally add write tools when write operations are enabled
+    if (isWriteEnabled()) {
+      tools.push(
+        {
+          name: "add_note",
+          description:
+            "Create a note in the Zotero library. Can be standalone or attached to a parent item.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKey: {
+                type: "string",
+                description:
+                  "Parent item key to attach note to (omit for standalone note)",
+              },
+              content: {
+                type: "string",
+                description: "Note content (supports HTML)",
+              },
+              tags: {
+                type: "array",
+                items: { type: "string" },
+                description: "Tags to add to the note",
+              },
+            },
+            required: ["content"],
+          },
+        },
+        {
+          name: "add_tags",
+          description: "Add tags to an existing item in the Zotero library.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKey: { type: "string", description: "Item key to tag" },
+              tags: {
+                type: "array",
+                items: { type: "string" },
+                description: "Tags to add",
+              },
+              type: {
+                type: "number",
+                description: "Tag type (0 = user, 1 = automatic). Default: 0",
+              },
+            },
+            required: ["itemKey", "tags"],
+          },
+        },
+        {
+          name: "remove_tags",
+          description:
+            "Remove tags from an existing item in the Zotero library.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKey: {
+                type: "string",
+                description: "Item key to remove tags from",
+              },
+              tags: {
+                type: "array",
+                items: { type: "string" },
+                description: "Tags to remove",
+              },
+            },
+            required: ["itemKey", "tags"],
+          },
+        },
+        {
+          name: "add_to_collection",
+          description: "Add an item to a collection.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKey: { type: "string", description: "Item key to add" },
+              collectionKey: {
+                type: "string",
+                description: "Collection key to add item to",
+              },
+            },
+            required: ["itemKey", "collectionKey"],
+          },
+        },
+        {
+          name: "remove_from_collection",
+          description: "Remove an item from a collection.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKey: { type: "string", description: "Item key to remove" },
+              collectionKey: {
+                type: "string",
+                description: "Collection key to remove item from",
+              },
+            },
+            required: ["itemKey", "collectionKey"],
+          },
+        },
+        {
+          name: "create_collection",
+          description:
+            "Create a new collection in the Zotero library, optionally as a subcollection.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Collection name" },
+              parentCollectionKey: {
+                type: "string",
+                description:
+                  "Parent collection key (omit for top-level collection)",
+              },
+            },
+            required: ["name"],
+          },
+        },
+        {
+          name: "create_item",
+          description:
+            "Create a new item in the Zotero library with specified type, fields, creators, tags, and collections.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemType: {
+                type: "string",
+                description:
+                  'Zotero item type (e.g., "journalArticle", "book", "conferencePaper")',
+              },
+              fields: {
+                type: "object",
+                description:
+                  'Field values (e.g., {"title": "...", "date": "2024", "DOI": "..."})',
+              },
+              creators: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    firstName: { type: "string" },
+                    lastName: { type: "string" },
+                    name: {
+                      type: "string",
+                      description: "Single-field name (for institutions)",
+                    },
+                    creatorType: {
+                      type: "string",
+                      description: 'e.g., "author", "editor"',
+                    },
+                  },
+                  required: ["creatorType"],
+                },
+                description: "Item creators",
+              },
+              tags: {
+                type: "array",
+                items: { type: "string" },
+                description: "Tags to add",
+              },
+              collections: {
+                type: "array",
+                items: { type: "string" },
+                description: "Collection keys to add item to",
+              },
+            },
+            required: ["itemType"],
+          },
+        },
+        {
+          name: "update_item",
+          description:
+            "Update fields and/or creators of an existing item in the Zotero library.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKey: { type: "string", description: "Item key to update" },
+              fields: {
+                type: "object",
+                description: "Field values to update",
+              },
+              creators: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    firstName: { type: "string" },
+                    lastName: { type: "string" },
+                    name: { type: "string" },
+                    creatorType: { type: "string" },
+                  },
+                  required: ["creatorType"],
+                },
+                description: "Replace all creators with this list",
+              },
+            },
+            required: ["itemKey", "fields"],
+          },
+        },
+        {
+          name: "batch_tag",
+          description:
+            "Add tags to multiple items at once (max 100 items per call).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKeys: {
+                type: "array",
+                items: { type: "string" },
+                description: "Item keys to tag",
+              },
+              tags: {
+                type: "array",
+                items: { type: "string" },
+                description: "Tags to add to all items",
+              },
+              type: { type: "number", description: "Tag type. Default: 0" },
+            },
+            required: ["itemKeys", "tags"],
+          },
+        },
+        {
+          name: "batch_add_to_collection",
+          description:
+            "Add multiple items to a collection at once (max 100 items per call).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              itemKeys: {
+                type: "array",
+                items: { type: "string" },
+                description: "Item keys to add",
+              },
+              collectionKey: {
+                type: "string",
+                description: "Collection key",
+              },
+            },
+            required: ["itemKeys", "collectionKey"],
+          },
+        },
+      );
+    }
+
     return this.createResponse(request.id, { tools });
   }
 
@@ -1389,6 +1647,47 @@ export class StreamableMCPServer {
             throw new Error("action is required");
           }
           result = await this.callFulltextDatabase(args);
+          break;
+
+        // Write Tools
+        case "add_note":
+          result = await handleAddNote(args);
+          break;
+
+        case "add_tags":
+          result = await handleAddTags(args);
+          break;
+
+        case "remove_tags":
+          result = await handleRemoveTags(args);
+          break;
+
+        case "add_to_collection":
+          result = await handleAddToCollection(args);
+          break;
+
+        case "remove_from_collection":
+          result = await handleRemoveFromCollection(args);
+          break;
+
+        case "create_collection":
+          result = await handleCreateCollection(args);
+          break;
+
+        case "create_item":
+          result = await handleCreateItem(args);
+          break;
+
+        case "update_item":
+          result = await handleUpdateItem(args);
+          break;
+
+        case "batch_tag":
+          result = await handleBatchTag(args);
+          break;
+
+        case "batch_add_to_collection":
+          result = await handleBatchAddToCollection(args);
           break;
 
         default:
