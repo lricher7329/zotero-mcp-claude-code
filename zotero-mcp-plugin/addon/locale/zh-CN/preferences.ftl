@@ -9,6 +9,9 @@ pref-server-port-restart-hint = 修改端口后请重启服务器以生效
 pref-server-allow-remote =
     .label = 允许远程访问（监听 0.0.0.0）
 pref-server-allow-remote-warning = 警告：这将使 MCP 服务器暴露到网络中。仅在需要远程访问或遇到 VPN/代理问题时启用。
+pref-server-write-enabled =
+    .label = 允许写操作（创建集合、笔记、标签）
+pref-server-write-enabled-hint = 启用可修改 Zotero 库的 MCP 工具。默认关闭以确保安全。
 
 pref-mcp-settings-title = MCP 内容设置
 pref-mcp-settings-description = 配置 MCP 服务器如何处理和返回内容给 AI 客户端

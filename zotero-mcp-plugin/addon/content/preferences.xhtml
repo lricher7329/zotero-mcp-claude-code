@@ -23,6 +23,11 @@
       type="bool"
     />
     <preference
+      id="extensions.zotero.zotero-mcp-plugin.mcp.write.enabled"
+      name="extensions.zotero.zotero-mcp-plugin.mcp.write.enabled"
+      type="bool"
+    />
+    <preference
       id="extensions.zotero.zotero-mcp-plugin.ai.maxTokens"
       name="extensions.zotero.zotero-mcp-plugin.ai.maxTokens"
       type="int"
@@ -185,6 +190,22 @@
               font-style: italic;
             "
             data-l10n-id="pref-server-allow-remote-warning"
+          >
+          </html:div>
+          <checkbox
+            id="zotero-prefpane-__addonRef__-mcp-write-enabled"
+            preference="extensions.zotero.zotero-mcp-plugin.mcp.write.enabled"
+            data-l10n-id="pref-server-write-enabled"
+            style="margin-top: 10px"
+          ></checkbox>
+          <html:div
+            style="
+              margin-left: 24px;
+              font-size: 11px;
+              color: #666;
+              font-style: italic;
+            "
+            data-l10n-id="pref-server-write-enabled-hint"
           >
           </html:div>
         </vbox>
