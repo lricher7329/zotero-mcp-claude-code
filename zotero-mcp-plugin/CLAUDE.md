@@ -50,11 +50,11 @@ A GitHub Actions workflow at `/.github/workflows/release.yml` automates releases
 
 ### Version files summary
 
-| File | Field | Purpose |
-|------|-------|---------|
-| `package.json` | `version` | npm/build version, used by scaffold |
-| `src/modules/httpServer.ts` | `serverInfo.version` | Reported in `/capabilities` endpoint |
-| `update.json` | `updates[]` entry | Zotero auto-update manifest (append, don't replace) |
+| File                        | Field                | Purpose                                             |
+| --------------------------- | -------------------- | --------------------------------------------------- |
+| `package.json`              | `version`            | npm/build version, used by scaffold                 |
+| `src/modules/httpServer.ts` | `serverInfo.version` | Reported in `/capabilities` endpoint                |
+| `update.json`               | `updates[]` entry    | Zotero auto-update manifest (append, don't replace) |
 
 ## Important Patterns
 

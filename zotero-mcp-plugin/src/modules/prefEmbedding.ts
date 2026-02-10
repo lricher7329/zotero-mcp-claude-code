@@ -189,7 +189,7 @@ export function bindEmbeddingSettings(doc: Document) {
         );
         if (detectedDims) {
           testResult.textContent = `${getString("pref-embedding-detected-dims" as any) || "Detected dimensions"}: ${detectedDims}`;
-          testResult.style.color = "#666";
+          testResult.style.color = "GrayText";
         }
       }
     }
@@ -315,7 +315,7 @@ export function bindEmbeddingSettings(doc: Document) {
   testButton?.addEventListener("click", async () => {
     testResult.textContent =
       getString("pref-embedding-testing" as any) || "Testing...";
-    testResult.style.color = "#666";
+    testResult.style.color = "GrayText";
     testButton.disabled = true;
 
     try {
@@ -328,7 +328,7 @@ export function bindEmbeddingSettings(doc: Document) {
         testResult.textContent =
           getString("pref-embedding-test-failed" as any) +
           ": Missing API Base or Model";
-        testResult.style.color = "#d32f2f";
+        testResult.style.color = "#f44336";
         testButton.disabled = false;
         return;
       }
@@ -370,7 +370,7 @@ export function bindEmbeddingSettings(doc: Document) {
         if (hasStoredVectors && storedDims && storedDims !== dims) {
           // Dimension mismatch with existing index - warn but don't auto-update
           testResult.textContent = `${getString("pref-embedding-test-success" as any)} (${dims} dims) - ⚠️ ${getString("pref-embedding-dimension-mismatch" as any) || `Index has ${storedDims} dims, API returns ${dims} dims. Rebuild index to use new dimensions.`}`;
-          testResult.style.color = "#ef6c00";
+          testResult.style.color = "#ff9800";
 
           // Save detected dimensions but don't update config dimensions
           Zotero.Prefs.set(
@@ -382,7 +382,7 @@ export function bindEmbeddingSettings(doc: Document) {
           // No mismatch or no existing vectors - safe to update
           testResult.textContent =
             getString("pref-embedding-test-success" as any) + ` (${dims} dims)`;
-          testResult.style.color = "#2e7d32";
+          testResult.style.color = "#4caf50";
 
           // Update dimensions
           if (dims > 0) {
@@ -418,14 +418,14 @@ export function bindEmbeddingSettings(doc: Document) {
       } else {
         testResult.textContent =
           getString("pref-embedding-test-failed" as any) + ": Invalid response";
-        testResult.style.color = "#d32f2f";
+        testResult.style.color = "#f44336";
       }
     } catch (error: any) {
       const errorMsg = error.message || error.status || String(error);
       testResult.textContent =
         getString("pref-embedding-test-failed" as any) +
         `: ${errorMsg.substring(0, 50)}`;
-      testResult.style.color = "#d32f2f";
+      testResult.style.color = "#f44336";
       ztoolkit.log(
         `[PreferenceScript] Embedding test failed: ${error}`,
         "warn",

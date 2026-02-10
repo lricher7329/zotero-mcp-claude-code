@@ -480,13 +480,24 @@ export function bindSemanticStatsSettings(doc: Document) {
     messageEl.textContent = text;
     messageEl.style.display = "block";
 
-    // Set style based on type
-    const colors: Record<string, { bg: string; text: string }> = {
-      info: { bg: "#e3f2fd", text: "#1565c0" },
-      success: { bg: "#e8f5e9", text: "#2e7d32" },
-      warning: { bg: "#fff3e0", text: "#ef6c00" },
-      error: { bg: "#ffebee", text: "#c62828" },
-    };
+    // Set style based on type, with dark mode support
+     
+    const isDark = !!(doc as any).defaultView?.matchMedia(
+      "(prefers-color-scheme: dark)",
+    )?.matches;
+    const colors: Record<string, { bg: string; text: string }> = isDark
+      ? {
+          info: { bg: "#1a2a3a", text: "#64b5f6" },
+          success: { bg: "#1a2e1a", text: "#81c784" },
+          warning: { bg: "#2e2a1a", text: "#ffb74d" },
+          error: { bg: "#2e1a1a", text: "#ef5350" },
+        }
+      : {
+          info: { bg: "#e3f2fd", text: "#1565c0" },
+          success: { bg: "#e8f5e9", text: "#2e7d32" },
+          warning: { bg: "#fff3e0", text: "#ef6c00" },
+          error: { bg: "#ffebee", text: "#c62828" },
+        };
 
     const color = colors[type] || colors.info;
     messageEl.style.backgroundColor = color.bg;
@@ -623,12 +634,12 @@ export function bindSemanticStatsSettings(doc: Document) {
             configuredDimsNum !== stats.indexStats.storedDimensions
           ) {
             dimensionsEl.textContent = `${stats.indexStats.storedDimensions} (${getString("pref-semantic-stats-dimensions-mismatch" as any) || "mismatch"}: ${configuredDims})`;
-            dimensionsEl.style.color = "#d32f2f";
+            dimensionsEl.style.color = "#f44336";
           } else {
             dimensionsEl.textContent = String(
               stats.indexStats.storedDimensions,
             );
-            dimensionsEl.style.color = "#333";
+            dimensionsEl.style.color = "";
           }
         } else {
           dimensionsEl.textContent = "-";
@@ -639,7 +650,7 @@ export function bindSemanticStatsSettings(doc: Document) {
           const { migrated, total, percent } =
             stats.indexStats.int8MigrationStatus;
           int8StatusEl.textContent = `${migrated}/${total} (${percent}%)`;
-          int8StatusEl.style.color = percent === 100 ? "#2e7d32" : "#ef6c00";
+          int8StatusEl.style.color = percent === 100 ? "#4caf50" : "#ff9800";
         } else {
           int8StatusEl.textContent = "-";
         }
@@ -667,7 +678,7 @@ export function bindSemanticStatsSettings(doc: Document) {
             } else {
               statusEl.textContent = errorStatus;
             }
-            statusEl.style.color = "#c62828";
+            statusEl.style.color = "#f44336";
           }
           // Also show error message in message area if available
           if (stats.indexProgress.error) {
@@ -813,7 +824,7 @@ export function bindSemanticStatsSettings(doc: Document) {
         // Update status display
         if (statusEl) {
           statusEl.textContent = getStatusText("error");
-          statusEl.style.color = "#c62828";
+          statusEl.style.color = "#f44336";
         }
 
         isIndexing = false;

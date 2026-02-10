@@ -62,10 +62,10 @@ export async function registerSemanticIndexColumn(): Promise<void> {
 
         // Color coding
         if (data === "\u2713") {
-          cell.style.color = "#4CAF50";
+          cell.style.color = "#4caf50";
           cell.style.fontWeight = "bold";
         } else {
-          cell.style.color = "#999999";
+          cell.style.color = "GrayText";
         }
 
         return cell;

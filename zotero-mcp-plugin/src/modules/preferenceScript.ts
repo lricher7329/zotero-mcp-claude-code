@@ -248,10 +248,12 @@ function bindPrefEvents() {
         // Show temporary success message
         const originalText = copyConfigButton.textContent;
         copyConfigButton.textContent = "Copied!";
-        copyConfigButton.style.backgroundColor = "#4CAF50";
+        copyConfigButton.style.backgroundColor = "#4caf50";
+        copyConfigButton.style.color = "#fff";
         setTimeout(() => {
           copyConfigButton.textContent = originalText;
           copyConfigButton.style.backgroundColor = "";
+          copyConfigButton.style.color = "";
         }, 2000);
       } else {
         // Auto-select text in textarea for manual copy
