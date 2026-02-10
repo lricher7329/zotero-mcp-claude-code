@@ -7,7 +7,7 @@ A Zotero plugin that exposes your library to AI assistants via the [Model Contex
 [![Version](https://img.shields.io/badge/Version-1.5.1-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
-> **Note:** This fork has been developed and tested with **Claude Code**. It uses standard MCP over Streamable HTTP, so it should work with any MCP-compatible client, but other clients have not been tested by this fork's author.
+> **Note:** This fork has been developed and tested with **Claude Code** on **Zotero 7 for macOS** (latest macOS). It uses standard MCP over Streamable HTTP, so it should work with any MCP-compatible client and platform, but other clients and operating systems have not been tested by this fork's author.
 
 ---
 
