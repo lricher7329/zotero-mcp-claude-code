@@ -92,18 +92,39 @@ export class PDFProcessor {
     action: string,
     data: unknown,
     transfer?: ArrayBuffer[],
+    timeoutMs: number = 30000, // 30 second default timeout
   ): Promise<T> {
     this._init();
     return new Promise<T>((resolve, reject) => {
       this._lastPromiseID++;
-      this._waitingPromises[this._lastPromiseID] = { resolve, reject };
+      const promiseID = this._lastPromiseID;
+
+      // Set up timeout
+      const timeoutId = setTimeout(() => {
+        if (this._waitingPromises[promiseID]) {
+          delete this._waitingPromises[promiseID];
+          reject(new Error(`PDF processing timed out after ${timeoutMs}ms`));
+        }
+      }, timeoutMs);
+
+      this._waitingPromises[promiseID] = {
+        resolve: (value: T) => {
+          clearTimeout(timeoutId);
+          resolve(value);
+        },
+        reject: (reason?: any) => {
+          clearTimeout(timeoutId);
+          reject(reason);
+        }
+      };
+
       if (transfer) {
         this._worker!.postMessage(
-          { id: this._lastPromiseID, action, data },
+          { id: promiseID, action, data },
           transfer,
         );
       } else {
-        this._worker!.postMessage({ id: this._lastPromiseID, action, data });
+        this._worker!.postMessage({ id: promiseID, action, data });
       }
     });
   }

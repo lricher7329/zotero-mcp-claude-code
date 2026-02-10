@@ -13,6 +13,7 @@ import { UnifiedContentExtractor } from './unifiedContentExtractor';
 import { SmartAnnotationExtractor } from './smartAnnotationExtractor';
 import { MCPSettingsService } from './mcpSettingsService';
 import { AIInstructionsManager } from './aiInstructionsManager';
+import { getSemanticSearchService, SemanticSearchService } from './semantic';
 
 export interface MCPRequest {
   jsonrpc: '2.0';
@@ -282,6 +283,87 @@ function getToolSpecificGuidance(toolName: string): any {
         ]
       };
 
+    case 'semantic_search':
+      return {
+        ...baseGuidance,
+        dataStructure: {
+          type: 'semantic_search_results',
+          format: 'AI-powered similarity search results with relevance scores',
+          ranking: 'Results ranked by semantic similarity to query'
+        },
+        interpretation: {
+          purpose: 'Find conceptually related content beyond keyword matching',
+          content: 'Semantically similar documents, annotations, and passages',
+          reliability: 'AI-powered - results based on meaning similarity'
+        },
+        usage: [
+          'Use for concept-based research exploration',
+          'Find related papers even without exact keyword matches',
+          'Discover thematic connections across research materials',
+          'Combine with keyword search for comprehensive results'
+        ]
+      };
+
+    case 'find_similar':
+      return {
+        ...baseGuidance,
+        dataStructure: {
+          type: 'similar_items',
+          format: 'Items semantically similar to the reference item',
+          ranking: 'Ranked by embedding similarity'
+        },
+        interpretation: {
+          purpose: 'Discover related research materials',
+          content: 'Documents with similar concepts, themes, or topics',
+          reliability: 'Based on semantic analysis of content'
+        },
+        usage: [
+          'Use to expand research from a known relevant paper',
+          'Find related work that might be missed by citation analysis',
+          'Discover thematic clusters in the library'
+        ]
+      };
+
+    case 'semantic_status':
+      return {
+        ...baseGuidance,
+        dataStructure: {
+          type: 'index_status',
+          format: 'Index statistics and status'
+        },
+        interpretation: {
+          purpose: 'Check semantic search index status',
+          content: 'Index status, coverage, and statistics'
+        },
+        usage: [
+          'Check if semantic search is available',
+          'View index coverage of library',
+          'Index management is done through Zotero preferences'
+        ]
+      };
+
+    case 'fulltext_database':
+      return {
+        ...baseGuidance,
+        dataStructure: {
+          type: 'fulltext_database',
+          format: 'Extracted PDF text content database (read-only access)',
+          actions: 'list, search, get, stats'
+        },
+        interpretation: {
+          purpose: 'Access full-text content database',
+          content: 'Extracted PDF text stored in database',
+          reliability: 'Cached extraction - faster than re-extracting from Zotero'
+        },
+        usage: [
+          'Use stats to check database size and item count',
+          'Use list to see which items have cached content',
+          'Use search to find items containing specific text',
+          'Use get to retrieve full content for specific items',
+          'Database management is done through Zotero preferences'
+        ]
+      };
+
     default:
       return baseGuidance;
   }
@@ -307,11 +389,11 @@ export interface MCPNotification {
 
 /**
  * Streamable HTTP-based MCP Server integrated into Zotero Plugin
- * 
+ *
  * This provides a complete MCP (Model Context Protocol) server implementation
  * that runs directly within the Zotero plugin. AI clients can connect using
  * streamable HTTP requests for real-time bidirectional communication.
- * 
+ *
  * Architecture: AI Client (streamable HTTP) ↔ Zotero Plugin (integrated MCP server)
  */
 export class StreamableMCPServer {
@@ -558,11 +640,11 @@ export class StreamableMCPServer {
       },
       {
         name: 'search_annotations',
-        description: 'Search annotations and notes with intelligent ranking and content management',
+        description: 'Search and filter annotations by query, colors, or tags. Supports intelligent ranking and content management.',
         inputSchema: {
           type: 'object',
           properties: {
-            q: { type: 'string', description: 'Search query' },
+            q: { type: 'string', description: 'Search query (optional if colors or tags provided)' },
             itemKeys: {
               type: 'array',
               items: { type: 'string' },
@@ -570,11 +652,21 @@ export class StreamableMCPServer {
             },
             types: {
               type: 'array',
-              items: { 
+              items: {
                 type: 'string',
                 enum: ['note', 'highlight', 'annotation', 'ink', 'text', 'image']
               },
               description: 'Types of annotations to search'
+            },
+            colors: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by colors. Use hex codes (#ffd400) or names (yellow, red, green, blue, purple, orange). Common mappings: yellow=question, red=error/important, green=agree, blue=info, purple=definition'
+            },
+            tags: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by tags attached to annotations'
             },
             mode: {
               type: 'string',
@@ -590,12 +682,12 @@ export class StreamableMCPServer {
               minimum: 0,
               maximum: 1,
               default: 0.1,
-              description: 'Minimum relevance threshold'
+              description: 'Minimum relevance threshold (only applies when q is provided)'
             },
             limit: { type: 'number', default: 15, description: 'Maximum results' },
             offset: { type: 'number', default: 0, description: 'Pagination offset' }
           },
-          required: ['q']
+          description: 'Requires at least one of: q (query), colors, or tags'
         },
       },
       {
@@ -616,25 +708,35 @@ export class StreamableMCPServer {
       },
       {
         name: 'get_annotations',
-        description: 'Get annotations and notes with intelligent content management (PDF annotations, highlights, notes)',
+        description: 'Get annotations and notes with intelligent content management, color/tag filtering (PDF annotations, highlights, notes)',
         inputSchema: {
           type: 'object',
           properties: {
             itemKey: { type: 'string', description: 'Get all annotations for this item' },
             annotationId: { type: 'string', description: 'Get specific annotation by ID' },
-            annotationIds: { 
-              type: 'array', 
+            annotationIds: {
+              type: 'array',
               items: { type: 'string' },
               description: 'Get multiple annotations by IDs'
             },
             types: {
               type: 'array',
-              items: { 
+              items: {
                 type: 'string',
                 enum: ['note', 'highlight', 'annotation', 'ink', 'text', 'image']
               },
               default: ['note', 'highlight', 'annotation'],
               description: 'Types of annotations to include'
+            },
+            colors: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by colors. Use hex codes (#ffd400) or names (yellow, red, green, blue, purple, orange). Example: ["yellow", "red"] to get question and error annotations'
+            },
+            tags: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter by tags attached to annotations'
             },
             mode: {
               type: 'string',
@@ -809,15 +911,106 @@ export class StreamableMCPServer {
           type: 'object',
           properties: {
             itemKey: { type: 'string', description: 'Item key' },
-            format: { 
-              type: 'string', 
+            format: {
+              type: 'string',
               enum: ['json', 'text'],
-              description: 'Response format (default: json)' 
+              description: 'Response format (default: json)'
             },
           },
           required: ['itemKey'],
         },
       },
+      // Semantic Search Tools
+      {
+        name: 'semantic_search',
+        description: 'AI-powered semantic search using embeddings. Finds conceptually related content even without exact keyword matches. Supports hybrid search combining semantic and keyword matching.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'Natural language search query (e.g., "machine learning in healthcare")'
+            },
+            topK: {
+              type: 'number',
+              description: 'Number of results to return (default: 10)'
+            },
+            minScore: {
+              type: 'number',
+              description: 'Minimum similarity score 0-1 (default: 0.3)'
+            },
+            language: {
+              type: 'string',
+              enum: ['zh', 'en', 'all'],
+              description: 'Filter by language (default: all)'
+            }
+          },
+          required: ['query']
+        }
+      },
+      {
+        name: 'find_similar',
+        description: 'Find items semantically similar to a given item. Uses AI embeddings to discover related research materials.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            itemKey: {
+              type: 'string',
+              description: 'The item key to find similar items for'
+            },
+            topK: {
+              type: 'number',
+              description: 'Number of similar items to return (default: 5)'
+            },
+            minScore: {
+              type: 'number',
+              description: 'Minimum similarity score 0-1 (default: 0.5)'
+            }
+          },
+          required: ['itemKey']
+        }
+      },
+      {
+        name: 'semantic_status',
+        description: 'Get the status of the semantic search service including index statistics.',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        }
+      },
+      // Full-text Database Tool (read-only operations)
+      {
+        name: 'fulltext_database',
+        description: 'Access the full-text content database (read-only). Can list cached items, search within cached content, get full content, or view statistics. Use Zotero preferences to manage the database.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              enum: ['list', 'search', 'get', 'stats'],
+              description: 'Action: list (show cached items), search (search within content), get (get full content), stats (database statistics)'
+            },
+            query: {
+              type: 'string',
+              description: 'Search query (required for search action)'
+            },
+            itemKeys: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Item keys for get action'
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum results to return (default: 20 for list/search)'
+            },
+            caseSensitive: {
+              type: 'boolean',
+              description: 'Case sensitive search (default: false)'
+            }
+          },
+          required: ['action']
+        }
+      }
     ];
 
     return this.createResponse(request.id, { tools });
@@ -835,8 +1028,9 @@ export class StreamableMCPServer {
           break;
 
         case 'search_annotations':
-          if (!args?.q) {
-            throw new Error('q (query) is required');
+          // q is optional when colors or tags filters are provided
+          if (!args?.q && !args?.colors && !args?.tags) {
+            throw new Error('Either q (query), colors, or tags filter is required');
           }
           result = await this.callSearchAnnotations(args);
           break;
@@ -903,6 +1097,32 @@ export class StreamableMCPServer {
             throw new Error('itemKey is required');
           }
           result = await this.callGetItemAbstract(args);
+          break;
+
+        // Semantic Search Tools
+        case 'semantic_search':
+          if (!args?.query) {
+            throw new Error('query is required');
+          }
+          result = await this.callSemanticSearch(args);
+          break;
+
+        case 'find_similar':
+          if (!args?.itemKey) {
+            throw new Error('itemKey is required');
+          }
+          result = await this.callFindSimilar(args);
+          break;
+
+        case 'semantic_status':
+          result = await this.callSemanticStatus();
+          break;
+
+        case 'fulltext_database':
+          if (!args?.action) {
+            throw new Error('action is required');
+          }
+          result = await this.callFulltextDatabase(args);
           break;
 
         default:
@@ -1176,6 +1396,228 @@ export class StreamableMCPServer {
     return applyGlobalAIInstructions(result, 'get_item_abstract');
   }
 
+  // ============ Semantic Search Methods ============
+
+  private async callSemanticSearch(args: any): Promise<any> {
+    try {
+      const semanticService = getSemanticSearchService();
+      await semanticService.initialize();
+
+      const results = await semanticService.search(args.query, {
+        topK: args.topK,
+        minScore: args.minScore,
+        language: args.language
+      });
+
+      const response = {
+        mode: 'semantic',
+        query: args.query,
+        data: results,
+        metadata: {
+          extractedAt: new Date().toISOString(),
+          searchMode: 'semantic',
+          resultCount: results.length,
+          fallbackMode: semanticService.getIndexProgress().status === 'idle'
+            ? (await semanticService.getStats()).serviceStatus.fallbackMode
+            : false
+        }
+      };
+
+      return applyGlobalAIInstructions(response, 'semantic_search');
+    } catch (error) {
+      ztoolkit.log(`[StreamableMCP] Semantic search error: ${error}`, 'error');
+      throw error;
+    }
+  }
+
+  private async callFindSimilar(args: any): Promise<any> {
+    try {
+      const semanticService = getSemanticSearchService();
+      await semanticService.initialize();
+
+      const results = await semanticService.findSimilar(args.itemKey, {
+        topK: args.topK,
+        minScore: args.minScore
+      });
+
+      const response = {
+        mode: 'similar',
+        sourceItemKey: args.itemKey,
+        data: results,
+        metadata: {
+          extractedAt: new Date().toISOString(),
+          resultCount: results.length
+        }
+      };
+
+      return applyGlobalAIInstructions(response, 'find_similar');
+    } catch (error) {
+      ztoolkit.log(`[StreamableMCP] Find similar error: ${error}`, 'error');
+      throw error;
+    }
+  }
+
+  private async callSemanticStatus(): Promise<any> {
+    try {
+      const semanticService = getSemanticSearchService();
+      const isReady = await semanticService.isReady();
+      const stats = isReady ? await semanticService.getStats() : null;
+      const progress = semanticService.getIndexProgress();
+
+      // Check Int8 migration status
+      let int8Status = null;
+      try {
+        const { getVectorStore } = await import('./semantic/vectorStore');
+        const vectorStore = getVectorStore();
+        await vectorStore.initialize();
+        int8Status = await vectorStore.needsInt8Migration();
+      } catch (e) {
+        // Ignore if vector store not available
+      }
+
+      let message = !isReady
+        ? 'Semantic search service not initialized'
+        : stats?.serviceStatus.fallbackMode
+          ? 'Running in fallback mode (API not configured)'
+          : `Semantic search ready with ${stats?.indexStats.totalItems || 0} indexed items`;
+
+      // Add Int8 migration suggestion if needed
+      if (int8Status?.needed) {
+        message += `. WARNING: ${int8Status.count}/${int8Status.total} vectors need Int8 migration for ~6x faster search. Run migrate_int8 to optimize.`;
+      }
+
+      return applyGlobalAIInstructions({
+        ready: isReady,
+        initialized: stats?.serviceStatus.initialized || false,
+        fallbackMode: stats?.serviceStatus.fallbackMode || false,
+        indexProgress: progress,
+        indexStats: stats?.indexStats || null,
+        int8Migration: int8Status,
+        message
+      }, 'semantic_status');
+    } catch (error) {
+      ztoolkit.log(`[StreamableMCP] Semantic status error: ${error}`, 'error');
+      return applyGlobalAIInstructions({
+        ready: false,
+        error: String(error)
+      }, 'semantic_status');
+    }
+  }
+
+  private async callFulltextDatabase(args: any): Promise<any> {
+    try {
+      const { getVectorStore } = await import('./semantic/vectorStore');
+      const vectorStore = getVectorStore();
+      await vectorStore.initialize();
+
+      const { action, query, itemKeys, limit = 20, caseSensitive = false } = args;
+
+      switch (action) {
+        case 'list': {
+          const cachedItems = await vectorStore.listCachedContent();
+          const limitedItems = cachedItems.slice(0, limit);
+
+          return applyGlobalAIInstructions({
+            action: 'list',
+            data: limitedItems,
+            metadata: {
+              extractedAt: new Date().toISOString(),
+              totalCached: cachedItems.length,
+              returned: limitedItems.length,
+              message: `Found ${cachedItems.length} items in full-text database`
+            }
+          }, 'fulltext_database');
+        }
+
+        case 'search': {
+          if (!query) {
+            throw new Error('query is required for search action');
+          }
+
+          const searchResults = await vectorStore.searchCachedContent(query, { limit, caseSensitive });
+
+          return applyGlobalAIInstructions({
+            action: 'search',
+            query,
+            data: searchResults,
+            metadata: {
+              extractedAt: new Date().toISOString(),
+              resultCount: searchResults.length,
+              caseSensitive,
+              message: `Found ${searchResults.length} items matching "${query}"`
+            }
+          }, 'fulltext_database');
+        }
+
+        case 'get': {
+          if (!itemKeys || itemKeys.length === 0) {
+            throw new Error('itemKeys is required for get action');
+          }
+
+          const contentMap = await vectorStore.getFullContentBatch(itemKeys);
+          const results: Array<{ itemKey: string; content: string | null; contentLength: number }> = [];
+
+          for (const key of itemKeys) {
+            const content = contentMap.get(key) || null;
+            results.push({
+              itemKey: key,
+              content,
+              contentLength: content ? content.length : 0
+            });
+          }
+
+          return applyGlobalAIInstructions({
+            action: 'get',
+            data: results,
+            metadata: {
+              extractedAt: new Date().toISOString(),
+              requested: itemKeys.length,
+              found: results.filter(r => r.content !== null).length,
+              message: `Retrieved content for ${results.filter(r => r.content !== null).length}/${itemKeys.length} items`
+            }
+          }, 'fulltext_database');
+        }
+
+        case 'stats': {
+          const stats = await vectorStore.getStats();
+
+          // Format size nicely
+          const formatSize = (bytes: number) => {
+            if (bytes < 1024) return `${bytes} B`;
+            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+            return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+          };
+
+          return applyGlobalAIInstructions({
+            action: 'stats',
+            data: {
+              cachedItems: stats.cachedContentItems,
+              cachedContentSize: stats.cachedContentSizeBytes,
+              cachedContentSizeFormatted: formatSize(stats.cachedContentSizeBytes),
+              indexedItems: stats.totalItems,
+              totalVectors: stats.totalVectors,
+              zhVectors: stats.zhVectors,
+              enVectors: stats.enVectors
+            },
+            metadata: {
+              extractedAt: new Date().toISOString(),
+              message: `Full-text database: ${stats.cachedContentItems} items, ${formatSize(stats.cachedContentSizeBytes)}`
+            }
+          }, 'fulltext_database');
+        }
+
+        default:
+          throw new Error(`Unknown action: ${action}. Use list, search, get, or stats. Database management is done through Zotero preferences.`);
+      }
+    } catch (error) {
+      ztoolkit.log(`[StreamableMCP] Fulltext database error: ${error}`, 'error');
+      return applyGlobalAIInstructions({
+        success: false,
+        error: String(error)
+      }, 'fulltext_database');
+    }
+  }
+
   /**
    * Format tool result for MCP response with intelligent content type detection
    */
@@ -1371,7 +1813,13 @@ export class StreamableMCPServer {
         'get_collection_details',
         'get_collection_items',
         'search_fulltext',
-        'get_item_abstract'
+        'get_item_abstract',
+        // Semantic Search Tools (read-only)
+        'semantic_search',
+        'find_similar',
+        'semantic_status',
+        // Full-text Database Tool (read-only)
+        'fulltext_database'
       ],
       transport: {
         type: "streamable-http",

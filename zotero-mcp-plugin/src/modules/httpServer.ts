@@ -4,6 +4,41 @@ import { testMCPIntegration } from "./mcpTest";
 
 declare let ztoolkit: ZToolkit;
 
+/**
+ * Helper to get UTF-8 byte length of a string
+ */
+function getByteLength(str: string): number {
+  // Use TextEncoder for accurate UTF-8 byte count
+  try {
+    return new TextEncoder().encode(str).length;
+  } catch {
+    // Fallback for environments without TextEncoder
+    let bytes = 0;
+    for (let i = 0; i < str.length; i++) {
+      const charCode = str.charCodeAt(i);
+      if (charCode < 0x80) bytes += 1;
+      else if (charCode < 0x800) bytes += 2;
+      else if (charCode < 0xd800 || charCode >= 0xe000) bytes += 3;
+      else { // surrogate pair
+        i++;
+        bytes += 4;
+      }
+    }
+    return bytes;
+  }
+}
+
+/**
+ * Write string to output stream with correct UTF-8 encoding
+ */
+function writeStringToStream(output: any, str: string): void {
+  const converterStream = Cc["@mozilla.org/intl/converter-output-stream;1"]
+    .createInstance(Ci.nsIConverterOutputStream);
+  (converterStream as any).init(output, "UTF-8", 0, 0);
+  converterStream.writeString(str);
+  converterStream.flush();
+}
+
 export class HttpServer {
   public static testServer() {
     Zotero.debug("Static testServer method called.");
@@ -15,6 +50,9 @@ export class HttpServer {
   private activeSessions: Map<string, { createdAt: Date; lastActivity: Date; }> = new Map();
   private keepAliveTimeout: number = 30000; // 30 seconds
   private sessionTimeout: number = 300000; // 5 minutes
+  private sessionCleanupInterval: ReturnType<typeof setInterval> | null = null;
+  // Track active transports to close them on shutdown
+  private activeTransports: Set<any> = new Set();
 
   public isServerRunning(): boolean {
     return this.isRunning;
@@ -26,7 +64,7 @@ export class HttpServer {
       return;
     }
 
-    // Validate port parameter
+    // 验证端口参数
     if (!port || isNaN(port) || port < 1 || port > 65535) {
       const errorMsg = `[HttpServer] Invalid port number: ${port}. Port must be between 1 and 65535.`;
       Zotero.debug(errorMsg);
@@ -43,8 +81,12 @@ export class HttpServer {
         "@mozilla.org/network/server-socket;1"
       ].createInstance(Ci.nsIServerSocket);
 
-      // init parameters: port, allow loopback only, backlog queue size
-      this.serverSocket.init(port, true, -1);
+      // init方法参数：端口，是否仅允许回环地址，backlog队列大小
+      // loopbackOnly=true: 仅监听 127.0.0.1
+      // loopbackOnly=false: 监听 0.0.0.0 (所有接口)
+      const loopbackOnly = !serverPreferences.isRemoteAccessAllowed();
+      Zotero.debug(`[HttpServer] Binding to ${loopbackOnly ? '127.0.0.1' : '0.0.0.0'}:${port}`);
+      this.serverSocket.init(port, loopbackOnly, -1);
       this.serverSocket.asyncListen(this.listener);
       this.isRunning = true;
 
@@ -82,6 +124,18 @@ export class HttpServer {
       );
       return;
     }
+
+    // Close all active transports first
+    ztoolkit.log(`[HttpServer] Closing ${this.activeTransports.size} active connections...`);
+    for (const transport of this.activeTransports) {
+      try {
+        transport.close(0); // 0 = normal close
+      } catch (e) {
+        // Ignore errors when closing individual transports
+      }
+    }
+    this.activeTransports.clear();
+
     try {
       this.serverSocket.close();
       this.isRunning = false;
@@ -89,6 +143,12 @@ export class HttpServer {
     } catch (e) {
       Zotero.debug(`[HttpServer] Error stopping server: ${e}`);
     }
+
+    // Stop session cleanup timer
+    this.stopSessionCleanup();
+
+    // Clear active sessions
+    this.activeSessions.clear();
 
     // Clean up MCP server
     this.cleanupMCPServer();
@@ -112,7 +172,10 @@ export class HttpServer {
    * Start session cleanup timer to remove expired sessions
    */
   private startSessionCleanup(): void {
-    setInterval(() => {
+    // Clear any existing interval first
+    this.stopSessionCleanup();
+
+    this.sessionCleanupInterval = setInterval(() => {
       const now = new Date();
       for (const [sessionId, session] of this.activeSessions.entries()) {
         if (now.getTime() - session.lastActivity.getTime() > this.sessionTimeout) {
@@ -121,6 +184,17 @@ export class HttpServer {
         }
       }
     }, 60000); // Check every minute
+  }
+
+  /**
+   * Stop session cleanup timer
+   */
+  private stopSessionCleanup(): void {
+    if (this.sessionCleanupInterval) {
+      clearInterval(this.sessionCleanupInterval);
+      this.sessionCleanupInterval = null;
+      ztoolkit.log(`[HttpServer] Session cleanup timer stopped`);
+    }
   }
 
   /**
@@ -183,13 +257,16 @@ export class HttpServer {
       let sin: any = null;
       const converterStream: any = null;
 
+      // Track this transport for cleanup on shutdown
+      this.activeTransports.add(transport);
+
       ztoolkit.log(`[HttpServer] New connection accepted from transport: ${transport.host || 'unknown'}:${transport.port || 'unknown'}`);
-      
+
       try {
         input = transport.openInputStream(0, 0, 0);
         output = transport.openOutputStream(0, 0, 0);
 
-        // Use converter input stream to properly handle UTF-8 encoding
+        // 使用转换输入流来正确处理UTF-8编码
         const converterStream = Cc[
           "@mozilla.org/intl/converter-input-stream;1"
         ].createInstance(Ci.nsIConverterInputStream);
@@ -200,110 +277,96 @@ export class HttpServer {
         );
         sin.init(input);
 
-        // Improved request reading logic - read complete HTTP request including body
+        // 改进请求读取逻辑 - 读取完整的HTTP请求（包括body）
         let requestText = "";
         let totalBytesRead = 0;
-        const maxHeaderSize = 8192; // 8KB for headers
-        const maxBodySize = 65536; // 64KB for body (increased for MCP requests)
+        const maxRequestSize = 1024 * 1024; // 1MB max request size
         let waitAttempts = 0;
-        const maxWaitAttempts = 50; // Increased wait attempts for larger requests
-
-        // Helper function to read data with retries
-        const readData = async (bytesToRead: number): Promise<string> => {
-          let chunk = "";
-          try {
-            const str: { value?: string } = {};
-            const bytesRead = converterStream.readString(bytesToRead, str);
-            chunk = str.value || "";
-            if (bytesRead === 0) return "";
-          } catch (converterError) {
-            // If converter fails, fall back to raw method
-            ztoolkit.log(
-              `[HttpServer] Converter failed, using fallback: ${converterError}`,
-              "error",
-            );
-            chunk = sin.read(bytesToRead);
-            if (!chunk) return "";
-          }
-          return chunk;
-        };
-
-        // Helper function to wait for data
-        const waitForData = async (): Promise<boolean> => {
-          waitAttempts++;
-          if (waitAttempts > maxWaitAttempts) {
-            return false;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 10));
-          return input.available() > 0;
-        };
+        const maxWaitAttempts = 50; // Increase wait attempts for larger requests
+        let headersComplete = false;
+        let contentLength = 0;
+        let bodyStartIndex = -1;
 
         try {
-          // Phase 1: Read HTTP headers (until \r\n\r\n)
-          while (totalBytesRead < maxHeaderSize) {
+          // Step 1: Read headers until we find \r\n\r\n
+          while (totalBytesRead < maxRequestSize && !headersComplete) {
+            const bytesToRead = Math.min(4096, maxRequestSize - totalBytesRead);
             const available = input.available();
 
             if (available === 0) {
-              if (!(await waitForData())) {
+              waitAttempts++;
+              if (waitAttempts > maxWaitAttempts) {
                 ztoolkit.log(`[HttpServer] Timeout waiting for headers after ${waitAttempts} attempts, TotalBytes: ${totalBytesRead}`, "warn");
                 break;
               }
+              await new Promise((resolve) => setTimeout(resolve, 10));
               continue;
             }
 
-            const bytesToRead = Math.min(1024, maxHeaderSize - totalBytesRead, available);
-            const chunk = await readData(bytesToRead);
-            if (!chunk) break;
+            let chunk = "";
+            try {
+              const str: { value?: string } = {};
+              const bytesRead = converterStream.readString(Math.min(bytesToRead, available), str);
+              chunk = str.value || "";
+              if (bytesRead === 0) break;
+            } catch (converterError) {
+              ztoolkit.log(`[HttpServer] Converter failed, using fallback: ${converterError}`, "error");
+              chunk = sin.read(Math.min(bytesToRead, available));
+              if (!chunk) break;
+            }
 
             requestText += chunk;
             totalBytesRead += chunk.length;
 
-            // Check if we have complete headers
-            if (requestText.includes("\r\n\r\n")) {
-              break;
+            // Check if headers are complete
+            bodyStartIndex = requestText.indexOf("\r\n\r\n");
+            if (bodyStartIndex !== -1) {
+              headersComplete = true;
+              // Parse Content-Length from headers
+              const headersSection = requestText.substring(0, bodyStartIndex);
+              const contentLengthMatch = headersSection.match(/Content-Length:\s*(\d+)/i);
+              if (contentLengthMatch) {
+                contentLength = parseInt(contentLengthMatch[1], 10);
+              }
             }
           }
 
-          // Phase 2: If we have headers, check for Content-Length and read body
-          const headerEndIndex = requestText.indexOf("\r\n\r\n");
-          if (headerEndIndex !== -1) {
-            const headers = requestText.substring(0, headerEndIndex);
-            const contentLengthMatch = headers.match(/Content-Length:\s*(\d+)/i);
+          // Step 2: Read body based on Content-Length (for POST requests)
+          if (headersComplete && contentLength > 0) {
+            const bodyStart = bodyStartIndex + 4; // Skip \r\n\r\n
+            const currentBodyLength = requestText.length - bodyStart;
+            const remainingBodyBytes = contentLength - currentBodyLength;
 
-            if (contentLengthMatch) {
-              const contentLength = parseInt(contentLengthMatch[1], 10);
-              const bodyAlreadyRead = requestText.length - (headerEndIndex + 4);
-              const bodyRemaining = Math.min(contentLength - bodyAlreadyRead, maxBodySize - bodyAlreadyRead);
+            ztoolkit.log(`[HttpServer] Reading body: Content-Length=${contentLength}, current=${currentBodyLength}, remaining=${remainingBodyBytes}`);
 
-              ztoolkit.log(`[HttpServer] Content-Length: ${contentLength}, already read: ${bodyAlreadyRead}, remaining: ${bodyRemaining}`);
+            waitAttempts = 0; // Reset wait counter for body reading
+            while (remainingBodyBytes > 0 && (requestText.length - bodyStart) < contentLength) {
+              const available = input.available();
 
-              // Reset wait attempts for body reading
-              waitAttempts = 0;
-
-              // Read remaining body
-              while (bodyRemaining > 0 && (requestText.length - headerEndIndex - 4) < contentLength) {
-                const available = input.available();
-
-                if (available === 0) {
-                  if (!(await waitForData())) {
-                    ztoolkit.log(`[HttpServer] Timeout waiting for body, got ${requestText.length - headerEndIndex - 4} of ${contentLength} bytes`, "warn");
-                    break;
-                  }
-                  continue;
+              if (available === 0) {
+                waitAttempts++;
+                if (waitAttempts > maxWaitAttempts) {
+                  ztoolkit.log(`[HttpServer] Timeout waiting for body after ${waitAttempts} attempts`, "warn");
+                  break;
                 }
-
-                const currentBodyLength = requestText.length - headerEndIndex - 4;
-                const bytesNeeded = Math.min(contentLength - currentBodyLength, maxBodySize - currentBodyLength);
-                const bytesToRead = Math.min(1024, bytesNeeded, available);
-
-                if (bytesToRead <= 0) break;
-
-                const chunk = await readData(bytesToRead);
-                if (!chunk) break;
-
-                requestText += chunk;
-                totalBytesRead += chunk.length;
+                await new Promise((resolve) => setTimeout(resolve, 10));
+                continue;
               }
+
+              const bytesToRead = Math.min(8192, contentLength - (requestText.length - bodyStart), available);
+              let chunk = "";
+              try {
+                const str: { value?: string } = {};
+                const bytesRead = converterStream.readString(bytesToRead, str);
+                chunk = str.value || "";
+                if (bytesRead === 0) break;
+              } catch (converterError) {
+                chunk = sin.read(bytesToRead);
+                if (!chunk) break;
+              }
+
+              requestText += chunk;
+              totalBytesRead += chunk.length;
             }
           }
         } catch (readError) {
@@ -341,7 +404,7 @@ export class HttpServer {
           `[HttpServer] Received request: ${requestLine} (${requestText.length} bytes)`,
         );
 
-        // Validate request format
+        // 验证请求格式
         if (!requestLine || !requestLine.includes("HTTP/")) {
           ztoolkit.log(
             `[HttpServer] Invalid request format - RequestLine: "${requestLine || '<empty>'}", TotalBytes: ${totalBytesRead}, RequestLength: ${requestText.length}, RequestPreview: "${requestText.substring(0, 100).replace(/\r?\n/g, '\\n')}"`,
@@ -379,7 +442,7 @@ export class HttpServer {
           const query = new URLSearchParams(url.search);
           const path = url.pathname;
           
-          // Extract POST request body
+          // 提取POST请求的body
           let requestBody = "";
           if (method === "POST") {
             const bodyStart = requestText.indexOf("\r\n\r\n");
@@ -415,28 +478,8 @@ export class HttpServer {
 
           if (path === "/mcp") {
             if (method === "POST") {
-              // Validate Accept header for MCP requests per spec
-              const acceptHeader = requestText.match(/Accept:\s*([^\r\n]+)/i);
-              const acceptValue = acceptHeader ? acceptHeader[1].toLowerCase() : '';
-              const acceptsJson = acceptValue.includes('application/json') || acceptValue.includes('*/*') || acceptValue === '';
-
-              if (!acceptsJson) {
-                // Return 406 Not Acceptable if client doesn't accept JSON
-                result = {
-                  status: 406,
-                  statusText: "Not Acceptable",
-                  headers: { "Content-Type": "application/json; charset=utf-8" },
-                  body: JSON.stringify({
-                    jsonrpc: "2.0",
-                    id: null,
-                    error: {
-                      code: -32600,
-                      message: "Not Acceptable: Client must accept application/json"
-                    }
-                  }),
-                };
-              } else if (this.mcpServer) {
-                // Handle MCP requests via streamable HTTP
+              // Handle MCP requests via streamable HTTP
+              if (this.mcpServer) {
                 result = await this.mcpServer.handleMCPRequest(requestBody);
               } else {
                 result = {
@@ -467,35 +510,16 @@ export class HttpServer {
                   documentation: "Send POST requests with MCP protocol messages to interact with Zotero data"
                 }),
               };
-            } else if (method === "DELETE") {
-              // Handle session termination per MCP spec
-              if (sessionId && this.activeSessions.has(sessionId)) {
-                this.activeSessions.delete(sessionId);
-                ztoolkit.log(`[HttpServer] Terminated MCP session: ${sessionId}`);
-                result = {
-                  status: 204,
-                  statusText: "No Content",
-                  headers: {},
-                  body: ""
-                };
-              } else {
-                result = {
-                  status: 404,
-                  statusText: "Not Found",
-                  headers: { "Content-Type": "application/json; charset=utf-8" },
-                  body: JSON.stringify({ error: "Session not found" })
-                };
-              }
             } else {
               result = {
                 status: 405,
                 statusText: "Method Not Allowed",
-                headers: {
+                headers: { 
                   "Content-Type": "application/json; charset=utf-8",
-                  "Allow": "GET, POST, DELETE"
+                  "Allow": "GET, POST"
                 },
-                body: JSON.stringify({
-                  error: `Method ${method} not allowed. Use GET for info, POST for MCP requests, or DELETE to terminate session.` 
+                body: JSON.stringify({ 
+                  error: `Method ${method} not allowed. Use GET for info or POST for MCP requests.` 
                 }),
               };
             }
@@ -559,34 +583,30 @@ export class HttpServer {
           }
 
           const body = result.body || "";
-          const storageStream = Cc[
-            "@mozilla.org/storagestream;1"
-          ].createInstance(Ci.nsIStorageStream);
-          storageStream.init(8192, 0xffffffff);
-          const storageConverter = Cc[
-            "@mozilla.org/intl/converter-output-stream;1"
-          ].createInstance(Ci.nsIConverterOutputStream);
-          (storageConverter as any).init(
-            storageStream.getOutputStream(0),
-            "UTF-8",
-            0,
-            0x003f,
-          );
-          storageConverter.writeString(body);
-          storageConverter.close();
-          const byteLength = storageStream.length;
-          
+
+          // Calculate UTF-8 byte length for Content-Length header
+          const byteLength = getByteLength(body);
+
           // Build headers with session and connection management
           const finalHeaders = this.buildHttpHeaders(result, keepAlive, sessionId) +
             `Content-Length: ${byteLength}\r\n` +
             "\r\n";
-          
-          ztoolkit.log(`[HttpServer] Sending response with headers: ${finalHeaders.split('\r\n').slice(0, -2).join(', ')}`);
-          
+
+          ztoolkit.log(`[HttpServer] Sending response: ${byteLength} bytes (chars: ${body.length})`);
+
+          // Write headers (ASCII only, so length is safe)
           output.write(finalHeaders, finalHeaders.length);
+
+          // Write body using converter stream for proper UTF-8 encoding
           if (byteLength > 0) {
-            const inputStream = storageStream.newInputStream(0);
-            output.writeFrom(inputStream, byteLength);
+            writeStringToStream(output, body);
+          }
+
+          // Ensure data is flushed
+          try {
+            output.flush();
+          } catch (flushError) {
+            // Some streams don't support flush, ignore
           }
         } catch (e) {
           const error = e instanceof Error ? e : new Error(String(e));
@@ -595,16 +615,18 @@ export class HttpServer {
             "error",
           );
           const errorBody = JSON.stringify({ error: error.message });
+          // Use getByteLength for accurate Content-Length with non-ASCII characters
+          const errorByteLength = getByteLength(errorBody);
           const errorResult = {
             status: 500,
             statusText: "Internal Server Error",
             headers: { "Content-Type": "application/json; charset=utf-8" }
           };
           const errorHeaders = this.buildHttpHeaders(errorResult, false) +
-            `Content-Length: ${errorBody.length}\r\n` +
+            `Content-Length: ${errorByteLength}\r\n` +
             "\r\n";
-          const errorResponse = errorHeaders + errorBody;
-          output.write(errorResponse, errorResponse.length);
+          output.write(errorHeaders, errorHeaders.length);
+          writeStringToStream(output, errorBody);
         }
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));
@@ -635,7 +657,10 @@ export class HttpServer {
           );
         }
       } finally {
-        // Ensure resource cleanup
+        // Remove transport from tracking
+        this.activeTransports.delete(transport);
+
+        // 确保资源清理
         try {
           if (output) {
             output.close();

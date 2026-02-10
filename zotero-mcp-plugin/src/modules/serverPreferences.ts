@@ -5,12 +5,14 @@ declare let ztoolkit: ZToolkit;
 const PREFS_PREFIX = config.prefsPrefix;
 const MCP_SERVER_PORT = `${PREFS_PREFIX}.mcp.server.port`;
 const MCP_SERVER_ENABLED = `${PREFS_PREFIX}.mcp.server.enabled`;
+const MCP_SERVER_ALLOW_REMOTE = `${PREFS_PREFIX}.mcp.server.allowRemote`;
 
 type PreferenceObserver = (name: string) => void;
 
 class ServerPreferences {
   private observers: PreferenceObserver[] = [];
   private observerID: symbol | null = null;
+  private monitorInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.initializeDefaults();
@@ -114,12 +116,18 @@ class ServerPreferences {
 
   private startPreferenceMonitoring(): void {
     if (typeof ztoolkit === 'undefined') return;
-    
+
+    // Clear existing interval if any
+    if (this.monitorInterval) {
+      clearInterval(this.monitorInterval);
+      this.monitorInterval = null;
+    }
+
     // Monitor preference changes every 5 seconds for the first minute
     let monitorCount = 0;
     const maxMonitors = 12; // 12 * 5 seconds = 1 minute
-    
-    const monitorInterval = setInterval(() => {
+
+    this.monitorInterval = setInterval(() => {
       monitorCount++;
       
       const currentEnabled = Zotero.Prefs.get(MCP_SERVER_ENABLED, true);
@@ -150,7 +158,10 @@ class ServerPreferences {
       }
       
       if (monitorCount >= maxMonitors) {
-        clearInterval(monitorInterval);
+        if (this.monitorInterval) {
+          clearInterval(this.monitorInterval);
+          this.monitorInterval = null;
+        }
         ztoolkit.log(`[ServerPreferences] [MONITOR] Monitoring completed after ${monitorCount} checks`);
       }
     }, 5000);
@@ -212,6 +223,21 @@ class ServerPreferences {
     }
   }
 
+  public isRemoteAccessAllowed(): boolean {
+    const DEFAULT_ALLOW_REMOTE = false;
+    try {
+      const allowRemote = Zotero.Prefs.get(MCP_SERVER_ALLOW_REMOTE, true);
+
+      if (allowRemote === undefined || allowRemote === null) {
+        return DEFAULT_ALLOW_REMOTE;
+      }
+
+      return Boolean(allowRemote);
+    } catch (error) {
+      ztoolkit.log(`[ServerPreferences] Error getting allow remote status: ${error}. Using default: ${DEFAULT_ALLOW_REMOTE}`);
+      return DEFAULT_ALLOW_REMOTE;
+    }
+  }
 
   public addObserver(observer: PreferenceObserver): void {
     this.observers.push(observer);
@@ -252,11 +278,19 @@ class ServerPreferences {
   }
 
   public unregister(): void {
+    // Clear the monitoring interval
+    if (this.monitorInterval) {
+      clearInterval(this.monitorInterval);
+      this.monitorInterval = null;
+      ztoolkit.log(`[ServerPreferences] Monitor interval cleared`);
+    }
+
     if (this.observerID) {
       Zotero.Prefs.unregisterObserver(this.observerID);
       this.observerID = null;
     }
     this.observers = [];
+    ztoolkit.log(`[ServerPreferences] Unregistered`);
   }
 }
 
