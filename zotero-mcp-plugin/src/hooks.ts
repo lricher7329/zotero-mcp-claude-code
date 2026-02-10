@@ -361,6 +361,33 @@ async function onStartup() {
     Zotero.uiReadyPromise,
   ]);
 
+  // Register async shutdown listener to properly close the vector store database.
+  // Zotero.DBConnection uses Sqlite.sys.mjs which registers a shutdown blocker
+  // for every opened connection. During shutdown, the profile-before-change phase
+  // waits for all connections to close. If ours isn't closed, the barrier hangs
+  // for ~60s and the Shutdown Hang Terminator force-kills the process (SIGSEGV).
+  // Zotero.addShutdownListener() callbacks are awaited during Zotero.shutdown(),
+  // which runs BEFORE the Sqlite.sys.mjs barrier check.
+  Zotero.addShutdownListener(async () => {
+    ztoolkit.log("[MCP Plugin] Shutdown listener: closing vector store database");
+    try {
+      const { getSemanticSearchService } = require("./modules/semantic");
+      const semanticService = getSemanticSearchService();
+      semanticService.abortIndex();
+      ztoolkit.log("[MCP Plugin] Shutdown listener: indexing aborted");
+    } catch (e) {
+      // Service may not have been initialized — safe to ignore
+    }
+    try {
+      const { getVectorStore } = require("./modules/semantic/vectorStore");
+      const vectorStore = getVectorStore();
+      await vectorStore.closeAsync();
+      ztoolkit.log("[MCP Plugin] Shutdown listener: vector store closed");
+    } catch (e) {
+      ztoolkit.log(`[MCP Plugin] Shutdown listener: error closing vector store: ${e}`, "warn");
+    }
+  });
+
   initLocale();
 
   // Initialize MCP settings with defaults
@@ -574,49 +601,25 @@ function onShutdown(): void {
     );
   }
 
-  // 停止语义搜索服务
+  // The vector store database is closed by the Zotero.addShutdownListener()
+  // registered in onStartup(), which properly awaits closeDatabase().
+  // Here we just abort indexing and release references as a synchronous fallback.
   try {
     const { getSemanticSearchService } = require("./modules/semantic");
     const semanticService = getSemanticSearchService();
-    // Abort any ongoing indexing
     semanticService.abortIndex();
-    // Destroy the service
-    semanticService.destroy();
-    ztoolkit.log("[MCP Plugin] Semantic search service stopped during shutdown");
+    ztoolkit.log("[MCP Plugin] Semantic indexing aborted for shutdown");
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    ztoolkit.log(
-      `[MCP Plugin] Error stopping semantic service during shutdown: ${err.message}`,
-      "error",
-    );
+    // Service may not have been initialized — safe to ignore
   }
-
-  // 停止嵌入服务
-  try {
-    const { getEmbeddingService } = require("./modules/semantic/embeddingService");
-    const embeddingService = getEmbeddingService();
-    embeddingService.destroy();
-    ztoolkit.log("[MCP Plugin] Embedding service stopped during shutdown");
-  } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    ztoolkit.log(
-      `[MCP Plugin] Error stopping embedding service during shutdown: ${err.message}`,
-      "error",
-    );
-  }
-
-  // 关闭向量存储数据库
   try {
     const { getVectorStore } = require("./modules/semantic/vectorStore");
     const vectorStore = getVectorStore();
+    // close() is a no-op if closeAsync() already ran (db is already null)
     vectorStore.close();
-    ztoolkit.log("[MCP Plugin] Vector store closed during shutdown");
+    ztoolkit.log("[MCP Plugin] Vector store references released");
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    ztoolkit.log(
-      `[MCP Plugin] Error closing vector store during shutdown: ${err.message}`,
-      "error",
-    );
+    // Store may not have been initialized — safe to ignore
   }
 
   serverPreferences.unregister();

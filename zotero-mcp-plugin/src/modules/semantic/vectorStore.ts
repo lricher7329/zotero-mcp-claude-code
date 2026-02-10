@@ -1582,9 +1582,9 @@ export class VectorStore {
   }
 
   /**
-   * Close database connection
-   * This method releases references synchronously and closes DB asynchronously
-   * to ensure shutdown doesn't hang on pending async operations.
+   * Close database connection synchronously (fire-and-forget).
+   * Releases references immediately and starts async close without awaiting.
+   * Prefer closeAsync() during shutdown for proper cleanup.
    */
   close(): void {
     const db = this.db;
@@ -1598,13 +1598,43 @@ export class VectorStore {
     // Close database asynchronously (fire and forget)
     if (db) {
       try {
-        db.closeDatabase().then(() => {
+        db.closeDatabase(true).then(() => {
           ztoolkit.log('[VectorStore] Database closed successfully');
         }).catch((e: any) => {
           ztoolkit.log(`[VectorStore] Error closing database: ${e}`, 'warn');
         });
       } catch (e) {
         ztoolkit.log(`[VectorStore] Error initiating database close: ${e}`, 'warn');
+      }
+    }
+
+    ztoolkit.log('[VectorStore] Database references released');
+  }
+
+  /**
+   * Close database connection asynchronously (awaitable).
+   * Use this during Zotero's shutdown sequence to properly close the
+   * underlying mozIStorageConnection and release its Sqlite.sys.mjs
+   * shutdown blocker. Without awaiting this, the open connection causes
+   * the profile-before-change barrier to hang, leading to a forced
+   * SIGSEGV crash from the Shutdown Hang Terminator.
+   */
+  async closeAsync(): Promise<void> {
+    const db = this.db;
+
+    // Release references synchronously
+    this.db = null;
+    this.initialized = false;
+    this.initPromise = null;
+    this.vectorCache.clear();
+
+    // Await the database close to release the Sqlite.sys.mjs shutdown blocker
+    if (db) {
+      try {
+        await db.closeDatabase(true); // permanent=true prevents re-open
+        ztoolkit.log('[VectorStore] Database closed successfully (async)');
+      } catch (e) {
+        ztoolkit.log(`[VectorStore] Error closing database: ${e}`, 'warn');
       }
     }
 

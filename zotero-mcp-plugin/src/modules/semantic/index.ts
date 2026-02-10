@@ -8,6 +8,7 @@
 export {
   SemanticSearchService,
   getSemanticSearchService,
+  resetSemanticSearchService,
   type SemanticSearchOptions,
   type SemanticSearchResult,
   type IndexProgress,
@@ -18,6 +19,7 @@ export {
 export {
   EmbeddingService,
   getEmbeddingService,
+  resetEmbeddingService,
   type EmbeddingResult,
   type BatchEmbeddingItem,
   type EmbeddingConfig,
@@ -28,6 +30,7 @@ export {
 export {
   VectorStore,
   getVectorStore,
+  resetVectorStore,
   type VectorRecord,
   type QuantizedVector,
   type SearchResult,
