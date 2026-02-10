@@ -40,7 +40,10 @@ export async function registerPrefsScripts(_window: Window) {
 
 function bindPrefEvents() {
   const doc = addon.data.prefs!.window.document;
-  
+
+  // Initialize collapsible sections
+  initCollapsibleSections(doc);
+
   // Server enabled checkbox with manual event handling
   const serverEnabledCheckbox = doc?.querySelector(
     `#zotero-prefpane-${config.addonRef}-mcp-server-enabled`,
@@ -228,6 +231,67 @@ function bindPrefEvents() {
 
   // ============ Semantic Index Stats ============
   bindSemanticStatsSettings(doc);
+}
+
+/**
+ * Initialize collapsible accordion sections.
+ * Adds toggle arrow indicators to section headings and binds hover styles.
+ */
+function initCollapsibleSections(doc: Document) {
+  const sections = [
+    { id: 'server', defaultCollapsed: false },
+    { id: 'client-config', defaultCollapsed: false },
+    { id: 'content', defaultCollapsed: true },
+    { id: 'embedding', defaultCollapsed: true },
+    { id: 'semantic-index', defaultCollapsed: true },
+    { id: 'contact', defaultCollapsed: true },
+  ];
+
+  for (const section of sections) {
+    const heading = doc.getElementById(`section-${section.id}-heading`) as HTMLElement | null;
+    if (!heading) continue;
+
+    const isCollapsed = section.defaultCollapsed;
+    const arrow = isCollapsed ? '\u25B6 ' : '\u25BC ';
+
+    // Prepend arrow to the heading text (after localization resolves)
+    const updateArrow = () => {
+      const text = heading.textContent || '';
+      // Strip any existing arrow prefix
+      const cleanText = text.replace(/^[\u25B6\u25BC]\s*/, '');
+      const collapsed = heading.getAttribute('data-collapsed') === 'true';
+      heading.textContent = (collapsed ? '\u25B6 ' : '\u25BC ') + cleanText;
+    };
+
+    // Initial arrow - use MutationObserver to catch l10n updates
+    const observer = new MutationObserver(() => {
+      updateArrow();
+    });
+    observer.observe(heading, { childList: true, characterData: true, subtree: true });
+
+    // Also set immediately in case text is already set
+    if (heading.textContent) {
+      heading.textContent = arrow + heading.textContent;
+    }
+
+    // Override the inline onclick to also update the arrow
+    heading.onclick = () => {
+      const bodyEl = doc.getElementById(`section-${section.id}-body`) as HTMLElement | null;
+      if (!bodyEl) return;
+      const isHidden = bodyEl.style.display === 'none';
+      bodyEl.style.display = isHidden ? '' : 'none';
+      heading.setAttribute('data-collapsed', isHidden ? 'false' : 'true');
+      updateArrow();
+    };
+
+    // Add hover style
+    heading.addEventListener('mouseenter', () => {
+      heading.style.color = '#0060df';
+    });
+    heading.addEventListener('mouseleave', () => {
+      heading.style.color = '';
+    });
+  }
 }
 
 // Embedding provider presets - only apiBase and hints, model/dimensions filled by user

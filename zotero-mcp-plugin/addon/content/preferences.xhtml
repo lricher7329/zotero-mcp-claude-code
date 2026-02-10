@@ -33,332 +33,558 @@
   </preferences>
 
   <vbox flex="1" style="padding: 10px;">
+
+    <!-- Section 1: MCP Server (expanded by default) -->
     <groupbox style="margin-bottom: 15px;">
-    <label><html:h2 data-l10n-id="pref-server-title"></html:h2></label>
-    <checkbox
-      id="zotero-prefpane-__addonRef__-mcp-server-enabled"
-      preference="extensions.zotero.zotero-mcp-plugin.mcp.server.enabled"
-      data-l10n-id="pref-server-enable"
-    ></checkbox>
-    <vbox>
-      <hbox align="center" style="margin-bottom: 5px;">
-        <html:label
-          for="zotero-prefpane-__addonRef__-mcp-server-port"
-          data-l10n-id="pref-server-port"
-          style="min-width: 80px;"
-        ></html:label>
-        <html:input
-          type="number"
-          id="zotero-prefpane-__addonRef__-mcp-server-port"
-          preference="extensions.zotero.zotero-mcp-plugin.mcp.server.port"
-          min="1024"
-          max="65535"
-          style="max-width: 100px; margin-right: 10px;"
-        ></html:input>
-      </hbox>
-      <html:div style="margin-left: 80px; font-size: 11px; color: #666; font-style: italic;" data-l10n-id="pref-server-port-restart-hint">
-      </html:div>
-      <checkbox
-        id="zotero-prefpane-__addonRef__-mcp-server-allow-remote"
-        preference="extensions.zotero.zotero-mcp-plugin.mcp.server.allowRemote"
-        data-l10n-id="pref-server-allow-remote"
-        style="margin-top: 10px;"
-      ></checkbox>
-      <html:div style="margin-left: 24px; font-size: 11px; color: #c00; font-style: italic;" data-l10n-id="pref-server-allow-remote-warning">
-      </html:div>
-    </vbox>
-    </groupbox>
-    
-    <groupbox style="margin-bottom: 15px;">
-      <label><html:h2 data-l10n-id="pref-mcp-settings-title"></html:h2></label>
-      <html:p data-l10n-id="pref-mcp-settings-description"></html:p>
-      
-      <vbox>
-        <hbox align="center" style="margin-bottom: 15px;">
-          <html:label
-            for="zotero-prefpane-__addonRef__-max-tokens"
-            data-l10n-id="pref-max-tokens-label"
-            style="min-width: 200px;"
-          ></html:label>
-          <html:input
-            type="number"
-            id="zotero-prefpane-__addonRef__-max-tokens"
-            preference="extensions.zotero.zotero-mcp-plugin.ai.maxTokens"
-            min="1000"
-            max="100000"
-            style="max-width: 100px; margin-right: 10px;"
-          ></html:input>
-        </hbox>
-        
-        <hbox align="center" style="margin-bottom: 15px;">
-          <html:label
-            for="zotero-prefpane-__addonRef__-content-mode"
-            data-l10n-id="pref-content-mode-label"
-            style="min-width: 200px;"
-          ></html:label>
-          <html:select
-            id="zotero-prefpane-__addonRef__-content-mode"
-            preference="extensions.zotero.zotero-mcp-plugin.content.mode"
-            style="max-width: 200px;"
-            onchange="document.getElementById('custom-settings-group').style.display = this.value === 'custom' ? 'block' : 'none';"
-          >
-            <html:option value="minimal" data-l10n-id="pref-mode-minimal"></html:option>
-            <html:option value="preview" data-l10n-id="pref-mode-preview"></html:option>
-            <html:option value="standard" data-l10n-id="pref-mode-standard"></html:option>
-            <html:option value="complete" data-l10n-id="pref-mode-complete"></html:option>
-            <html:option value="custom" data-l10n-id="pref-mode-custom"></html:option>
-          </html:select>
-        </hbox>
-        
-        <vbox id="custom-settings-group" style="display: none; margin-left: 20px; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">
-          <html:label data-l10n-id="pref-custom-settings-title" style="font-weight: bold; margin-bottom: 10px;"></html:label>
-          
-          <hbox align="center" style="margin-bottom: 10px;">
-            <html:label
-              for="zotero-prefpane-__addonRef__-custom-content-length"
-              data-l10n-id="pref-content-length-label"
-              style="min-width: 180px;"
-            ></html:label>
-            <html:input
-              type="number"
-              id="zotero-prefpane-__addonRef__-custom-content-length"
-              preference="extensions.zotero.zotero-mcp-plugin.custom.maxContentLength"
-              min="100"
-              max="50000"
-              style="max-width: 80px;"
-            ></html:input>
-          </hbox>
-          
-          <hbox align="center" style="margin-bottom: 10px;">
-            <html:label
-              for="zotero-prefpane-__addonRef__-custom-max-attachments"
-              data-l10n-id="pref-max-attachments-label"
-              style="min-width: 180px;"
-            ></html:label>
-            <html:input
-              type="number"
-              id="zotero-prefpane-__addonRef__-custom-max-attachments"
-              preference="extensions.zotero.zotero-mcp-plugin.custom.maxAttachments"
-              min="1"
-              max="50"
-              style="max-width: 80px;"
-            ></html:input>
-          </hbox>
-          
-          <hbox align="center" style="margin-bottom: 10px;">
-            <html:label
-              for="zotero-prefpane-__addonRef__-custom-max-notes"
-              data-l10n-id="pref-max-notes-label"
-              style="min-width: 180px;"
-            ></html:label>
-            <html:input
-              type="number"
-              id="zotero-prefpane-__addonRef__-custom-max-notes"
-              preference="extensions.zotero.zotero-mcp-plugin.custom.maxNotes"
-              min="1"
-              max="100"
-              style="max-width: 80px;"
-            ></html:input>
-          </hbox>
-          
-          <hbox align="center" style="margin-bottom: 10px;">
-            <html:label
-              for="zotero-prefpane-__addonRef__-custom-keyword-count"
-              data-l10n-id="pref-keyword-count-label"
-              style="min-width: 180px;"
-            ></html:label>
-            <html:input
-              type="number"
-              id="zotero-prefpane-__addonRef__-custom-keyword-count"
-              preference="extensions.zotero.zotero-mcp-plugin.custom.keywordCount"
-              min="1"
-              max="20"
-              style="max-width: 80px;"
-            ></html:input>
-          </hbox>
-          
-          <hbox align="center" style="margin-bottom: 10px;">
-            <html:label
-              for="zotero-prefpane-__addonRef__-custom-truncate-length"
-              data-l10n-id="pref-truncate-length-label"
-              style="min-width: 180px;"
-            ></html:label>
-            <html:input
-              type="number"
-              id="zotero-prefpane-__addonRef__-custom-truncate-length"
-              preference="extensions.zotero.zotero-mcp-plugin.custom.smartTruncateLength"
-              min="50"
-              max="1000"
-              style="max-width: 80px;"
-            ></html:input>
-          </hbox>
-          
-          <hbox align="center" style="margin-bottom: 10px;">
-            <html:label
-              for="zotero-prefpane-__addonRef__-custom-search-limit"
-              data-l10n-id="pref-search-limit-label"
-              style="min-width: 180px;"
-            ></html:label>
-            <html:input
-              type="number"
-              id="zotero-prefpane-__addonRef__-custom-search-limit"
-              preference="extensions.zotero.zotero-mcp-plugin.custom.searchItemLimit"
-              min="10"
-              max="1000"
-              style="max-width: 80px;"
-            ></html:input>
-          </hbox>
-          
-          <hbox align="center" style="margin-bottom: 10px;">
-            <html:label
-              for="zotero-prefpane-__addonRef__-custom-max-annotations"
-              data-l10n-id="pref-max-annotations-label"
-              style="min-width: 180px;"
-            ></html:label>
-            <html:input
-              type="number"
-              id="zotero-prefpane-__addonRef__-custom-max-annotations"
-              preference="extensions.zotero.zotero-mcp-plugin.custom.maxAnnotationsPerRequest"
-              min="10"
-              max="200"
-              style="max-width: 80px;"
-            ></html:input>
-          </hbox>
-          
-          <hbox align="center" style="margin-bottom: 10px;">
-            <checkbox
-              id="zotero-prefpane-__addonRef__-custom-include-webpage"
-              preference="extensions.zotero.zotero-mcp-plugin.custom.includeWebpage"
-              data-l10n-id="pref-include-webpage-label"
-            ></checkbox>
-          </hbox>
-          
-          <hbox align="center" style="margin-bottom: 10px;">
-            <checkbox
-              id="zotero-prefpane-__addonRef__-custom-enable-compression"
-              preference="extensions.zotero.zotero-mcp-plugin.custom.enableCompression"
-              data-l10n-id="pref-enable-compression-label"
-            ></checkbox>
-          </hbox>
-        </vbox>
-        
+      <label><html:h2
+        id="section-server-heading"
+        data-l10n-id="pref-server-title"
+        style="cursor: pointer; user-select: none;"
+        onclick="var body = document.getElementById('section-server-body'); var isHidden = body.style.display === 'none'; body.style.display = isHidden ? '' : 'none'; this.setAttribute('data-collapsed', isHidden ? 'false' : 'true');"
+        data-collapsed="false"
+      ></html:h2></label>
+      <vbox id="section-server-body">
         <checkbox
-          id="zotero-prefpane-__addonRef__-include-metadata"
-          preference="extensions.zotero.zotero-mcp-plugin.ui.includeMetadata"
-          data-l10n-id="pref-include-metadata-label"
-          style="margin: 15px 0 10px 0;"
+          id="zotero-prefpane-__addonRef__-mcp-server-enabled"
+          preference="extensions.zotero.zotero-mcp-plugin.mcp.server.enabled"
+          data-l10n-id="pref-server-enable"
         ></checkbox>
+        <vbox>
+          <hbox align="center" style="margin-bottom: 5px;">
+            <html:label
+              for="zotero-prefpane-__addonRef__-mcp-server-port"
+              data-l10n-id="pref-server-port"
+              style="min-width: 80px;"
+            ></html:label>
+            <html:input
+              type="number"
+              id="zotero-prefpane-__addonRef__-mcp-server-port"
+              preference="extensions.zotero.zotero-mcp-plugin.mcp.server.port"
+              min="1024"
+              max="65535"
+              style="max-width: 100px; margin-right: 10px;"
+            ></html:input>
+          </hbox>
+          <html:div style="margin-left: 80px; font-size: 11px; color: #666; font-style: italic;" data-l10n-id="pref-server-port-restart-hint">
+          </html:div>
+          <checkbox
+            id="zotero-prefpane-__addonRef__-mcp-server-allow-remote"
+            preference="extensions.zotero.zotero-mcp-plugin.mcp.server.allowRemote"
+            data-l10n-id="pref-server-allow-remote"
+            style="margin-top: 10px;"
+          ></checkbox>
+          <html:div style="margin-left: 24px; font-size: 11px; color: #c00; font-style: italic;" data-l10n-id="pref-server-allow-remote-warning">
+          </html:div>
+        </vbox>
       </vbox>
     </groupbox>
 
+    <!-- Section 2: Client Configuration Generator (expanded by default) -->
     <groupbox style="margin-bottom: 15px;">
-      <label><html:h2 data-l10n-id="pref-embedding-title"></html:h2></label>
-      <html:p data-l10n-id="pref-embedding-description"></html:p>
+      <label><html:h2
+        id="section-client-config-heading"
+        data-l10n-id="pref-client-config-title"
+        style="cursor: pointer; user-select: none;"
+        onclick="var body = document.getElementById('section-client-config-body'); var isHidden = body.style.display === 'none'; body.style.display = isHidden ? '' : 'none'; this.setAttribute('data-collapsed', isHidden ? 'false' : 'true');"
+        data-collapsed="false"
+      ></html:h2></label>
+      <vbox id="section-client-config-body">
+        <html:p data-l10n-id="pref-client-config-description"></html:p>
 
-      <vbox>
-        <hbox align="center" style="margin-bottom: 10px;">
-          <html:label
-            for="zotero-prefpane-__addonRef__-embedding-provider"
-            data-l10n-id="pref-embedding-provider-label"
-            style="min-width: 120px;"
-          ></html:label>
-          <html:select
-            id="zotero-prefpane-__addonRef__-embedding-provider"
-            style="flex: 1; max-width: 300px;"
-          >
-            <html:option value="custom" data-l10n-id="pref-embedding-provider-custom"></html:option>
-            <html:option value="openai">OpenAI</html:option>
-            <html:option value="google">Google Gemini</html:option>
-            <html:option value="alibaba">阿里云百炼</html:option>
-            <html:option value="zhipu">智谱 AI</html:option>
-            <html:option value="openrouter">OpenRouter</html:option>
-            <html:option value="siliconflow">硅基流动</html:option>
-            <html:option value="voyage">Voyage AI</html:option>
-            <html:option value="ollama">Ollama (本地)</html:option>
-          </html:select>
-        </hbox>
+        <vbox>
+          <hbox align="center" style="margin-bottom: 10px;">
+            <html:label for="client-type-select" data-l10n-id="pref-client-type-label" style="min-width: 80px;"></html:label>
+            <html:select id="client-type-select" style="flex: 1; max-width: 200px;">
+              <html:option value="claude-code">Claude Code</html:option>
+              <html:option value="claude-desktop">Claude Desktop</html:option>
+              <html:option value="cline-vscode">Cline (VS Code)</html:option>
+              <html:option value="continue-dev">Continue.dev</html:option>
+              <html:option value="cursor">Cursor</html:option>
+              <html:option value="cherry-studio">Cherry Studio</html:option>
+              <html:option value="gemini-cli">Gemini CLI</html:option>
+              <html:option value="chatbox">Chatbox</html:option>
+              <html:option value="trae-ai">Trae AI</html:option>
+              <html:option value="qwen-code">Qwen Code</html:option>
+              <html:option value="custom-http" data-l10n-id="pref-client-custom-http"></html:option>
+            </html:select>
+          </hbox>
 
-        <hbox align="center" style="margin-bottom: 5px;">
-          <html:label
-            for="zotero-prefpane-__addonRef__-embedding-api-base"
-            data-l10n-id="pref-embedding-api-base-label"
-            style="min-width: 120px;"
-          ></html:label>
-          <html:input
-            type="text"
-            id="zotero-prefpane-__addonRef__-embedding-api-base"
-            preference="extensions.zotero.zotero-mcp-plugin.embedding.apiBase"
-            placeholder="https://api.openai.com/v1"
-            style="flex: 1; max-width: 300px;"
-          ></html:input>
-        </hbox>
-        <hbox style="margin-bottom: 10px; margin-left: 120px;">
-          <html:span
-            data-l10n-id="pref-embedding-api-base-hint"
-            style="font-size: 11px; color: #666;"
-          ></html:span>
-        </hbox>
+          <hbox align="center" style="margin-bottom: 15px;">
+            <html:label for="server-name-input" data-l10n-id="pref-server-name-label" style="min-width: 80px;"></html:label>
+            <html:input
+              type="text"
+              id="server-name-input"
+              value="zotero-mcp"
+              placeholder="zotero-mcp"
+              style="flex: 1; max-width: 200px;"
+            />
+          </hbox>
+        </vbox>
 
-        <hbox align="center" style="margin-bottom: 10px;">
-          <html:label
-            for="zotero-prefpane-__addonRef__-embedding-api-key"
-            data-l10n-id="pref-embedding-api-key-label"
-            style="min-width: 120px;"
-          ></html:label>
-          <html:input
-            type="password"
-            id="zotero-prefpane-__addonRef__-embedding-api-key"
-            preference="extensions.zotero.zotero-mcp-plugin.embedding.apiKey"
-            placeholder="sk-..."
-            style="flex: 1; max-width: 300px;"
-          ></html:input>
-        </hbox>
-
-        <hbox align="center" style="margin-bottom: 10px;">
-          <html:label
-            for="zotero-prefpane-__addonRef__-embedding-model"
-            data-l10n-id="pref-embedding-model-label"
-            style="min-width: 120px;"
-          ></html:label>
-          <html:input
-            type="text"
-            id="zotero-prefpane-__addonRef__-embedding-model"
-            preference="extensions.zotero.zotero-mcp-plugin.embedding.model"
-            placeholder="text-embedding-3-small"
-            style="flex: 1; max-width: 300px;"
-          ></html:input>
-        </hbox>
-
-        <hbox align="center" style="margin-bottom: 15px;">
-          <html:label
-            for="zotero-prefpane-__addonRef__-embedding-dimensions"
-            data-l10n-id="pref-embedding-dimensions-label"
-            style="min-width: 120px;"
-          ></html:label>
-          <html:input
-            type="number"
-            id="zotero-prefpane-__addonRef__-embedding-dimensions"
-            preference="extensions.zotero.zotero-mcp-plugin.embedding.dimensions"
-            min="64"
-            max="4096"
-            placeholder="512"
-            style="max-width: 100px;"
-          ></html:input>
-        </hbox>
-
-        <hbox style="margin-bottom: 10px;">
+        <hbox style="margin-bottom: 15px;">
           <button
-            id="test-embedding-button"
-            data-l10n-id="pref-embedding-test-button"
+            id="generate-config-button"
+            data-l10n-id="pref-generate-config-button"
             style="margin-right: 10px;"
           ></button>
-          <html:span id="embedding-test-result" style="line-height: 28px; font-size: 12px;"></html:span>
+          <button
+            id="copy-config-button"
+            data-l10n-id="pref-copy-config-button"
+            disabled="true"
+          ></button>
         </hbox>
 
-        <html:div style="font-size: 11px; color: #666; font-style: italic; margin-top: 5px;" data-l10n-id="pref-embedding-hint">
-        </html:div>
+        <hbox style="gap: 15px;">
+          <vbox style="flex: 1;">
+            <html:label data-l10n-id="pref-config-output-label" style="margin-bottom: 5px;"></html:label>
+            <html:textarea
+              id="config-output"
+              rows="12"
+              readonly="true"
+              style="width: 100%; font-family: monospace; font-size: 12px; resize: vertical;"
+              data-l10n-id="pref-config-output-placeholder"
+            ></html:textarea>
+          </vbox>
 
-        <!-- Rate Limit Settings -->
+          <vbox style="flex: 1;">
+            <html:label style="margin-bottom: 5px; font-weight: bold;" data-l10n-id="pref-config-guide-title"></html:label>
+            <html:div
+              id="config-guide"
+              style="border: 1px solid #ccc; border-radius: 4px; padding: 15px; background-color: #f9f9f9; height: 300px; overflow-y: auto; font-size: 12px; line-height: 1.4;"
+            >
+              <html:div style="color: #666; font-style: italic;" data-l10n-id="pref-config-guide-placeholder">
+              </html:div>
+            </html:div>
+          </vbox>
+        </hbox>
+      </vbox>
+    </groupbox>
+
+    <!-- Section 3: MCP Content Settings (collapsed by default) -->
+    <groupbox style="margin-bottom: 15px;">
+      <label><html:h2
+        id="section-content-heading"
+        data-l10n-id="pref-mcp-settings-title"
+        style="cursor: pointer; user-select: none;"
+        onclick="var body = document.getElementById('section-content-body'); var isHidden = body.style.display === 'none'; body.style.display = isHidden ? '' : 'none'; this.setAttribute('data-collapsed', isHidden ? 'false' : 'true');"
+        data-collapsed="true"
+      ></html:h2></label>
+      <vbox id="section-content-body" style="display: none;">
+        <html:p data-l10n-id="pref-mcp-settings-description"></html:p>
+
+        <vbox>
+          <hbox align="center" style="margin-bottom: 15px;">
+            <html:label
+              for="zotero-prefpane-__addonRef__-max-tokens"
+              data-l10n-id="pref-max-tokens-label"
+              style="min-width: 200px;"
+            ></html:label>
+            <html:input
+              type="number"
+              id="zotero-prefpane-__addonRef__-max-tokens"
+              preference="extensions.zotero.zotero-mcp-plugin.ai.maxTokens"
+              min="1000"
+              max="100000"
+              style="max-width: 100px; margin-right: 10px;"
+            ></html:input>
+          </hbox>
+
+          <hbox align="center" style="margin-bottom: 15px;">
+            <html:label
+              for="zotero-prefpane-__addonRef__-content-mode"
+              data-l10n-id="pref-content-mode-label"
+              style="min-width: 200px;"
+            ></html:label>
+            <html:select
+              id="zotero-prefpane-__addonRef__-content-mode"
+              preference="extensions.zotero.zotero-mcp-plugin.content.mode"
+              style="max-width: 200px;"
+              onchange="document.getElementById('custom-settings-group').style.display = this.value === 'custom' ? 'block' : 'none';"
+            >
+              <html:option value="minimal" data-l10n-id="pref-mode-minimal"></html:option>
+              <html:option value="preview" data-l10n-id="pref-mode-preview"></html:option>
+              <html:option value="standard" data-l10n-id="pref-mode-standard"></html:option>
+              <html:option value="complete" data-l10n-id="pref-mode-complete"></html:option>
+              <html:option value="custom" data-l10n-id="pref-mode-custom"></html:option>
+            </html:select>
+          </hbox>
+
+          <vbox id="custom-settings-group" style="display: none; margin-left: 20px; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">
+            <html:label data-l10n-id="pref-custom-settings-title" style="font-weight: bold; margin-bottom: 10px;"></html:label>
+
+            <hbox align="center" style="margin-bottom: 10px;">
+              <html:label
+                for="zotero-prefpane-__addonRef__-custom-content-length"
+                data-l10n-id="pref-content-length-label"
+                style="min-width: 180px;"
+              ></html:label>
+              <html:input
+                type="number"
+                id="zotero-prefpane-__addonRef__-custom-content-length"
+                preference="extensions.zotero.zotero-mcp-plugin.custom.maxContentLength"
+                min="100"
+                max="50000"
+                style="max-width: 80px;"
+              ></html:input>
+            </hbox>
+
+            <hbox align="center" style="margin-bottom: 10px;">
+              <html:label
+                for="zotero-prefpane-__addonRef__-custom-max-attachments"
+                data-l10n-id="pref-max-attachments-label"
+                style="min-width: 180px;"
+              ></html:label>
+              <html:input
+                type="number"
+                id="zotero-prefpane-__addonRef__-custom-max-attachments"
+                preference="extensions.zotero.zotero-mcp-plugin.custom.maxAttachments"
+                min="1"
+                max="50"
+                style="max-width: 80px;"
+              ></html:input>
+            </hbox>
+
+            <hbox align="center" style="margin-bottom: 10px;">
+              <html:label
+                for="zotero-prefpane-__addonRef__-custom-max-notes"
+                data-l10n-id="pref-max-notes-label"
+                style="min-width: 180px;"
+              ></html:label>
+              <html:input
+                type="number"
+                id="zotero-prefpane-__addonRef__-custom-max-notes"
+                preference="extensions.zotero.zotero-mcp-plugin.custom.maxNotes"
+                min="1"
+                max="100"
+                style="max-width: 80px;"
+              ></html:input>
+            </hbox>
+
+            <hbox align="center" style="margin-bottom: 10px;">
+              <html:label
+                for="zotero-prefpane-__addonRef__-custom-keyword-count"
+                data-l10n-id="pref-keyword-count-label"
+                style="min-width: 180px;"
+              ></html:label>
+              <html:input
+                type="number"
+                id="zotero-prefpane-__addonRef__-custom-keyword-count"
+                preference="extensions.zotero.zotero-mcp-plugin.custom.keywordCount"
+                min="1"
+                max="20"
+                style="max-width: 80px;"
+              ></html:input>
+            </hbox>
+
+            <hbox align="center" style="margin-bottom: 10px;">
+              <html:label
+                for="zotero-prefpane-__addonRef__-custom-truncate-length"
+                data-l10n-id="pref-truncate-length-label"
+                style="min-width: 180px;"
+              ></html:label>
+              <html:input
+                type="number"
+                id="zotero-prefpane-__addonRef__-custom-truncate-length"
+                preference="extensions.zotero.zotero-mcp-plugin.custom.smartTruncateLength"
+                min="50"
+                max="1000"
+                style="max-width: 80px;"
+              ></html:input>
+            </hbox>
+
+            <hbox align="center" style="margin-bottom: 10px;">
+              <html:label
+                for="zotero-prefpane-__addonRef__-custom-search-limit"
+                data-l10n-id="pref-search-limit-label"
+                style="min-width: 180px;"
+              ></html:label>
+              <html:input
+                type="number"
+                id="zotero-prefpane-__addonRef__-custom-search-limit"
+                preference="extensions.zotero.zotero-mcp-plugin.custom.searchItemLimit"
+                min="10"
+                max="1000"
+                style="max-width: 80px;"
+              ></html:input>
+            </hbox>
+
+            <hbox align="center" style="margin-bottom: 10px;">
+              <html:label
+                for="zotero-prefpane-__addonRef__-custom-max-annotations"
+                data-l10n-id="pref-max-annotations-label"
+                style="min-width: 180px;"
+              ></html:label>
+              <html:input
+                type="number"
+                id="zotero-prefpane-__addonRef__-custom-max-annotations"
+                preference="extensions.zotero.zotero-mcp-plugin.custom.maxAnnotationsPerRequest"
+                min="10"
+                max="200"
+                style="max-width: 80px;"
+              ></html:input>
+            </hbox>
+
+            <hbox align="center" style="margin-bottom: 10px;">
+              <checkbox
+                id="zotero-prefpane-__addonRef__-custom-include-webpage"
+                preference="extensions.zotero.zotero-mcp-plugin.custom.includeWebpage"
+                data-l10n-id="pref-include-webpage-label"
+              ></checkbox>
+            </hbox>
+
+            <hbox align="center" style="margin-bottom: 10px;">
+              <checkbox
+                id="zotero-prefpane-__addonRef__-custom-enable-compression"
+                preference="extensions.zotero.zotero-mcp-plugin.custom.enableCompression"
+                data-l10n-id="pref-enable-compression-label"
+              ></checkbox>
+            </hbox>
+          </vbox>
+
+          <checkbox
+            id="zotero-prefpane-__addonRef__-include-metadata"
+            preference="extensions.zotero.zotero-mcp-plugin.ui.includeMetadata"
+            data-l10n-id="pref-include-metadata-label"
+            style="margin: 15px 0 10px 0;"
+          ></checkbox>
+        </vbox>
+      </vbox>
+    </groupbox>
+
+    <!-- Section 4: Semantic Search / Embedding API (collapsed by default) -->
+    <groupbox style="margin-bottom: 15px;">
+      <label><html:h2
+        id="section-embedding-heading"
+        data-l10n-id="pref-embedding-title"
+        style="cursor: pointer; user-select: none;"
+        onclick="var body = document.getElementById('section-embedding-body'); var isHidden = body.style.display === 'none'; body.style.display = isHidden ? '' : 'none'; this.setAttribute('data-collapsed', isHidden ? 'false' : 'true');"
+        data-collapsed="true"
+      ></html:h2></label>
+      <vbox id="section-embedding-body" style="display: none;">
+        <html:p data-l10n-id="pref-embedding-description"></html:p>
+
+        <vbox>
+          <hbox align="center" style="margin-bottom: 10px;">
+            <html:label
+              for="zotero-prefpane-__addonRef__-embedding-provider"
+              data-l10n-id="pref-embedding-provider-label"
+              style="min-width: 120px;"
+            ></html:label>
+            <html:select
+              id="zotero-prefpane-__addonRef__-embedding-provider"
+              style="flex: 1; max-width: 300px;"
+            >
+              <html:option value="custom" data-l10n-id="pref-embedding-provider-custom"></html:option>
+              <html:option value="openai">OpenAI</html:option>
+              <html:option value="google">Google Gemini</html:option>
+              <html:option value="alibaba">Alibaba DashScope</html:option>
+              <html:option value="zhipu">Zhipu AI</html:option>
+              <html:option value="openrouter">OpenRouter</html:option>
+              <html:option value="siliconflow">SiliconFlow</html:option>
+              <html:option value="voyage">Voyage AI</html:option>
+              <html:option value="ollama">Ollama (Local)</html:option>
+            </html:select>
+          </hbox>
+
+          <hbox align="center" style="margin-bottom: 5px;">
+            <html:label
+              for="zotero-prefpane-__addonRef__-embedding-api-base"
+              data-l10n-id="pref-embedding-api-base-label"
+              style="min-width: 120px;"
+            ></html:label>
+            <html:input
+              type="text"
+              id="zotero-prefpane-__addonRef__-embedding-api-base"
+              preference="extensions.zotero.zotero-mcp-plugin.embedding.apiBase"
+              placeholder="https://api.openai.com/v1"
+              style="flex: 1; max-width: 300px;"
+            ></html:input>
+          </hbox>
+          <hbox style="margin-bottom: 10px; margin-left: 120px;">
+            <html:span
+              data-l10n-id="pref-embedding-api-base-hint"
+              style="font-size: 11px; color: #666;"
+            ></html:span>
+          </hbox>
+
+          <hbox align="center" style="margin-bottom: 10px;">
+            <html:label
+              for="zotero-prefpane-__addonRef__-embedding-api-key"
+              data-l10n-id="pref-embedding-api-key-label"
+              style="min-width: 120px;"
+            ></html:label>
+            <html:input
+              type="password"
+              id="zotero-prefpane-__addonRef__-embedding-api-key"
+              preference="extensions.zotero.zotero-mcp-plugin.embedding.apiKey"
+              placeholder="sk-..."
+              style="flex: 1; max-width: 300px;"
+            ></html:input>
+          </hbox>
+
+          <hbox align="center" style="margin-bottom: 10px;">
+            <html:label
+              for="zotero-prefpane-__addonRef__-embedding-model"
+              data-l10n-id="pref-embedding-model-label"
+              style="min-width: 120px;"
+            ></html:label>
+            <html:input
+              type="text"
+              id="zotero-prefpane-__addonRef__-embedding-model"
+              preference="extensions.zotero.zotero-mcp-plugin.embedding.model"
+              placeholder="text-embedding-3-small"
+              style="flex: 1; max-width: 300px;"
+            ></html:input>
+          </hbox>
+
+          <hbox align="center" style="margin-bottom: 15px;">
+            <html:label
+              for="zotero-prefpane-__addonRef__-embedding-dimensions"
+              data-l10n-id="pref-embedding-dimensions-label"
+              style="min-width: 120px;"
+            ></html:label>
+            <html:input
+              type="number"
+              id="zotero-prefpane-__addonRef__-embedding-dimensions"
+              preference="extensions.zotero.zotero-mcp-plugin.embedding.dimensions"
+              min="64"
+              max="4096"
+              placeholder="512"
+              style="max-width: 100px;"
+            ></html:input>
+          </hbox>
+
+          <hbox style="margin-bottom: 10px;">
+            <button
+              id="test-embedding-button"
+              data-l10n-id="pref-embedding-test-button"
+              style="margin-right: 10px;"
+            ></button>
+            <html:span id="embedding-test-result" style="line-height: 28px; font-size: 12px;"></html:span>
+          </hbox>
+
+          <html:div style="font-size: 11px; color: #666; font-style: italic; margin-top: 5px;" data-l10n-id="pref-embedding-hint">
+          </html:div>
+        </vbox>
+      </vbox>
+    </groupbox>
+
+    <!-- Section 5: Semantic Index & Usage (collapsed by default) -->
+    <groupbox style="margin-bottom: 15px;">
+      <label><html:h2
+        id="section-semantic-index-heading"
+        data-l10n-id="pref-semantic-stats-title"
+        style="cursor: pointer; user-select: none;"
+        onclick="var body = document.getElementById('section-semantic-index-body'); var isHidden = body.style.display === 'none'; body.style.display = isHidden ? '' : 'none'; this.setAttribute('data-collapsed', isHidden ? 'false' : 'true');"
+        data-collapsed="true"
+      ></html:h2></label>
+      <vbox id="section-semantic-index-body" style="display: none;">
+
+        <!-- Index Status -->
+        <vbox id="semantic-stats-container">
+          <html:div id="semantic-stats-loading" data-l10n-id="pref-semantic-stats-loading" style="color: #666; font-style: italic;"></html:div>
+
+          <vbox id="semantic-stats-content" style="display: none;">
+            <hbox style="margin-bottom: 8px;">
+              <html:label data-l10n-id="pref-semantic-stats-total-items" style="min-width: 120px; font-weight: bold;"></html:label>
+              <html:span id="semantic-stats-total-items" style="color: #333;">-</html:span>
+            </hbox>
+
+            <hbox style="margin-bottom: 8px;">
+              <html:label data-l10n-id="pref-semantic-stats-total-vectors" style="min-width: 120px;"></html:label>
+              <html:span id="semantic-stats-total-vectors" style="color: #333;">-</html:span>
+            </hbox>
+
+            <hbox style="margin-bottom: 8px;">
+              <html:label data-l10n-id="pref-semantic-stats-zh-vectors" style="min-width: 120px;"></html:label>
+              <html:span id="semantic-stats-zh-vectors" style="color: #333;">-</html:span>
+            </hbox>
+
+            <hbox style="margin-bottom: 8px;">
+              <html:label data-l10n-id="pref-semantic-stats-en-vectors" style="min-width: 120px;"></html:label>
+              <html:span id="semantic-stats-en-vectors" style="color: #333;">-</html:span>
+            </hbox>
+
+            <hbox style="margin-bottom: 8px;">
+              <html:label data-l10n-id="pref-semantic-stats-cached-items" style="min-width: 120px;"></html:label>
+              <html:span id="semantic-stats-cached-items" style="color: #333;">-</html:span>
+            </hbox>
+
+            <hbox style="margin-bottom: 8px;">
+              <html:label data-l10n-id="pref-semantic-stats-cache-size" style="min-width: 120px;"></html:label>
+              <html:span id="semantic-stats-cache-size" style="color: #333;">-</html:span>
+            </hbox>
+
+            <hbox style="margin-bottom: 8px;">
+              <html:label data-l10n-id="pref-semantic-stats-db-size" style="min-width: 120px;"></html:label>
+              <html:span id="semantic-stats-db-size" style="color: #333;">-</html:span>
+            </hbox>
+
+            <hbox style="margin-bottom: 8px;">
+              <html:label data-l10n-id="pref-semantic-stats-dimensions" style="min-width: 120px;"></html:label>
+              <html:span id="semantic-stats-dimensions" style="color: #333;">-</html:span>
+            </hbox>
+
+            <hbox style="margin-bottom: 8px;">
+              <html:label data-l10n-id="pref-semantic-stats-int8-status" style="min-width: 120px;"></html:label>
+              <html:span id="semantic-stats-int8-status" style="color: #333;">-</html:span>
+            </hbox>
+
+            <hbox style="margin-bottom: 8px;">
+              <html:label data-l10n-id="pref-semantic-stats-status" style="min-width: 120px;"></html:label>
+              <html:span id="semantic-stats-status" style="color: #333;">-</html:span>
+            </hbox>
+
+            <!-- Index Progress Section -->
+            <vbox id="semantic-index-progress-container" style="display: none; margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9;">
+              <hbox style="margin-bottom: 8px;">
+                <html:label data-l10n-id="pref-semantic-index-progress" style="min-width: 80px;"></html:label>
+                <html:span id="semantic-index-progress-text" style="color: #333; font-weight: bold;">0/0</html:span>
+                <html:span id="semantic-index-progress-percent" style="color: #666; margin-left: 10px;">(0%)</html:span>
+              </hbox>
+              <html:div style="width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden;">
+                <html:div id="semantic-index-progress-bar" style="width: 0%; height: 100%; background: #4CAF50; transition: width 0.3s ease;"></html:div>
+              </html:div>
+              <hbox style="margin-top: 8px;">
+                <html:label data-l10n-id="pref-semantic-index-current-item" style="min-width: 80px; color: #666;"></html:label>
+                <html:span id="semantic-index-current-item" style="color: #666; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px;">-</html:span>
+              </hbox>
+              <hbox style="margin-top: 5px;">
+                <html:label data-l10n-id="pref-semantic-index-eta" style="min-width: 80px; color: #666;"></html:label>
+                <html:span id="semantic-index-eta" style="color: #666; font-size: 11px;">-</html:span>
+              </hbox>
+            </vbox>
+          </vbox>
+
+          <!-- Index Control Buttons -->
+          <html:hr style="margin: 15px 0; border: none; border-top: 1px solid #ddd;" />
+          <html:label style="font-weight: bold; margin-bottom: 10px; display: block;" data-l10n-id="pref-semantic-index-control-title"></html:label>
+
+          <hbox align="center" style="margin-bottom: 10px;">
+            <checkbox
+              id="zotero-prefpane-__addonRef__-semantic-auto-update"
+              preference="extensions.zotero.zotero-mcp-plugin.semantic.autoUpdate"
+              data-l10n-id="pref-semantic-auto-update"
+            ></checkbox>
+          </hbox>
+
+          <hbox style="margin-top: 10px; gap: 8px;">
+            <button id="build-semantic-index-button" data-l10n-id="pref-semantic-index-build-button" style="min-width: 100px;"></button>
+            <button id="rebuild-semantic-index-button" data-l10n-id="pref-semantic-index-rebuild-button" style="min-width: 100px;"></button>
+            <button id="clear-semantic-index-button" data-l10n-id="pref-semantic-index-clear-button" style="min-width: 100px;"></button>
+            <button id="pause-semantic-index-button" data-l10n-id="pref-semantic-index-pause-button" style="min-width: 80px; display: none;"></button>
+            <button id="resume-semantic-index-button" data-l10n-id="pref-semantic-index-resume-button" style="min-width: 80px; display: none;"></button>
+            <button id="abort-semantic-index-button" data-l10n-id="pref-semantic-index-abort-button" style="min-width: 80px; display: none;"></button>
+          </hbox>
+
+          <html:div id="semantic-index-message" style="margin-top: 10px; padding: 8px; border-radius: 4px; display: none;"></html:div>
+
+          <hbox style="margin-top: 15px;">
+            <button id="refresh-semantic-stats-button" data-l10n-id="pref-semantic-stats-refresh-button"></button>
+          </hbox>
+        </vbox>
+
+        <!-- Rate Limit Settings (moved from Embedding API section) -->
         <html:hr style="margin: 15px 0; border: none; border-top: 1px solid #ddd;" />
         <html:label style="font-weight: bold; margin-bottom: 10px; display: block;" data-l10n-id="pref-rate-limit-title"></html:label>
 
@@ -413,7 +639,7 @@
           <html:span style="margin-left: 5px; color: #666; font-size: 11px;">USD</html:span>
         </hbox>
 
-        <!-- API Usage Statistics -->
+        <!-- API Usage Statistics (moved from Embedding API section) -->
         <html:hr style="margin: 15px 0; border: none; border-top: 1px solid #ddd;" />
         <html:label style="font-weight: bold; margin-bottom: 10px; display: block;" data-l10n-id="pref-api-usage-title"></html:label>
 
@@ -473,188 +699,16 @@
       </vbox>
     </groupbox>
 
+    <!-- Section 6: Contact Information (collapsed by default) -->
     <groupbox style="margin-bottom: 15px;">
-      <label><html:h2 data-l10n-id="pref-semantic-stats-title"></html:h2></label>
-
-      <vbox id="semantic-stats-container">
-        <html:div id="semantic-stats-loading" data-l10n-id="pref-semantic-stats-loading" style="color: #666; font-style: italic;"></html:div>
-
-        <vbox id="semantic-stats-content" style="display: none;">
-          <hbox style="margin-bottom: 8px;">
-            <html:label data-l10n-id="pref-semantic-stats-total-items" style="min-width: 120px; font-weight: bold;"></html:label>
-            <html:span id="semantic-stats-total-items" style="color: #333;">-</html:span>
-          </hbox>
-
-          <hbox style="margin-bottom: 8px;">
-            <html:label data-l10n-id="pref-semantic-stats-total-vectors" style="min-width: 120px;"></html:label>
-            <html:span id="semantic-stats-total-vectors" style="color: #333;">-</html:span>
-          </hbox>
-
-          <hbox style="margin-bottom: 8px;">
-            <html:label data-l10n-id="pref-semantic-stats-zh-vectors" style="min-width: 120px;"></html:label>
-            <html:span id="semantic-stats-zh-vectors" style="color: #333;">-</html:span>
-          </hbox>
-
-          <hbox style="margin-bottom: 8px;">
-            <html:label data-l10n-id="pref-semantic-stats-en-vectors" style="min-width: 120px;"></html:label>
-            <html:span id="semantic-stats-en-vectors" style="color: #333;">-</html:span>
-          </hbox>
-
-          <hbox style="margin-bottom: 8px;">
-            <html:label data-l10n-id="pref-semantic-stats-cached-items" style="min-width: 120px;"></html:label>
-            <html:span id="semantic-stats-cached-items" style="color: #333;">-</html:span>
-          </hbox>
-
-          <hbox style="margin-bottom: 8px;">
-            <html:label data-l10n-id="pref-semantic-stats-cache-size" style="min-width: 120px;"></html:label>
-            <html:span id="semantic-stats-cache-size" style="color: #333;">-</html:span>
-          </hbox>
-
-          <hbox style="margin-bottom: 8px;">
-            <html:label data-l10n-id="pref-semantic-stats-db-size" style="min-width: 120px;"></html:label>
-            <html:span id="semantic-stats-db-size" style="color: #333;">-</html:span>
-          </hbox>
-
-          <hbox style="margin-bottom: 8px;">
-            <html:label data-l10n-id="pref-semantic-stats-dimensions" style="min-width: 120px;"></html:label>
-            <html:span id="semantic-stats-dimensions" style="color: #333;">-</html:span>
-          </hbox>
-
-          <hbox style="margin-bottom: 8px;">
-            <html:label data-l10n-id="pref-semantic-stats-int8-status" style="min-width: 120px;"></html:label>
-            <html:span id="semantic-stats-int8-status" style="color: #333;">-</html:span>
-          </hbox>
-
-          <hbox style="margin-bottom: 8px;">
-            <html:label data-l10n-id="pref-semantic-stats-status" style="min-width: 120px;"></html:label>
-            <html:span id="semantic-stats-status" style="color: #333;">-</html:span>
-          </hbox>
-
-          <!-- Index Progress Section -->
-          <vbox id="semantic-index-progress-container" style="display: none; margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9;">
-            <hbox style="margin-bottom: 8px;">
-              <html:label data-l10n-id="pref-semantic-index-progress" style="min-width: 80px;"></html:label>
-              <html:span id="semantic-index-progress-text" style="color: #333; font-weight: bold;">0/0</html:span>
-              <html:span id="semantic-index-progress-percent" style="color: #666; margin-left: 10px;">(0%)</html:span>
-            </hbox>
-            <html:div style="width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden;">
-              <html:div id="semantic-index-progress-bar" style="width: 0%; height: 100%; background: #4CAF50; transition: width 0.3s ease;"></html:div>
-            </html:div>
-            <hbox style="margin-top: 8px;">
-              <html:label data-l10n-id="pref-semantic-index-current-item" style="min-width: 80px; color: #666;"></html:label>
-              <html:span id="semantic-index-current-item" style="color: #666; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px;">-</html:span>
-            </hbox>
-            <hbox style="margin-top: 5px;">
-              <html:label data-l10n-id="pref-semantic-index-eta" style="min-width: 80px; color: #666;"></html:label>
-              <html:span id="semantic-index-eta" style="color: #666; font-size: 11px;">-</html:span>
-            </hbox>
-          </vbox>
-        </vbox>
-
-        <!-- Index Control Buttons -->
-        <html:hr style="margin: 15px 0; border: none; border-top: 1px solid #ddd;" />
-        <html:label style="font-weight: bold; margin-bottom: 10px; display: block;" data-l10n-id="pref-semantic-index-control-title"></html:label>
-
-        <hbox align="center" style="margin-bottom: 10px;">
-          <checkbox
-            id="zotero-prefpane-__addonRef__-semantic-auto-update"
-            preference="extensions.zotero.zotero-mcp-plugin.semantic.autoUpdate"
-            data-l10n-id="pref-semantic-auto-update"
-          ></checkbox>
-        </hbox>
-
-        <hbox style="margin-top: 10px; gap: 8px;">
-          <button id="build-semantic-index-button" data-l10n-id="pref-semantic-index-build-button" style="min-width: 100px;"></button>
-          <button id="rebuild-semantic-index-button" data-l10n-id="pref-semantic-index-rebuild-button" style="min-width: 100px;"></button>
-          <button id="clear-semantic-index-button" data-l10n-id="pref-semantic-index-clear-button" style="min-width: 100px;"></button>
-          <button id="pause-semantic-index-button" data-l10n-id="pref-semantic-index-pause-button" style="min-width: 80px; display: none;"></button>
-          <button id="resume-semantic-index-button" data-l10n-id="pref-semantic-index-resume-button" style="min-width: 80px; display: none;"></button>
-          <button id="abort-semantic-index-button" data-l10n-id="pref-semantic-index-abort-button" style="min-width: 80px; display: none;"></button>
-        </hbox>
-
-        <html:div id="semantic-index-message" style="margin-top: 10px; padding: 8px; border-radius: 4px; display: none;"></html:div>
-
-        <hbox style="margin-top: 15px;">
-          <button id="refresh-semantic-stats-button" data-l10n-id="pref-semantic-stats-refresh-button"></button>
-        </hbox>
-      </vbox>
-    </groupbox>
-
-    <groupbox style="margin-bottom: 15px;">
-      <label><html:h2 data-l10n-id="pref-client-config-title"></html:h2></label>
-    <html:p data-l10n-id="pref-client-config-description"></html:p>
-    
-    <vbox>
-      <hbox align="center" style="margin-bottom: 10px;">
-        <html:label for="client-type-select" data-l10n-id="pref-client-type-label" style="min-width: 80px;"></html:label>
-        <html:select id="client-type-select" style="flex: 1; max-width: 200px;">
-          <html:option value="claude-code">Claude Code</html:option>
-          <html:option value="claude-desktop">Claude Desktop</html:option>
-          <html:option value="cline-vscode">Cline (VS Code)</html:option>
-          <html:option value="continue-dev">Continue.dev</html:option>
-          <html:option value="cursor">Cursor</html:option>
-          <html:option value="cherry-studio">Cherry Studio</html:option>
-          <html:option value="gemini-cli">Gemini CLI</html:option>
-          <html:option value="chatbox">Chatbox</html:option>
-          <html:option value="trae-ai">Trae AI</html:option>
-          <html:option value="qwen-code">Qwen Code</html:option>
-          <html:option value="custom-http" data-l10n-id="pref-client-custom-http"></html:option>
-        </html:select>
-      </hbox>
-      
-      <hbox align="center" style="margin-bottom: 15px;">
-        <html:label for="server-name-input" data-l10n-id="pref-server-name-label" style="min-width: 80px;"></html:label>
-        <html:input
-          type="text"
-          id="server-name-input"
-          value="zotero-mcp"
-          placeholder="zotero-mcp"
-          style="flex: 1; max-width: 200px;"
-        />
-      </hbox>
-    </vbox>
-    
-    <hbox style="margin-bottom: 15px;">
-      <button
-        id="generate-config-button"
-        data-l10n-id="pref-generate-config-button"
-        style="margin-right: 10px;"
-      ></button>
-      <button
-        id="copy-config-button"
-        data-l10n-id="pref-copy-config-button"
-        disabled="true"
-      ></button>
-    </hbox>
-    
-    <hbox style="gap: 15px;">
-      <vbox style="flex: 1;">
-        <html:label data-l10n-id="pref-config-output-label" style="margin-bottom: 5px;"></html:label>
-        <html:textarea
-          id="config-output"
-          rows="12"
-          readonly="true"
-          style="width: 100%; font-family: monospace; font-size: 12px; resize: vertical;"
-          data-l10n-id="pref-config-output-placeholder"
-        ></html:textarea>
-      </vbox>
-      
-      <vbox style="flex: 1;">
-        <html:label style="margin-bottom: 5px; font-weight: bold;" data-l10n-id="pref-config-guide-title"></html:label>
-        <html:div
-          id="config-guide"
-          style="border: 1px solid #ccc; border-radius: 4px; padding: 15px; background-color: #f9f9f9; height: 300px; overflow-y: auto; font-size: 12px; line-height: 1.4;"
-        >
-          <html:div style="color: #666; font-style: italic;" data-l10n-id="pref-config-guide-placeholder">
-          </html:div>
-        </html:div>
-      </vbox>
-    </hbox>
-    </groupbox>
-    
-    <groupbox style="margin-bottom: 15px;">
-      <label><html:h2 data-l10n-id="pref-contact-title"></html:h2></label>
-      <vbox>
+      <label><html:h2
+        id="section-contact-heading"
+        data-l10n-id="pref-contact-title"
+        style="cursor: pointer; user-select: none;"
+        onclick="var body = document.getElementById('section-contact-body'); var isHidden = body.style.display === 'none'; body.style.display = isHidden ? '' : 'none'; this.setAttribute('data-collapsed', isHidden ? 'false' : 'true');"
+        data-collapsed="true"
+      ></html:h2></label>
+      <vbox id="section-contact-body" style="display: none;">
         <html:div style="margin: 5px 0;">
           <html:a
             href="https://github.com/lricher7329/zotero-mcp-claude-code"
@@ -673,7 +727,7 @@
         </html:div>
       </vbox>
     </groupbox>
-    
+
     <vbox>
       <html:label
         data-l10n-id="pref-help"
