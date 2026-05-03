@@ -1256,11 +1256,12 @@ export async function handleImportAttachmentURL(args: {
     parentItemID = parentItem.id;
   }
 
-  // PMC `/pdf/` URLs serve an HTML gateway that points at the actual
-  // PDF via <meta name="citation_pdf_url">. Resolve it here so Zotero
-  // gets handed the real file URL. Best-effort — null on any failure
-  // means "fall back to the original URL".
+  // PMC `/pdf/` URLs are gated by a proof-of-work cookie that
+  // server-side fetchers can't satisfy. Reroute through EuropePMC's
+  // mirror, which serves the same OA content without the gate.
+  // Best-effort — null on any failure means "fall back to original".
   let importURL = args.url;
+  let resolvedViaPMCMirror = false;
   const pmcResolved = await resolvePMCPDFURL(args.url);
   if (pmcResolved && pmcResolved !== args.url) {
     const resolvedError = validateAttachmentURL(pmcResolved);
@@ -1272,11 +1273,18 @@ export async function handleImportAttachmentURL(args: {
       );
     } else {
       importURL = pmcResolved;
+      resolvedViaPMCMirror = true;
     }
   }
 
+  // The resolver HEAD-verified the mirror URL serves application/pdf,
+  // but its path doesn't end in `.pdf` (it's a query-driven endpoint),
+  // so the URL-shape heuristic wouldn't catch it. Force the type.
   const resolvedContentType =
-    args.contentType ?? inferContentTypeFromURL(importURL);
+    args.contentType ??
+    (resolvedViaPMCMirror
+      ? "application/pdf"
+      : inferContentTypeFromURL(importURL));
 
   const importOptions: any = {
     libraryID,

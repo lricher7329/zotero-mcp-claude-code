@@ -1,20 +1,25 @@
 /**
  * PubMed Central PDF URL resolver.
  *
- * PMC `/pdf/` URLs (e.g. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1234567/pdf/)
- * frequently serve an HTML gateway page rather than the PDF itself, even
- * though the canonical `<meta name="citation_pdf_url">` on that page
- * points at the actual file. Zotero's `importFromURL` can't follow that
- * indirection, so it either snapshots the gateway HTML (wrong file) or
- * surfaces "Downloaded file was not a supported type".
+ * PMC's `/pdf/` URLs (e.g. https://pmc.ncbi.nlm.nih.gov/articles/PMC1234567/pdf/)
+ * are gated behind a proof-of-work challenge: every PDF URL — including
+ * the one advertised in the article landing page's
+ * `<meta name="citation_pdf_url">` — returns a ~1.8 KB JS loader that
+ * computes a `cloudpmc-viewer-pow` cookie before the real PDF is served.
+ * Server-side HTTP clients (Zotero, curl, anything without a JS engine)
+ * can't satisfy that gate and end up downloading the loader HTML in
+ * place of the PDF, which Zotero then rejects as "not a supported type".
  *
- * This module resolves a PMC PDF URL to the underlying PDF URL by
- * fetching the gateway and extracting `citation_pdf_url`. Designed to be
- * called from `handleImportAttachmentURL` before the URL is handed to
- * Zotero.
+ * EuropePMC (operated by EMBL-EBI) mirrors the same OA content without
+ * the PoW gate. Their `https://europepmc.org/articles/PMC{ID}?pdf=render`
+ * endpoint 302s to a plain `application/pdf` response. This module
+ * detects PMC PDF URLs and reroutes them through EuropePMC, falling
+ * back silently when EuropePMC doesn't have the article (non-OA, or any
+ * other failure).
  *
  * Scope: deliberately narrow. Only PMC PDF-shaped URLs trigger
- * resolution; anything else is left untouched. Resolved URLs are
+ * resolution. The HEAD-verification step keeps us from handing Zotero a
+ * URL that won't actually serve a PDF, and resolved URLs are
  * re-validated by the caller through the SSRF guard.
  */
 
@@ -61,91 +66,70 @@ export function isPMCPDFURL(url: string): boolean {
   }
 }
 
-/**
- * Extract the value of the Highwire/Google-Scholar `citation_pdf_url`
- * meta tag from raw HTML. Handles both attribute orders
- * (name-then-content and content-then-name) and HTML-decodes a small
- * subset of entities commonly seen in URLs (`&amp;`).
- *
- * Returns null if no such tag is present.
- */
-export function extractCitationPDFURL(html: string): string | null {
-  if (!html) return null;
-  const patterns = [
-    /<meta[^>]*\bname=["']citation_pdf_url["'][^>]*\bcontent=["']([^"']+)["']/i,
-    /<meta[^>]*\bcontent=["']([^"']+)["'][^>]*\bname=["']citation_pdf_url["']/i,
-  ];
-  for (const re of patterns) {
-    const m = html.match(re);
-    if (m && m[1]) {
-      // Minimal HTML entity decode — citation_pdf_url URLs occasionally
-      // contain &amp; in query strings.
-      return m[1].replace(/&amp;/gi, "&");
-    }
+/** Pull the canonical PMC#### identifier out of a PMC URL. */
+export function extractPMCID(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (!PMC_HOSTS.has(u.hostname.toLowerCase())) return null;
+    const m = u.pathname.match(/\/(?:pmc\/)?articles\/(PMC\d+)/i);
+    return m ? m[1].toUpperCase() : null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 /**
- * Resolve a PMC PDF URL to the underlying PDF URL.
+ * Resolve a PMC PDF URL to a fetchable equivalent.
  *
  * Returns:
- *   - A new URL string if the gateway HTML pointed at a different PDF.
- *   - `null` if no resolution was needed or possible. Specifically:
- *       * URL isn't a PMC PDF URL (caller should pass through unchanged).
- *       * Server returned the PDF directly (no indirection to resolve).
- *       * Network/parse error (caller falls back to original URL).
- *       * Resolved URL equals the input (no actual indirection).
+ *   - The EuropePMC PDF URL (`https://europepmc.org/articles/PMC...?pdf=render`)
+ *     if EuropePMC confirms it serves a PDF for that PMCID.
+ *   - `null` for any of:
+ *       * URL isn't a PMC PDF URL (caller passes through unchanged).
+ *       * PMCID couldn't be extracted from the URL.
+ *       * EuropePMC HEAD returned non-200 or non-PDF (article isn't on
+ *         EuropePMC, e.g. non-OA).
+ *       * Network/timeout error during the HEAD probe.
  *
- * Never throws — designed to be a best-effort enhancement, never a
- * blocker. All failure modes log and return null.
+ * Never throws — designed as a best-effort enhancement, never a blocker.
  */
 export async function resolvePMCPDFURL(url: string): Promise<string | null> {
   if (!isPMCPDFURL(url)) return null;
 
+  const pmcid = extractPMCID(url);
+  if (!pmcid) return null;
+
+  const europepmcURL = `https://europepmc.org/articles/${pmcid}?pdf=render`;
+
   try {
-    const xhr = await Zotero.HTTP.request("GET", url, {
-      responseType: "text",
+    const xhr = await Zotero.HTTP.request("HEAD", europepmcURL, {
       timeout: 15000,
     });
 
     if (!xhr || xhr.status !== 200) {
       ztoolkit?.log?.(
-        `[PMCResolver] Non-200 (${xhr?.status}) for ${url}; skipping resolution`,
+        `[PMCResolver] EuropePMC HEAD ${xhr?.status} for ${pmcid}; falling back`,
       );
       return null;
     }
 
-    const contentType = (
+    const ct = (
       (typeof xhr.getResponseHeader === "function" &&
         xhr.getResponseHeader("Content-Type")) ||
       ""
     ).toLowerCase();
-
-    // Server actually delivered a PDF. No indirection — let Zotero fetch
-    // this same URL with `contentType: application/pdf` and it'll work.
-    if (contentType.includes("application/pdf")) {
+    if (!ct.includes("application/pdf")) {
+      ztoolkit?.log?.(
+        `[PMCResolver] EuropePMC didn't return PDF for ${pmcid} (${ct}); falling back`,
+      );
       return null;
     }
 
-    // We expected HTML to scrape. If it's neither HTML nor PDF, give up.
-    if (!contentType.includes("html") && !contentType.includes("xml")) {
-      return null;
-    }
-
-    const html = typeof xhr.responseText === "string" ? xhr.responseText : "";
-    const resolved = extractCitationPDFURL(html);
-    if (!resolved) {
-      ztoolkit?.log?.(`[PMCResolver] No citation_pdf_url in HTML for ${url}`);
-      return null;
-    }
-    if (resolved === url) return null;
-
-    ztoolkit?.log?.(`[PMCResolver] Resolved ${url} → ${resolved}`);
-    return resolved;
+    ztoolkit?.log?.(`[PMCResolver] Resolved ${url} → ${europepmcURL}`);
+    return europepmcURL;
   } catch (err: any) {
     ztoolkit?.log?.(
-      `[PMCResolver] Error resolving ${url}: ${err?.message || err}`,
+      `[PMCResolver] EuropePMC HEAD failed for ${pmcid}: ${err?.message || err}`,
     );
     return null;
   }

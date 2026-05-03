@@ -1,15 +1,19 @@
 /**
  * Regression tests for pmcURLResolver.
  *
- * The resolver exists because PMC `/pdf/` URLs serve an HTML gateway
- * page (with the real PDF in <meta name="citation_pdf_url">) rather than
- * the PDF itself. This pair of tests pins:
- *   1. The pure URL-shape detection — only PMC PDF URLs trigger the
- *      network round-trip.
- *   2. The pure HTML extraction — the citation_pdf_url meta tag is read
- *      regardless of attribute order.
- *   3. The async resolver behavior — short-circuits when the server
- *      already returns a PDF, falls through silently on any failure.
+ * The resolver exists because PMC `/pdf/` URLs are gated by a
+ * proof-of-work cookie (`cloudpmc-viewer-pow`) that server-side HTTP
+ * clients can't compute — every PDF URL, including the one in the
+ * landing page's `<meta name="citation_pdf_url">`, returns a ~1.8 KB JS
+ * loader instead of the file. EuropePMC mirrors the same OA content
+ * without that gate, so the resolver reroutes PMC PDF URLs through
+ * `https://europepmc.org/articles/PMC#?pdf=render`.
+ *
+ * Tests pin:
+ *   1. Pure URL-shape detection — only PMC PDF URLs trigger the network.
+ *   2. PMCID extraction from various PMC URL forms.
+ *   3. The async resolver's behaviour: rewrite to EuropePMC when the
+ *      mirror serves a PDF; fall through silently when it doesn't.
  *
  * No real network calls; Zotero.HTTP is stubbed per-test.
  */
@@ -20,15 +24,14 @@ import { expect } from "chai";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const resolver = require("../src/modules/pmcURLResolver");
-const { isPMCURL, isPMCPDFURL, extractCitationPDFURL, resolvePMCPDFURL } =
-  resolver as {
-    isPMCURL: (url: string) => boolean;
-    isPMCPDFURL: (url: string) => boolean;
-    extractCitationPDFURL: (html: string) => string | null;
-    resolvePMCPDFURL: (url: string) => Promise<string | null>;
-  };
+const { isPMCURL, isPMCPDFURL, extractPMCID, resolvePMCPDFURL } = resolver as {
+  isPMCURL: (url: string) => boolean;
+  isPMCPDFURL: (url: string) => boolean;
+  extractPMCID: (url: string) => string | null;
+  resolvePMCPDFURL: (url: string) => Promise<string | null>;
+};
 
-/** Per-test Zotero.HTTP stub. Reset in beforeEach. */
+/** Per-test Zotero.HTTP stub. */
 function stubHTTP(impl: (method: string, url: string, opts: any) => any): void {
   (globalThis as any).Zotero = {
     ...((globalThis as any).Zotero || {}),
@@ -96,45 +99,40 @@ describe("pmcURLResolver", function () {
     });
 
     it("rejects a PMC URL without articles/PMC#### path", function () {
-      // E.g. NCBI homepage or unrelated PMC tooling.
       expect(isPMCPDFURL("https://www.ncbi.nlm.nih.gov/about/pdf/")).to.be
         .false;
     });
   });
 
-  describe("extractCitationPDFURL", function () {
-    it("extracts when name precedes content", function () {
-      const html =
-        '<meta name="citation_pdf_url" content="https://cdn.ncbi.nlm.nih.gov/pmc/articles/PMC9679560/pdf/x.pdf">';
-      expect(extractCitationPDFURL(html)).to.equal(
-        "https://cdn.ncbi.nlm.nih.gov/pmc/articles/PMC9679560/pdf/x.pdf",
-      );
+  describe("extractPMCID", function () {
+    it("pulls PMC#### from a www-host article path", function () {
+      expect(
+        extractPMCID("https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9679560/"),
+      ).to.equal("PMC9679560");
     });
 
-    it("extracts when content precedes name", function () {
-      const html =
-        '<meta content="https://cdn.example.org/x.pdf" name="citation_pdf_url" />';
-      expect(extractCitationPDFURL(html)).to.equal(
-        "https://cdn.example.org/x.pdf",
-      );
+    it("pulls PMC#### from a pmc-host article path", function () {
+      expect(
+        extractPMCID("https://pmc.ncbi.nlm.nih.gov/articles/PMC9679560/pdf/"),
+      ).to.equal("PMC9679560");
     });
 
-    it("decodes &amp; in URLs", function () {
-      const html =
-        '<meta name="citation_pdf_url" content="https://example.org/x.pdf?a=1&amp;b=2">';
-      expect(extractCitationPDFURL(html)).to.equal(
-        "https://example.org/x.pdf?a=1&b=2",
-      );
+    it("normalizes case to upper", function () {
+      expect(
+        extractPMCID("https://pmc.ncbi.nlm.nih.gov/articles/pmc12345/"),
+      ).to.equal("PMC12345");
     });
 
-    it("returns null when the tag is absent", function () {
-      expect(extractCitationPDFURL("<html><body>nope</body></html>")).to.equal(
+    it("returns null for non-PMC hosts", function () {
+      expect(extractPMCID("https://example.org/articles/PMC123/")).to.equal(
         null,
       );
     });
 
-    it("returns null on empty input", function () {
-      expect(extractCitationPDFURL("")).to.equal(null);
+    it("returns null when no PMCID is in the path", function () {
+      expect(extractPMCID("https://pmc.ncbi.nlm.nih.gov/about/")).to.equal(
+        null,
+      );
     });
   });
 
@@ -150,90 +148,76 @@ describe("pmcURLResolver", function () {
       expect(called).to.equal(false);
     });
 
-    it("returns null when the gateway already serves a PDF", async function () {
-      // No indirection needed — Zotero will fetch the same URL and get
-      // the PDF directly. Returning null tells the caller "use original".
-      stubHTTP(() =>
-        Promise.resolve({
+    it("rewrites to EuropePMC when the mirror confirms PDF", async function () {
+      let requestedURL: string | null = null;
+      stubHTTP((method, url) => {
+        requestedURL = url;
+        expect(method).to.equal("HEAD");
+        return Promise.resolve({
           status: 200,
           getResponseHeader: (h: string) =>
             h.toLowerCase() === "content-type" ? "application/pdf" : null,
-          responseText: "",
+        });
+      });
+      const out = await resolvePMCPDFURL(
+        "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9679560/pdf/",
+      );
+      expect(out).to.equal(
+        "https://europepmc.org/articles/PMC9679560?pdf=render",
+      );
+      expect(requestedURL).to.equal(
+        "https://europepmc.org/articles/PMC9679560?pdf=render",
+      );
+    });
+
+    it("returns null when EuropePMC HEAD is not 200 (article not on mirror)", async function () {
+      stubHTTP(() =>
+        Promise.resolve({
+          status: 404,
+          getResponseHeader: () => null,
         }),
       );
       const out = await resolvePMCPDFURL(
-        "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9679560/pdf/",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC9679560/pdf/",
       );
       expect(out).to.equal(null);
     });
 
-    it("extracts citation_pdf_url from an HTML gateway response", async function () {
-      const cdn =
-        "https://cdn.ncbi.nlm.nih.gov/pmc/articles/PMC9679560/pdf/10.1177_17407745221110199.pdf";
-      stubHTTP(() =>
-        Promise.resolve({
-          status: 200,
-          getResponseHeader: (h: string) =>
-            h.toLowerCase() === "content-type"
-              ? "text/html; charset=utf-8"
-              : null,
-          responseText: `<html><head><meta name="citation_pdf_url" content="${cdn}"></head></html>`,
-        }),
-      );
-      const out = await resolvePMCPDFURL(
-        "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9679560/pdf/",
-      );
-      expect(out).to.equal(cdn);
-    });
-
-    it("returns null when HTML lacks citation_pdf_url", async function () {
+    it("returns null when EuropePMC returns 200 but not a PDF", async function () {
       stubHTTP(() =>
         Promise.resolve({
           status: 200,
           getResponseHeader: (h: string) =>
             h.toLowerCase() === "content-type" ? "text/html" : null,
-          responseText: "<html><body>no meta tag</body></html>",
         }),
       );
       const out = await resolvePMCPDFURL(
-        "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9679560/pdf/",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC9679560/pdf/",
       );
       expect(out).to.equal(null);
     });
 
-    it("returns null when extracted URL equals the input (loop guard)", async function () {
-      const url = "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9679560/pdf/";
+    it("returns null on network failure", async function () {
+      stubHTTP(() => Promise.reject(new Error("timeout")));
+      const out = await resolvePMCPDFURL(
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC9679560/pdf/",
+      );
+      expect(out).to.equal(null);
+    });
+
+    it("works for the cdn-host PDF URL pattern too", async function () {
       stubHTTP(() =>
         Promise.resolve({
           status: 200,
-          getResponseHeader: () => "text/html",
-          responseText: `<meta name="citation_pdf_url" content="${url}">`,
-        }),
-      );
-      const out = await resolvePMCPDFURL(url);
-      expect(out).to.equal(null);
-    });
-
-    it("returns null on HTTP error (network failure)", async function () {
-      stubHTTP(() => Promise.reject(new Error("timeout")));
-      const out = await resolvePMCPDFURL(
-        "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9679560/pdf/",
-      );
-      expect(out).to.equal(null);
-    });
-
-    it("returns null on non-200 response", async function () {
-      stubHTTP(() =>
-        Promise.resolve({
-          status: 403,
-          getResponseHeader: () => "text/html",
-          responseText: "",
+          getResponseHeader: () => "application/pdf",
         }),
       );
       const out = await resolvePMCPDFURL(
-        "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9679560/pdf/",
+        "https://cdn.ncbi.nlm.nih.gov/pmc/articles/PMC9679560/pdf/x.pdf",
       );
-      expect(out).to.equal(null);
+      expect(out).to.equal(
+        "https://europepmc.org/articles/PMC9679560?pdf=render",
+      );
     });
   });
 });
