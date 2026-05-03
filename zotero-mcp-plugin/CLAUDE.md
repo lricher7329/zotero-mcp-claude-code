@@ -11,6 +11,12 @@ A Zotero plugin that provides MCP (Model Context Protocol) server functionality,
 - zotero-plugin-scaffold for building
 - SQLite for semantic search index
 
+## Compatibility
+
+- **Zotero versions:** 7, 8, and 9 (manifest declares `strict_min_version: "6.999"`, `strict_max_version: "9.*"` in `update.json`)
+- **Runtime:** Firefox 115 (ESR) — that's what Zotero ships
+- **Platforms:** developed/tested on macOS; standard Streamable HTTP MCP so should run anywhere Zotero does, but other platforms not verified by maintainer
+
 ## Key Directories
 
 - `src/` - TypeScript source code
@@ -35,7 +41,7 @@ A GitHub Actions workflow at `/.github/workflows/release.yml` automates releases
 
 1. Bump version in four files:
    - `package.json` — `"version": "X.Y.Z"`
-   - `src/modules/httpServer.ts` — `version: "X.Y.Z"` in serverInfo
+   - `src/modules/httpServer.ts` — `export const SERVER_INFO_VERSION = "X.Y.Z"` (single source of truth; consumed by `streamableMCPServer.ts` and `/capabilities` endpoint)
    - `update.json` — add new entry with version and update_link
    - `../README.md` — update version badge to `X.Y.Z`
 2. Update lockfile: `npm install --package-lock-only`
@@ -51,12 +57,12 @@ A GitHub Actions workflow at `/.github/workflows/release.yml` automates releases
 
 ### Version files summary
 
-| File                        | Field                | Purpose                                             |
-| --------------------------- | -------------------- | --------------------------------------------------- |
-| `package.json`              | `version`            | npm/build version, used by scaffold                 |
-| `src/modules/httpServer.ts` | `serverInfo.version` | Reported in `/capabilities` endpoint                |
-| `update.json`               | `updates[]` entry    | Zotero auto-update manifest (append, don't replace) |
-| `../README.md`              | Version badge        | Display version in repo README                      |
+| File                        | Field                 | Purpose                                                                                               |
+| --------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------- |
+| `package.json`              | `version`             | npm/build version, used by scaffold                                                                   |
+| `src/modules/httpServer.ts` | `SERVER_INFO_VERSION` | Single source of truth for runtime version; reported in `/capabilities`, `/initialize`, `/mcp/status` |
+| `update.json`               | `updates[]` entry     | Zotero auto-update manifest (append, don't replace)                                                   |
+| `../README.md`              | Version badge         | Display version in repo README                                                                        |
 
 ## Important Patterns
 

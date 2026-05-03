@@ -3,11 +3,11 @@
 A Zotero plugin that exposes your library to AI assistants via the [Model Context Protocol](https://modelcontextprotocol.org/) (MCP). This fork adds Claude Code compatibility and write operations.
 
 [![GitHub](https://img.shields.io/badge/GitHub-zotero--mcp--claude--code-blue?logo=github)](https://github.com/lricher7329/zotero-mcp-claude-code)
-[![Zotero](https://img.shields.io/badge/Zotero-7-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
+[![Zotero](https://img.shields.io/badge/Zotero-7--9-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
 [![Version](https://img.shields.io/badge/Version-1.8.0-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
-> **Note:** This fork has been developed and tested with **Claude Code** on **Zotero 7 for macOS** (latest macOS). It uses standard MCP over Streamable HTTP, so it should work with any MCP-compatible client and platform, but other clients and operating systems have not been tested by this fork's author.
+> **Note:** This fork has been developed and tested with **Claude Code** on **Zotero 7–9 for macOS** (latest macOS). The plugin manifest declares compatibility with Zotero 7, 8, and 9. It uses standard MCP over Streamable HTTP, so it should work with any MCP-compatible client and platform, but other clients and operating systems have not been tested by this fork's author.
 
 ---
 
@@ -45,6 +45,24 @@ Or add to your MCP config (`~/.claude.json` or `.mcp.json`):
   }
 }
 ```
+
+If you've enabled **Require auth token on local connections** (or **Allow remote access** — which forces auth regardless), copy the token from the prefs UI and add it as a header:
+
+```json
+{
+  "mcpServers": {
+    "zotero-mcp": {
+      "type": "http",
+      "url": "http://127.0.0.1:23120/mcp",
+      "headers": {
+        "Authorization": "Bearer zmcp_<your-token>"
+      }
+    }
+  }
+}
+```
+
+See [Authentication](#authentication) below.
 
 ### 3. Verify
 
@@ -133,13 +151,97 @@ The plugin preferences include a **Client Configuration Generator** that produce
 | `batch_trash` | Trash multiple items at once (max 100) |
 | `restore_from_trash` | Restore a trashed item back to the library |
 
-Write tools are gated behind the **"Allow write operations"** checkbox in Zotero preferences (**Settings > Zotero MCP for Claude Code > MCP Server**). They only appear in the tool list when enabled.
+Write tools are gated by **per-scope opt-in checkboxes** in preferences (see [Write scopes](#write-scopes) below). Tools whose scopes are disabled are hidden from the `tools/list` response — they don't just fail-on-call, they don't exist as far as the client can see.
+
+## Authentication
+
+The plugin auto-generates a per-install bearer token on first start, stored in the `extensions.zotero.zotero-mcp-plugin.mcp.server.authToken` preference and surfaced in **Settings → Zotero MCP for Claude Code → MCP Server → Authentication** with **Copy** and **Regenerate** buttons.
+
+| Pref | Default | Behavior |
+|---|---|---|
+| `mcp.server.allowRemote` | `false` | When `true`, listener binds `0.0.0.0` and **auth is mandatory** regardless of `requireAuth` |
+| `mcp.server.requireAuth` | `false` | When `true`, loopback callers must also present the token |
+
+When auth is required, send the token via either:
+
+```http
+Authorization: Bearer zmcp_<48-hex-chars>
+```
+
+or
+
+```http
+X-Zotero-MCP-Token: zmcp_<48-hex-chars>
+```
+
+`X-Zotero-MCP-Token` exists for browser-extension callers that can't set `Authorization`. Both headers force a CORS preflight, defeating drive-by simple-form CSRF.
+
+Loopback default (no auth) keeps existing client configs working out of the box. Public-facing or shared-machine setups should enable `requireAuth`. The `/ping`, `/capabilities`, `/help`, `/mcp/status`, and `GET /mcp` endpoints stay open even when auth is on, so health checks and config generators don't need credentials.
+
+**Regenerating the token** invalidates every existing client config — clients will get 401 until you update them.
+
+### Defense-in-depth checks (always on)
+
+These run regardless of auth state:
+
+- `Origin: null` (sandboxed iframes, `file://`, cross-origin redirects) is rejected
+- `POST /mcp` requires `Content-Type: application/json` (defeats `text/plain` CSRF via simple form POST)
+- `Host` header must be loopback when `allowRemote=false`
+- Duplicate `Host` headers rejected
+- `Mcp-Session-Id` validated against `^mcp-[a-f0-9-]{8,80}$` and capped at 256 active sessions with LRU eviction
+- Global + per-IP + per-session token-bucket rate limits, with a stricter bucket on write tools
+- 10s wall-clock deadline on full request body read
+- `Content-Length > 1MB` rejected before reading
+
+## Write scopes
+
+`mcp.write.enabled` (single boolean) was replaced in v1.8.0 by **seven granular scopes**. A tool is only exposed in `tools/list` when **every scope it requires** is enabled.
+
+| Scope pref | Tools |
+|---|---|
+| `mcp.write.notes` | `add_note`, `update_note` |
+| `mcp.write.tags` | `add_tags`, `remove_tags` |
+| `mcp.write.collections` | `add_to_collection`, `remove_from_collection`, `create_collection`, `rename_collection`, `move_collection`, `move_item_to_collection` |
+| `mcp.write.metadata` | `create_item`, `update_item`, `add_related_item`, `remove_related_item` |
+| `mcp.write.delete` ⚠ | `trash_item`, `restore_from_trash`, `delete_collection` |
+| `mcp.write.bulk` ⚠ | (combined with another scope on bulk operations — see below) |
+| `mcp.write.import` ⚠ | `import_attachment_url` (SSRF risk) |
+
+Scopes marked ⚠ are destructive and default to off. Multi-scope tools require **all** listed scopes:
+
+| Tool | Scopes required |
+|---|---|
+| `batch_tag` | `bulk` + `tags` |
+| `batch_add_to_collection` | `bulk` + `collections` |
+| `batch_remove_from_collection` | `bulk` + `collections` |
+| `batch_trash` | `bulk` + `delete` |
+| `delete_tag` | `delete` + `bulk` (library-wide) |
+| `rename_tag` | `tags` + `bulk` (library-wide rewrite) |
+| `delete_collection` with `deleteItems: true` | `delete` + `bulk` |
+
+### Migration from `mcp.write.enabled`
+
+On first run after upgrading from v1.7.0 or earlier:
+
+- If the legacy `mcp.write.enabled` was `true`, the safe scopes (`notes`, `tags`, `collections`, `metadata`) migrate **on**; the destructive scopes (`delete`, `bulk`, `import`) stay **off**. Re-enable them deliberately if you need them.
+- If `mcp.write.enabled` was unset or `false`, all scopes default to off.
+
+### Reading scope state programmatically
+
+```js
+Zotero.Prefs.get("extensions.zotero.zotero-mcp-plugin.mcp.write.metadata", true)
+// → true | false | undefined
+```
+
+The same pref keys appear in `~/Library/Application Support/Zotero/Profiles/<profile>/prefs.js`.
 
 ## Plugin preferences
 
 Configure in **Zotero > Settings > Zotero MCP for Claude Code**:
 
-- **MCP Server** -- Enable/disable, port (default 23120), remote access, write operations
+- **MCP Server** -- Enable/disable, port (default 23120), remote access
+- **Authentication** -- Bearer token (Copy / Regenerate), require-auth-on-loopback toggle
+- **Write Scopes** -- Per-scope opt-in (notes, tags, collections, metadata, delete, bulk, import)
 - **Client Configuration Generator** -- Generate config JSON for any supported AI client
 - **MCP Content Settings** -- Content processing mode (minimal/preview/standard/complete/custom), max tokens
 - **Semantic Search** -- Embedding provider (OpenAI, Ollama, etc.), model, dimensions, API key
@@ -159,7 +261,7 @@ The vector index is stored locally in SQLite with Int8 quantization for efficien
 
 ### Prerequisites
 
-- Zotero 7+
+- Zotero 7, 8, or 9
 - Node.js 18+
 
 ### Setup
@@ -180,23 +282,27 @@ npm run lint:check   # Prettier + ESLint
 
 ### Endpoints
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/mcp` | POST | MCP JSON-RPC requests |
-| `/mcp` | GET | SSE event stream |
-| `/mcp` | DELETE | Session termination |
-| `/ping` | GET | Health check |
-| `/mcp/status` | GET | Server status |
-| `/capabilities` | GET | Server capabilities |
+| Endpoint | Method | Purpose | Auth required when `requireAuth=true` |
+|----------|--------|---------|---|
+| `/mcp` | POST | MCP JSON-RPC 2.0 requests | yes |
+| `/mcp` | GET | Endpoint info (JSON) | no |
+| `/mcp` | DELETE | Session termination (per MCP 2025-03-26 spec) | no |
+| `/ping` | GET | Health check (returns `pong`) | no |
+| `/mcp/status` | GET | Server status | no |
+| `/capabilities` | GET | Server capabilities (also at `/help`, `/mcp/capabilities`) | no |
+
+**Protocol versions supported:** `2024-11-05` and `2025-03-26` (negotiated via `initialize`).
 
 ## Fork changes
 
 This fork ([lricher7329/zotero-mcp-claude-code](https://github.com/lricher7329/zotero-mcp-claude-code)) adds the following on top of the upstream [cookjohn/zotero-mcp](https://github.com/cookjohn/zotero-mcp):
 
-- **Claude Code compatibility** -- Proper request body reading, Accept header validation, DELETE method, notification handling, batch requests, multi-version protocol support
-- **Write operations** -- 15 MCP write tools for creating/updating items, notes, tags, collections, relations, and attachments, plus batch operations and trash management
+- **Claude Code compatibility** -- Proper request body reading, Accept header validation, DELETE method, notification handling, batch requests, dual protocol version support (`2024-11-05` + `2025-03-26`)
+- **Write operations** -- ~24 MCP write tools for creating/updating items, notes, tags, collections, relations, and attachments, plus batch operations and trash management — all gated by per-scope opt-ins
 - **Library introspection** -- Schema discovery tools (item types, creator types, field lists), library stats, trash listing, recently modified items
-- **Security hardening** -- ReDoS protection, request size limits, SQL injection fixes, rate limiting, strong session IDs
+- **Security hardening (v1.8.0)** -- Per-install bearer token auth; Origin/Content-Type CSRF protection; per-scope write opt-ins (destructive ops default off); global + per-IP + per-session rate limits; SSRF guard with IPv6-mapped-IPv4 and decimal/octal IPv4 detection; itemKey/collectionKey format validation; session ID hardening with LRU cap; body-read deadline; sanitized error messages
+- **MCP/JSON-RPC compliance fixes (v1.8.0)** -- Tool execution failures returned as `result.isError` (LLM can recover) rather than `-32603`; argument validation maps to `-32602`; parse-error `id: null` per spec; `notifications/initialized` correct; empty batch returns `-32600`; dropped false `tools.listChanged` advertisement
+- **`get_item_details` mode=complete** -- Now enumerates all item-type fields via `Zotero.ItemFields.getItemTypeFields`, including `extra` (PMID/PMCID/citation key per Zotero convention), `collections` membership, `dateAdded`/`dateModified`/`accessDate`. Critical for downstream identifier extraction.
 - **Codebase audit** -- Typed errors, API validation, singleton fixes, batched queries, module refactoring, 37 unit tests
 
 ## License

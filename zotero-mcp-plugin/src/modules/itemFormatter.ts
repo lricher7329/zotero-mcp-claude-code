@@ -342,7 +342,9 @@ export async function formatItem(
           break;
         case "dateAdded":
         case "dateModified":
-        case "accessDate":
+          // These two are direct properties on the Zotero.Item, not
+          // accessible via getField. accessDate IS a regular field, so it
+          // falls through to the default branch.
           try {
             formattedItem[field] = safeGetString((item as any)[field]);
           } catch {
