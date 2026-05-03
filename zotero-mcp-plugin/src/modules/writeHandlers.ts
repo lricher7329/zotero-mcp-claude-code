@@ -12,6 +12,7 @@ declare let Zotero: any;
 declare let ztoolkit: ZToolkit;
 
 import { serverPreferences, type WriteScope } from "./serverPreferences";
+import { resolvePMCPDFURL } from "./pmcURLResolver";
 
 const ZOTERO_KEY_RE = /^[A-Z0-9]{8}$/;
 
@@ -1194,10 +1195,47 @@ function isPrivateIPv4(ip: [number, number, number, number]): boolean {
   );
 }
 
+/**
+ * Infer a MIME type from a URL when the caller didn't supply one.
+ *
+ * Zotero's `importFromURL` has two internal paths: a binary-download path
+ * (used when `contentType` is supplied and isn't `text/html`) and an
+ * HTML-snapshot path that runs the URL through a hidden browser plus
+ * SingleFile. The snapshot path is fragile under parallel calls — it has
+ * been observed to throw `TypeError: parts.pathname is null`,
+ * `'contentType' not provided`, and `AbortError: Actor 'SingleFile'
+ * destroyed before query 'snapshot' was resolved` for ordinary PMC PDF
+ * URLs. Steering callers onto the binary path by guessing a content-type
+ * from the URL avoids all three.
+ *
+ * Conservative: only returns a guess for unambiguous cases. Callers can
+ * always override with the explicit `contentType` parameter.
+ */
+export function inferContentTypeFromURL(url: string): string | undefined {
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+  if (pathname.endsWith(".pdf")) return "application/pdf";
+  if (pathname.endsWith(".epub")) return "application/epub+zip";
+  // PubMed Central PDF directory URLs (e.g. .../PMC1234567/pdf/) serve a
+  // PDF (or a redirect to one) when fetched as a file. Same for the rare
+  // trailing-slashless variant. Treating these as PDF avoids the snapshot
+  // path; if the server actually returns HTML, Zotero's downstream type
+  // sniff still rejects it with a clear "not a supported type" error.
+  if (pathname.endsWith("/pdf/") || pathname.endsWith("/pdf")) {
+    return "application/pdf";
+  }
+  return undefined;
+}
+
 export async function handleImportAttachmentURL(args: {
   url: string;
   parentItemKey?: string;
   title?: string;
+  contentType?: string;
 }): Promise<MutationResult> {
   assertScope("import");
 
@@ -1218,9 +1256,31 @@ export async function handleImportAttachmentURL(args: {
     parentItemID = parentItem.id;
   }
 
+  // PMC `/pdf/` URLs serve an HTML gateway that points at the actual
+  // PDF via <meta name="citation_pdf_url">. Resolve it here so Zotero
+  // gets handed the real file URL. Best-effort — null on any failure
+  // means "fall back to the original URL".
+  let importURL = args.url;
+  const pmcResolved = await resolvePMCPDFURL(args.url);
+  if (pmcResolved && pmcResolved !== args.url) {
+    const resolvedError = validateAttachmentURL(pmcResolved);
+    if (resolvedError) {
+      // Resolution produced a URL that fails the SSRF guard — refuse to
+      // follow it. Keep going with the original URL.
+      ztoolkit.log(
+        `[WriteHandlers] PMC resolver returned URL that failed SSRF guard (${resolvedError}); using original`,
+      );
+    } else {
+      importURL = pmcResolved;
+    }
+  }
+
+  const resolvedContentType =
+    args.contentType ?? inferContentTypeFromURL(importURL);
+
   const importOptions: any = {
     libraryID,
-    url: args.url,
+    url: importURL,
   };
   if (parentItemID !== undefined) {
     importOptions.parentItemID = parentItemID;
@@ -1228,11 +1288,39 @@ export async function handleImportAttachmentURL(args: {
   if (args.title) {
     importOptions.title = args.title;
   }
+  if (resolvedContentType) {
+    importOptions.contentType = resolvedContentType;
+  }
 
-  const attachment = await Zotero.Attachments.importFromURL(importOptions);
+  let attachment: any;
+  try {
+    attachment = await Zotero.Attachments.importFromURL(importOptions);
+  } catch (err: any) {
+    // Zotero's snapshot path throws "TypeError: can't access property
+    // 'split', parts.pathname is null" when no contentType is supplied
+    // and the URL it follows ends up with a parser-hostile final URL.
+    // Re-surface with guidance instead of leaking an internal stack.
+    const msg = err?.message || String(err);
+    if (/parts\.pathname is null/i.test(msg)) {
+      throw new Error(
+        `Zotero failed to snapshot ${importURL} (parts.pathname is null). ` +
+          `This usually means the URL was routed through the SingleFile ` +
+          `snapshotter. Pass contentType (e.g. "application/pdf") to use ` +
+          `the binary-download path instead.`,
+      );
+    }
+    if (/'contentType' not provided/i.test(msg)) {
+      throw new Error(
+        `Zotero refused to import ${importURL}: contentType could not be ` +
+          `inferred from the URL. Pass contentType explicitly (e.g. ` +
+          `"application/pdf" or "text/html").`,
+      );
+    }
+    throw err;
+  }
 
   ztoolkit.log(
-    `[WriteHandlers] Imported attachment from URL: ${args.url} (key: ${attachment.key})`,
+    `[WriteHandlers] Imported attachment from URL: ${importURL} (key: ${attachment.key}, contentType: ${resolvedContentType ?? "auto"})`,
   );
 
   return {
@@ -1241,9 +1329,11 @@ export async function handleImportAttachmentURL(args: {
     itemKey: attachment.key,
     details: {
       attachmentKey: attachment.key,
-      url: args.url,
+      url: importURL,
+      originalUrl: importURL === args.url ? null : args.url,
       parentItemKey: args.parentItemKey || null,
       title: args.title || null,
+      contentType: resolvedContentType || null,
     },
     timestamp: new Date().toISOString(),
   };

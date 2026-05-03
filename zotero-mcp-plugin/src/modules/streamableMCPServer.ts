@@ -1943,7 +1943,10 @@ export class StreamableMCPServer {
         {
           name: "import_attachment_url",
           description:
-            "Import a file from a URL as an attachment. Can be standalone or attached to a parent item.",
+            "Import a file from a URL as an attachment. Can be standalone or attached to a parent item. " +
+            "Pass contentType (e.g. 'application/pdf') to force the binary-download path; " +
+            "without it, .pdf/.epub URLs and PMC /pdf/ paths are auto-detected, and " +
+            "anything else falls back to Zotero's HTML snapshot path.",
           inputSchema: {
             type: "object",
             properties: {
@@ -1959,6 +1962,12 @@ export class StreamableMCPServer {
               title: {
                 type: "string",
                 description: "Title for the attachment (optional)",
+              },
+              contentType: {
+                type: "string",
+                description:
+                  "MIME type override (e.g. 'application/pdf', 'application/epub+zip', 'text/html'). " +
+                  "Recommended for PMC/PubMed PDF URLs to bypass Zotero's SingleFile snapshot path.",
               },
             },
             required: ["url"],

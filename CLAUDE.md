@@ -76,6 +76,7 @@ The plugin exposes these tools via MCP protocol:
 - `get_collections` / `search_collections` / `get_collection_details` / `get_collection_items` / `get_subcollections` - Collection operations
 - `search_fulltext` - Full-text search with context
 - `get_item_abstract` - Get item abstract
+- `import_attachment_url` - Import a file attachment from a URL. Accepts an optional `contentType` override; when omitted, the handler infers `application/pdf` for `.pdf`/`/pdf/` URLs and `application/epub+zip` for `.epub` URLs (see `inferContentTypeFromURL` in [writeHandlers.ts](zotero-mcp-plugin/src/modules/writeHandlers.ts)) so Zotero takes the binary-download path instead of the fragile SingleFile snapshot path. PMC `/pdf/` URLs are auto-resolved through [pmcURLResolver.ts](zotero-mcp-plugin/src/modules/pmcURLResolver.ts), which fetches the gateway HTML and extracts `<meta name="citation_pdf_url">` to find the actual CDN PDF.
 
 ## Key Technical Details
 
