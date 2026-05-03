@@ -124,38 +124,57 @@ export class FulltextService {
 
       // Handle different attachment types
       if (this.isPDFAttachment(attachment, attachmentType)) {
-        // Use PDFProcessor directly for PDF files
+        // Try Zotero's cached fulltext index first. Re-extracting every PDF
+        // from disk on every search makes search_fulltext orders of
+        // magnitude slower than necessary on large libraries — Zotero
+        // already maintains this cache.
         try {
-          const { PDFProcessor } = await import("./pdfProcessor");
-          const { TextFormatter } = await import("./textFormatter");
-          const processor = new PDFProcessor(ztoolkit);
-
-          const filePath = attachment.getFilePath();
-          if (filePath) {
-            try {
-              const rawText = await processor.extractText(filePath);
-              content = TextFormatter.formatPDFText(rawText);
-              extractionMethod = "pdf_processor";
-            } catch (fileError) {
-              ztoolkit.log(
-                `[FulltextService] PDF file not accessible at path: ${filePath} - ${fileError}`,
-                "warn",
-              );
-            } finally {
-              processor.terminate();
-            }
-          } else {
-            ztoolkit.log(
-              `[FulltextService] No file path available for PDF attachment ${attachment.key}`,
-              "warn",
-            );
+          const cached = await this.getZoteroFulltext(attachment);
+          if (cached && cached.trim().length > 0) {
+            content = cached;
+            extractionMethod = "zotero_builtin";
           }
-        } catch (pdfError) {
+        } catch (cacheErr) {
           ztoolkit.log(
-            `[FulltextService] PDF extraction failed for ${attachment.key}: ${pdfError}`,
+            `[FulltextService] Cached fulltext lookup failed for ${attachment.key}: ${cacheErr}`,
             "warn",
           );
-          content = "";
+        }
+
+        // Fall back to live PDF extraction only if the cache had nothing.
+        if (!content) {
+          try {
+            const { PDFProcessor } = await import("./pdfProcessor");
+            const { TextFormatter } = await import("./textFormatter");
+            const processor = new PDFProcessor(ztoolkit);
+
+            const filePath = attachment.getFilePath();
+            if (filePath) {
+              try {
+                const rawText = await processor.extractText(filePath);
+                content = TextFormatter.formatPDFText(rawText);
+                extractionMethod = "pdf_processor";
+              } catch (fileError) {
+                ztoolkit.log(
+                  `[FulltextService] PDF file not accessible at path: ${filePath} - ${fileError}`,
+                  "warn",
+                );
+              } finally {
+                processor.terminate();
+              }
+            } else {
+              ztoolkit.log(
+                `[FulltextService] No file path available for PDF attachment ${attachment.key}`,
+                "warn",
+              );
+            }
+          } catch (pdfError) {
+            ztoolkit.log(
+              `[FulltextService] PDF extraction failed for ${attachment.key}: ${pdfError}`,
+              "warn",
+            );
+            content = "";
+          }
         }
       } else if (
         attachmentType &&

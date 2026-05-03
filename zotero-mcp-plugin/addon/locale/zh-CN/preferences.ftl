@@ -13,6 +13,34 @@ pref-server-write-enabled =
     .label = 允许写操作（创建集合、笔记、标签）
 pref-server-write-enabled-hint = 启用可修改 Zotero 库的 MCP 工具。默认关闭以确保安全。
 
+pref-auth-title = 身份验证
+pref-server-require-auth =
+    .label = 本地连接也要求 Token
+pref-server-require-auth-hint = 启用远程访问时强制要求；本地连接默认无需 Token。
+pref-auth-token-label = Token：
+pref-auth-copy-token-button =
+    .label = 复制
+pref-auth-regen-token-button =
+    .label = 重新生成
+pref-auth-token-hint = 将此 Token 粘贴到 AI 客户端 MCP 配置的 Authorization: Bearer <token>。重新生成会使旧的客户端配置失效。
+
+pref-write-scopes-title = 写入范围
+pref-write-scopes-hint = 各范围需单独启用，对应工具才会暴露。带颜色项为破坏性操作。
+pref-write-scope-notes =
+    .label = 笔记（添加/更新笔记）
+pref-write-scope-tags =
+    .label = 标签（在条目上添加/移除标签）
+pref-write-scope-collections =
+    .label = 集合（创建/重命名/移动/添加移除条目）
+pref-write-scope-metadata =
+    .label = 条目元数据（创建条目、修改字段、关联条目）
+pref-write-scope-delete =
+    .label = 删除（移到回收站、删除集合或标签）— 破坏性
+pref-write-scope-bulk =
+    .label = 批量操作（批量打标、批量回收、库级标签重命名）— 破坏性
+pref-write-scope-import =
+    .label = 从 URL 导入附件（SSRF 风险）— 破坏性
+
 pref-mcp-settings-title = MCP 内容设置
 pref-mcp-settings-description = 配置 MCP 服务器如何处理和返回内容给 AI 客户端
 pref-max-tokens-label = 每个响应的最大令牌数：

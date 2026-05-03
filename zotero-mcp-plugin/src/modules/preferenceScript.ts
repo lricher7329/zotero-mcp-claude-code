@@ -3,6 +3,7 @@ import { getString } from "../utils/locale";
 import { ClientConfigGenerator } from "./clientConfigGenerator";
 import { bindEmbeddingSettings, bindApiUsageStats } from "./prefEmbedding";
 import { bindSemanticStatsSettings } from "./prefSemanticIndex";
+import { serverPreferences } from "./serverPreferences";
 
 export async function registerPrefsScripts(_window: Window) {
   // This function is called when the prefs window is opened
@@ -179,6 +180,59 @@ function bindPrefEvents() {
           ) || 23120;
         portInput.value = originalPort.toString();
       }
+    }
+  });
+
+  // Auth token UI: read current token (auto-creating one if absent), allow
+  // copy and regenerate. Token is stored in
+  // extensions.zotero.zotero-mcp-plugin.mcp.server.authToken via
+  // serverPreferences.ensureAuthToken.
+  const tokenInput = doc?.querySelector(
+    `#zotero-prefpane-${config.addonRef}-auth-token-display`,
+  ) as HTMLInputElement;
+  const copyTokenButton = doc?.querySelector(
+    "#copy-auth-token-button",
+  ) as HTMLButtonElement;
+  const regenTokenButton = doc?.querySelector(
+    "#regen-auth-token-button",
+  ) as HTMLButtonElement;
+
+  if (tokenInput) {
+    try {
+      tokenInput.value = serverPreferences.ensureAuthToken();
+    } catch (e) {
+      ztoolkit.log(
+        `[PreferenceScript] Could not load auth token: ${e}`,
+        "error",
+      );
+    }
+  }
+
+  copyTokenButton?.addEventListener("click", async () => {
+    if (!tokenInput?.value) return;
+    try {
+      await ClientConfigGenerator.copyToClipboard(tokenInput.value);
+      const original = copyTokenButton.textContent;
+      copyTokenButton.textContent = "Copied!";
+      setTimeout(() => {
+        copyTokenButton.textContent = original;
+      }, 1500);
+    } catch {
+      tokenInput.select();
+      tokenInput.focus();
+    }
+  });
+
+  regenTokenButton?.addEventListener("click", () => {
+    const ok = addon.data.prefs!.window.confirm(
+      "Regenerate auth token? Existing AI client configurations will stop working until you update them with the new token.",
+    );
+    if (!ok) return;
+    try {
+      const fresh = serverPreferences.regenerateAuthToken();
+      if (tokenInput) tokenInput.value = fresh;
+    } catch (e) {
+      addon.data.prefs!.window.alert(`Token regeneration failed: ${e}`);
     }
   });
 

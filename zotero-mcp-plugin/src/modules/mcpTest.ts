@@ -149,7 +149,7 @@ export async function testMCPIntegration(): Promise<{
 
       if (
         status.serverInfo &&
-        status.protocolVersion &&
+        status.protocolVersions &&
         status.availableTools
       ) {
         return { success: true, status };

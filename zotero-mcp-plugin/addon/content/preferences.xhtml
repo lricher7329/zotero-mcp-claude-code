@@ -28,8 +28,48 @@
       type="bool"
     />
     <preference
+      id="extensions.zotero.zotero-mcp-plugin.mcp.server.requireAuth"
+      name="extensions.zotero.zotero-mcp-plugin.mcp.server.requireAuth"
+      type="bool"
+    />
+    <preference
       id="extensions.zotero.zotero-mcp-plugin.mcp.write.enabled"
       name="extensions.zotero.zotero-mcp-plugin.mcp.write.enabled"
+      type="bool"
+    />
+    <preference
+      id="extensions.zotero.zotero-mcp-plugin.mcp.write.notes"
+      name="extensions.zotero.zotero-mcp-plugin.mcp.write.notes"
+      type="bool"
+    />
+    <preference
+      id="extensions.zotero.zotero-mcp-plugin.mcp.write.tags"
+      name="extensions.zotero.zotero-mcp-plugin.mcp.write.tags"
+      type="bool"
+    />
+    <preference
+      id="extensions.zotero.zotero-mcp-plugin.mcp.write.collections"
+      name="extensions.zotero.zotero-mcp-plugin.mcp.write.collections"
+      type="bool"
+    />
+    <preference
+      id="extensions.zotero.zotero-mcp-plugin.mcp.write.metadata"
+      name="extensions.zotero.zotero-mcp-plugin.mcp.write.metadata"
+      type="bool"
+    />
+    <preference
+      id="extensions.zotero.zotero-mcp-plugin.mcp.write.delete"
+      name="extensions.zotero.zotero-mcp-plugin.mcp.write.delete"
+      type="bool"
+    />
+    <preference
+      id="extensions.zotero.zotero-mcp-plugin.mcp.write.bulk"
+      name="extensions.zotero.zotero-mcp-plugin.mcp.write.bulk"
+      type="bool"
+    />
+    <preference
+      id="extensions.zotero.zotero-mcp-plugin.mcp.write.import"
+      name="extensions.zotero.zotero-mcp-plugin.mcp.write.import"
       type="bool"
     />
     <preference
@@ -197,11 +237,23 @@
             data-l10n-id="pref-server-allow-remote-warning"
           >
           </html:div>
+          <!-- Auth section -->
+          <html:hr
+            style="
+              margin: 10px 0;
+              border: none;
+              border-top: 1px solid ThreeDShadow;
+            "
+          />
+          <html:label
+            style="font-weight: bold; margin-bottom: 5px"
+            data-l10n-id="pref-auth-title"
+          ></html:label>
           <checkbox
-            id="zotero-prefpane-__addonRef__-mcp-write-enabled"
-            preference="extensions.zotero.zotero-mcp-plugin.mcp.write.enabled"
-            data-l10n-id="pref-server-write-enabled"
-            style="margin-top: 10px"
+            id="zotero-prefpane-__addonRef__-mcp-server-require-auth"
+            preference="extensions.zotero.zotero-mcp-plugin.mcp.server.requireAuth"
+            data-l10n-id="pref-server-require-auth"
+            style="margin-top: 5px"
           ></checkbox>
           <html:div
             style="
@@ -210,9 +262,105 @@
               color: GrayText;
               font-style: italic;
             "
-            data-l10n-id="pref-server-write-enabled-hint"
-          >
-          </html:div>
+            data-l10n-id="pref-server-require-auth-hint"
+          ></html:div>
+          <hbox align="center" style="margin-top: 8px">
+            <html:label
+              for="zotero-prefpane-__addonRef__-auth-token-display"
+              data-l10n-id="pref-auth-token-label"
+              style="min-width: 80px"
+            ></html:label>
+            <html:input
+              type="text"
+              id="zotero-prefpane-__addonRef__-auth-token-display"
+              readonly="true"
+              style="
+                flex: 1;
+                font-family: monospace;
+                font-size: 11px;
+                max-width: 320px;
+                margin-right: 6px;
+              "
+            ></html:input>
+            <button
+              id="copy-auth-token-button"
+              data-l10n-id="pref-auth-copy-token-button"
+              style="margin-right: 6px"
+            ></button>
+            <button
+              id="regen-auth-token-button"
+              data-l10n-id="pref-auth-regen-token-button"
+            ></button>
+          </hbox>
+          <html:div
+            style="
+              margin-left: 80px;
+              font-size: 11px;
+              color: GrayText;
+              font-style: italic;
+            "
+            data-l10n-id="pref-auth-token-hint"
+          ></html:div>
+
+          <!-- Per-scope write opt-ins -->
+          <html:hr
+            style="
+              margin: 10px 0;
+              border: none;
+              border-top: 1px solid ThreeDShadow;
+            "
+          />
+          <html:label
+            style="font-weight: bold; margin-bottom: 5px"
+            data-l10n-id="pref-write-scopes-title"
+          ></html:label>
+          <html:div
+            style="
+              font-size: 11px;
+              color: GrayText;
+              font-style: italic;
+              margin-bottom: 6px;
+            "
+            data-l10n-id="pref-write-scopes-hint"
+          ></html:div>
+          <checkbox
+            id="zotero-prefpane-__addonRef__-mcp-write-notes"
+            preference="extensions.zotero.zotero-mcp-plugin.mcp.write.notes"
+            data-l10n-id="pref-write-scope-notes"
+          ></checkbox>
+          <checkbox
+            id="zotero-prefpane-__addonRef__-mcp-write-tags"
+            preference="extensions.zotero.zotero-mcp-plugin.mcp.write.tags"
+            data-l10n-id="pref-write-scope-tags"
+          ></checkbox>
+          <checkbox
+            id="zotero-prefpane-__addonRef__-mcp-write-collections"
+            preference="extensions.zotero.zotero-mcp-plugin.mcp.write.collections"
+            data-l10n-id="pref-write-scope-collections"
+          ></checkbox>
+          <checkbox
+            id="zotero-prefpane-__addonRef__-mcp-write-metadata"
+            preference="extensions.zotero.zotero-mcp-plugin.mcp.write.metadata"
+            data-l10n-id="pref-write-scope-metadata"
+          ></checkbox>
+          <checkbox
+            id="zotero-prefpane-__addonRef__-mcp-write-delete"
+            preference="extensions.zotero.zotero-mcp-plugin.mcp.write.delete"
+            data-l10n-id="pref-write-scope-delete"
+            style="color: #b85a00"
+          ></checkbox>
+          <checkbox
+            id="zotero-prefpane-__addonRef__-mcp-write-bulk"
+            preference="extensions.zotero.zotero-mcp-plugin.mcp.write.bulk"
+            data-l10n-id="pref-write-scope-bulk"
+            style="color: #b85a00"
+          ></checkbox>
+          <checkbox
+            id="zotero-prefpane-__addonRef__-mcp-write-import"
+            preference="extensions.zotero.zotero-mcp-plugin.mcp.write.import"
+            data-l10n-id="pref-write-scope-import"
+            style="color: #b85a00"
+          ></checkbox>
         </vbox>
       </vbox>
     </groupbox>

@@ -845,9 +845,24 @@ export class UnifiedContentExtractor {
       },
     };
 
-    return (
-      modeConfigs[mode as keyof typeof modeConfigs] || modeConfigs["standard"]
-    );
+    // Unknown modes (typos, legacy aliases like "full") used to silently
+    // fall back to "standard" while metadata still reported the bogus name.
+    // Normalize "full" → "complete" for back-compat; warn and substitute
+    // standard for any other unrecognized value so the caller's metadata
+    // and the actual limits match.
+    if (mode === "full") {
+      return modeConfigs["complete"];
+    }
+    if (modeConfigs[mode as keyof typeof modeConfigs]) {
+      return modeConfigs[mode as keyof typeof modeConfigs];
+    }
+    if (mode) {
+      ztoolkit.log(
+        `[UnifiedContentExtractor] Unknown mode "${mode}", falling back to "standard"`,
+        "warn",
+      );
+    }
+    return modeConfigs["standard"];
   }
 
   /**

@@ -481,7 +481,7 @@ export function bindSemanticStatsSettings(doc: Document) {
     messageEl.style.display = "block";
 
     // Set style based on type, with dark mode support
-     
+
     const isDark = !!(doc as any).defaultView?.matchMedia(
       "(prefers-color-scheme: dark)",
     )?.matches;

@@ -228,6 +228,54 @@ export class EmbeddingService {
   }
 
   /**
+   * Validate the configured API base URL before any network call.
+   *
+   * The API base is user-supplied via preferences and is interpolated into
+   * outgoing requests that may carry the user's API key in an Authorization
+   * header. Without validation:
+   *   - file://, javascript:, data:, etc. could be coerced through Zotero.HTTP.
+   *   - The OpenAI key could be exfiltrated to any host the user typed.
+   *   - Plaintext http:// to a public host would leak the key on the wire.
+   *
+   * Allowed:
+   *   - https:// to any host (production cloud APIs).
+   *   - http:// to loopback hosts only (Ollama / local dev servers).
+   *   - http:// to non-loopback hosts is rejected when an API key is set.
+   *
+   * Returns null when allowed; otherwise a reason string suitable for logs.
+   */
+  private validateApiBase(apiBase: string, hasApiKey: boolean): string | null {
+    let u: URL;
+    try {
+      u = new URL(apiBase);
+    } catch {
+      return "invalid URL";
+    }
+
+    if (u.protocol !== "http:" && u.protocol !== "https:") {
+      return `scheme not allowed (${u.protocol})`;
+    }
+
+    const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    const isLoopback =
+      host === "localhost" ||
+      host.endsWith(".localhost") ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      /^127\./.test(host);
+
+    if (u.protocol === "http:" && !isLoopback) {
+      // Plain HTTP to a public/LAN host: refuse, especially if a key is set,
+      // since the key would be sent in cleartext.
+      return hasApiKey
+        ? "refusing to send API key over plaintext http:// to a non-loopback host"
+        : "plain http:// is only allowed for loopback hosts";
+    }
+
+    return null;
+  }
+
+  /**
    * Auto-detect API provider type from URL
    */
   private detectApiProvider(url: string): ApiProviderType {
@@ -313,11 +361,19 @@ export class EmbeddingService {
 
       case "openai":
       default:
-        // OpenAI format: /v1/embeddings or /embeddings
-        if (baseUrl.endsWith("/v1")) {
+        // OpenAI format. Accept three shapes the user might paste:
+        //   https://api.openai.com         → append /v1/embeddings
+        //   https://api.openai.com/v1      → append /embeddings
+        //   https://api.openai.com/v1/embeddings → use as-is
+        // Both branches in the previous code did the same thing, so a user
+        // who pasted the full /embeddings URL got /embeddings/embeddings and
+        // a 404 with no obvious cause.
+        if (baseUrl.endsWith("/embeddings")) {
+          endpoint = baseUrl;
+        } else if (baseUrl.endsWith("/v1")) {
           endpoint = `${baseUrl}/embeddings`;
         } else {
-          endpoint = `${baseUrl}/embeddings`;
+          endpoint = `${baseUrl}/v1/embeddings`;
         }
         break;
     }
@@ -410,12 +466,27 @@ export class EmbeddingService {
       const dimensions = Zotero.Prefs.get(PREF_DIMENSIONS, true);
       const detectedDims = Zotero.Prefs.get(PREF_DETECTED_DIMENSIONS, true);
 
-      if (apiBase) this.config.apiBase = apiBase;
-      if (apiKey) this.config.apiKey = apiKey;
-      if (model) this.config.model = model;
-      if (dimensions) this.config.dimensions = parseInt(dimensions, 10);
-      if (detectedDims)
-        this.detectedDimensions = parseInt(String(detectedDims), 10);
+      // Use !== undefined / !== null so that clearing a pref to the empty
+      // string actually overwrites the in-memory config. The previous truthy
+      // check kept stale values around after the user wiped the field in the
+      // prefs UI.
+      if (apiBase !== undefined && apiBase !== null) {
+        this.config.apiBase = String(apiBase);
+      }
+      if (apiKey !== undefined && apiKey !== null) {
+        this.config.apiKey = String(apiKey);
+      }
+      if (model !== undefined && model !== null) {
+        this.config.model = String(model);
+      }
+      if (dimensions !== undefined && dimensions !== null) {
+        const n = parseInt(String(dimensions), 10);
+        if (!isNaN(n)) this.config.dimensions = n;
+      }
+      if (detectedDims !== undefined && detectedDims !== null) {
+        const n = parseInt(String(detectedDims), 10);
+        if (!isNaN(n)) this.detectedDimensions = n;
+      }
 
       ztoolkit.log(
         `[EmbeddingService] Loaded config from prefs: apiBase=${this.config.apiBase}, model=${this.config.model}, configDims=${this.config.dimensions}, detectedDims=${this.detectedDimensions}`,
@@ -1110,6 +1181,18 @@ export class EmbeddingService {
    * @throws {EmbeddingAPIError} When API call fails after all retries
    */
   private async callEmbeddingAPI(texts: string[]): Promise<number[][]> {
+    const baseError = this.validateApiBase(
+      this.config.apiBase,
+      Boolean(this.config.apiKey),
+    );
+    if (baseError) {
+      throw new EmbeddingAPIError(
+        `Embedding API base rejected: ${baseError}`,
+        "invalid_request",
+        { retryable: false },
+      );
+    }
+
     const provider = this.getEffectiveProvider();
     const url = this.getEmbeddingEndpoint();
 
@@ -1468,6 +1551,17 @@ export class EmbeddingService {
   }> {
     if (!this.config.apiBase || !this.config.model) {
       return { success: false, message: "API base or model not configured" };
+    }
+
+    const baseError = this.validateApiBase(
+      this.config.apiBase,
+      Boolean(this.config.apiKey),
+    );
+    if (baseError) {
+      return {
+        success: false,
+        message: `API base rejected: ${baseError}`,
+      };
     }
 
     // Clear detected provider to force re-detection

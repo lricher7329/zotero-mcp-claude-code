@@ -130,8 +130,9 @@ export async function handleSearch(
       searchParams.tagMatch = searchParams.tagMatch || "exact";
     }
 
+    // Don't log raw query content (it ends up in support transcripts).
     ztoolkit.log(
-      `[MCP ApiHandlers] Converted search params: ${JSON.stringify(searchParams)}`,
+      `[MCP ApiHandlers] Search params: ${Object.keys(searchParams).length} keys`,
     );
 
     const searchResult = await handleSearchRequest(searchParams);
@@ -840,10 +841,19 @@ export async function handleSearchFulltext(
     const fulltextService = new FulltextService();
 
     // Parse search options
+    // Defensive parsing: NaN/0/negative values would either abort with no
+    // results or attempt an unbounded scan. Floor at 1, ceiling at 200.
+    const rawMax = parseInt(query.get("maxResults") || "50", 10);
+    const maxResults = Math.max(1, Math.min(isNaN(rawMax) ? 50 : rawMax, 200));
+    const rawCtx = parseInt(query.get("contextLength") || "200", 10);
+    const contextLength = Math.max(
+      0,
+      Math.min(isNaN(rawCtx) ? 200 : rawCtx, 4000),
+    );
     const options = {
       itemKeys: query.get("itemKeys")?.split(",") || null,
-      contextLength: parseInt(query.get("contextLength") || "200", 10),
-      maxResults: Math.min(parseInt(query.get("maxResults") || "50", 10), 200),
+      contextLength,
+      maxResults,
       caseSensitive: query.get("caseSensitive") === "true",
     };
 

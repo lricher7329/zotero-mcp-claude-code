@@ -68,6 +68,19 @@ export interface SmartAnnotationResponse {
   data: AnnotationResult[];
 }
 
+/**
+ * Normalize outputMode to the internal vocabulary the rest of this module
+ * uses. The MCP-facing mode names are minimal/preview/standard/complete,
+ * but legacy code in this file checks `=== "full"`. Without this mapping,
+ * a user setting mode=complete never hits the "no pagination / full content
+ * per annotation" branches.
+ */
+function normalizeOutputMode(mode: string | undefined): string {
+  if (!mode) return "smart";
+  if (mode === "complete") return "full";
+  return mode;
+}
+
 export class SmartAnnotationExtractor {
   private annotationService: AnnotationService;
 
@@ -158,7 +171,7 @@ export class SmartAnnotationExtractor {
 
     try {
       ztoolkit.log(
-        `[SmartAnnotationExtractor] getAnnotations called with params: ${JSON.stringify(params)}`,
+        `[SmartAnnotationExtractor] getAnnotations called (mode=${params.outputMode || "default"}, types=${params.types?.join(",") || "default"})`,
       );
 
       // Read user settings for defaults
@@ -166,7 +179,9 @@ export class SmartAnnotationExtractor {
 
       const options: SmartAnnotationOptions = {
         maxTokens: params.maxTokens || effectiveSettings.maxTokens,
-        outputMode: params.outputMode || MCPSettingsService.get("content.mode"),
+        outputMode: normalizeOutputMode(
+          params.outputMode || MCPSettingsService.get("content.mode"),
+        ),
         types: params.types || ["note", "highlight", "annotation"],
         colors: params.colors, // Color filter (hex codes or names)
         tags: params.tags, // Tag filter
@@ -321,8 +336,9 @@ export class SmartAnnotationExtractor {
 
       const searchOptions: SmartAnnotationOptions = {
         maxTokens: options.maxTokens || effectiveSettings.maxTokens,
-        outputMode:
+        outputMode: normalizeOutputMode(
           options.outputMode || MCPSettingsService.get("content.mode"),
+        ),
         types: options.types || ["note", "highlight", "annotation"],
         colors: options.colors, // Color filter
         tags: options.tags, // Tag filter
@@ -337,53 +353,93 @@ export class SmartAnnotationExtractor {
 
       let annotations: any[] = [];
 
+      // If itemKeys is provided, run the search per-item and concatenate.
+      // Previously: with a query we honored only itemKeys[0]; without a
+      // query we ignored itemKeys entirely. Both quietly returned the wrong
+      // set of annotations on multi-item filters.
+      const itemKeysFilter =
+        Array.isArray(options.itemKeys) && options.itemKeys.length > 0
+          ? options.itemKeys
+          : null;
+
       if (hasQuery) {
-        // Search using AnnotationService with query
-        const searchParams = {
-          q: query,
-          itemKey: options.itemKeys?.[0], // For now, use first itemKey if provided
-          type: searchOptions.types,
-          detailed: false, // We'll handle detail level ourselves
-          limit: "100", // Get more results to score and filter
-          offset: "0",
-        };
-
-        const searchResult =
-          await this.annotationService.searchAnnotations(searchParams);
-        annotations = searchResult.results || [];
-      } else {
-        // No query - get ALL annotations for filtering by colors/tags
-        // Paginate through all results to ensure complete coverage
-        const batchSize = 100;
-        let currentOffset = 0;
-        let hasMore = true;
-
-        ztoolkit.log(
-          `[SmartAnnotationExtractor] Fetching all annotations for color/tag filtering...`,
-        );
-
-        while (hasMore) {
-          const allParams = {
+        if (itemKeysFilter) {
+          for (const ik of itemKeysFilter) {
+            const searchParams = {
+              q: query,
+              itemKey: ik,
+              type: searchOptions.types,
+              detailed: false,
+              limit: "100",
+              offset: "0",
+            };
+            const searchResult =
+              await this.annotationService.searchAnnotations(searchParams);
+            if (searchResult.results) annotations.push(...searchResult.results);
+          }
+        } else {
+          const searchParams = {
+            q: query,
             type: searchOptions.types,
             detailed: false,
-            limit: String(batchSize),
-            offset: String(currentOffset),
+            limit: "100",
+            offset: "0",
           };
-          const batchResult =
-            await this.annotationService.searchAnnotations(allParams);
-          const batchAnnotations = batchResult.results || [];
-          annotations.push(...batchAnnotations);
-
-          // Check if there are more results
-          hasMore = batchResult.pagination?.hasMore || false;
-          currentOffset += batchSize;
-
-          // Safety limit to prevent infinite loops
-          if (currentOffset > 10000) {
-            ztoolkit.log(
-              `[SmartAnnotationExtractor] Reached safety limit of 10000 annotations`,
-            );
-            break;
+          const searchResult =
+            await this.annotationService.searchAnnotations(searchParams);
+          annotations = searchResult.results || [];
+        }
+      } else {
+        // No query — fetch annotations to filter by colors/tags.
+        const batchSize = 100;
+        if (itemKeysFilter) {
+          // Iterate items so we don't sweep the whole library when the
+          // caller has already narrowed scope by itemKeys.
+          for (const ik of itemKeysFilter) {
+            let currentOffset = 0;
+            let hasMore = true;
+            while (hasMore) {
+              const allParams = {
+                itemKey: ik,
+                type: searchOptions.types,
+                detailed: false,
+                limit: String(batchSize),
+                offset: String(currentOffset),
+              };
+              const batchResult =
+                await this.annotationService.searchAnnotations(allParams);
+              const batch = batchResult.results || [];
+              annotations.push(...batch);
+              hasMore = batchResult.pagination?.hasMore || false;
+              currentOffset += batchSize;
+              if (currentOffset > 10000) break;
+            }
+          }
+        } else {
+          let currentOffset = 0;
+          let hasMore = true;
+          ztoolkit.log(
+            `[SmartAnnotationExtractor] Fetching all annotations for color/tag filtering...`,
+          );
+          while (hasMore) {
+            const allParams = {
+              type: searchOptions.types,
+              detailed: false,
+              limit: String(batchSize),
+              offset: String(currentOffset),
+            };
+            const batchResult =
+              await this.annotationService.searchAnnotations(allParams);
+            const batchAnnotations = batchResult.results || [];
+            annotations.push(...batchAnnotations);
+            hasMore = batchResult.pagination?.hasMore || false;
+            currentOffset += batchSize;
+            if (currentOffset > 10000) {
+              ztoolkit.log(
+                `[SmartAnnotationExtractor] Reached safety limit of 10000 annotations`,
+              );
+              break;
+            }
           }
         }
 

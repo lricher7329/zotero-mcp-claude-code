@@ -11,6 +11,16 @@
               "strict_max_version": "9.*"
             }
           }
+        },
+        {
+          "version": "1.8.0",
+          "update_link": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/download/v1.8.0/zotero-mcp-plugin-1.8.0.xpi",
+          "applications": {
+            "zotero": {
+              "strict_min_version": "6.999",
+              "strict_max_version": "9.*"
+            }
+          }
         }
       ]
     }

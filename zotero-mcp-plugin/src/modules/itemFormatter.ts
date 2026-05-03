@@ -1,6 +1,37 @@
 declare let ztoolkit: ZToolkit;
 
 /**
+ * Sentinel passed in `fields` to mean "every field this item type defines,
+ * plus item-level metadata (extra, dateAdded, dateModified, etc.)". The MCP
+ * `complete` mode uses this so /get_item_details actually returns a complete
+ * record, instead of silently filtering down to a hardcoded default list.
+ */
+export const ALL_FIELDS_SENTINEL = "__zmcp_all_fields__";
+
+/**
+ * Strip HTML tags and decode common entities from a note. Notes are stored
+ * as HTML in Zotero; for LLM consumers, plain text is more useful and
+ * matches what get_content returns (so the two surfaces stay consistent).
+ */
+function htmlToPlainText(html: string): string {
+  if (!html) return "";
+  return html
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<\/(p|div|h[1-6]|li|tr|br)>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
  * Formats a single Zotero item into a brief JSON object for search results.
  * @param item The Zotero.Item object to format.
  * @returns A JSON object with essential item details.
@@ -29,7 +60,48 @@ export async function formatItem(
 ): Promise<Record<string, any>> {
   let fieldsToExport: string[];
 
-  if (fields) {
+  // Special "complete" mode: enumerate every field this item type defines.
+  // Without this, get_item_details mode=complete fell back to the hardcoded
+  // default list and silently dropped half the record.
+  const wantAllFields =
+    Array.isArray(fields) &&
+    fields.length === 1 &&
+    fields[0] === ALL_FIELDS_SENTINEL;
+
+  if (wantAllFields) {
+    const baseAlwaysIncluded = [
+      "title",
+      "creators",
+      "date",
+      "itemType",
+      "abstractNote",
+      "extra",
+      "tags",
+      "notes",
+      "attachments",
+      "collections",
+      "dateAdded",
+      "dateModified",
+      "accessDate",
+    ];
+    const dynamic: string[] = [];
+    try {
+      const ItemFields: any = (Zotero as any).ItemFields;
+      const fieldIDs = ItemFields.getItemTypeFields(item.itemTypeID);
+      for (const id of fieldIDs) {
+        const name = ItemFields.getName(id);
+        if (name && !baseAlwaysIncluded.includes(name)) {
+          dynamic.push(name);
+        }
+      }
+    } catch (e) {
+      ztoolkit.log(
+        `[ItemFormatter] Could not enumerate item type fields: ${e}`,
+        "warn",
+      );
+    }
+    fieldsToExport = [...baseAlwaysIncluded, ...dynamic];
+  } else if (fields) {
     fieldsToExport = fields;
   } else {
     fieldsToExport = [
@@ -44,6 +116,10 @@ export async function formatItem(
       "DOI",
       "url",
       "abstractNote",
+      // Zotero stores PMID, PMCID, citation key, and other identifiers in
+      // `extra` by convention — surfacing them is essential for reference
+      // matching against PubMed/identifier-based workflows.
+      "extra",
       "tags",
       "notes",
       "attachments",
@@ -219,7 +295,12 @@ export async function formatItem(
               .map((noteId: number) => {
                 try {
                   const note = Zotero.Items.get(noteId);
-                  return note ? safeGetString(note.getNote()) : "";
+                  // Convert HTML notes to plain text so this surface matches
+                  // get_content (which already returns plain text) instead of
+                  // returning two different shapes for the same field.
+                  return note
+                    ? htmlToPlainText(safeGetString(note.getNote()))
+                    : "";
                 } catch (e) {
                   ztoolkit.log(
                     `[ItemFormatter] Error getting note ${noteId}: ${e}`,
@@ -232,6 +313,40 @@ export async function formatItem(
           } catch (e) {
             ztoolkit.log(`[ItemFormatter] Error getting notes: ${e}`, "error");
             formattedItem[field] = [];
+          }
+          break;
+        case "collections":
+          try {
+            const collectionIDs = item.getCollections();
+            formattedItem[field] = collectionIDs
+              .map((cid: number) => {
+                try {
+                  const c = Zotero.Collections.get(cid);
+                  if (!c) return null;
+                  return {
+                    key: safeGetString((c as any).key),
+                    name: safeGetString((c as any).name),
+                  };
+                } catch {
+                  return null;
+                }
+              })
+              .filter(Boolean);
+          } catch (e) {
+            ztoolkit.log(
+              `[ItemFormatter] Error getting collections: ${e}`,
+              "error",
+            );
+            formattedItem[field] = [];
+          }
+          break;
+        case "dateAdded":
+        case "dateModified":
+        case "accessDate":
+          try {
+            formattedItem[field] = safeGetString((item as any)[field]);
+          } catch {
+            formattedItem[field] = "";
           }
           break;
         case "date":

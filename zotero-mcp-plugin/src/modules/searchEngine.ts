@@ -1,4 +1,5 @@
 import { formatItem, formatItemBrief } from "./itemFormatter";
+import { MCPSettingsService } from "./mcpSettingsService";
 
 declare let ztoolkit: ZToolkit;
 
@@ -60,10 +61,6 @@ interface SearchParams {
   numPages?: string;
   numPagesRange?: string; // Format: "100-500"
 
-  // Boolean query support
-  booleanQuery?: string; // Advanced boolean query string
-  fieldQueries?: FieldQuery[]; // Structured field queries
-
   // Result relevance and sorting
   relevanceScoring?: "true" | "false";
   boostFields?: string; // Comma-separated field list for boosting relevance weight
@@ -71,24 +68,6 @@ interface SearchParams {
   // Saved searches
   savedSearchName?: string;
   saveSearch?: "true" | "false";
-}
-
-// Field query structure
-interface FieldQuery {
-  field: string;
-  operator:
-    | "contains"
-    | "exact"
-    | "startsWith"
-    | "endsWith"
-    | "regex"
-    | "range"
-    | "gt"
-    | "lt"
-    | "gte"
-    | "lte";
-  value: string;
-  boost?: number; // Relevance boost factor
 }
 
 // Relevance scoring result
@@ -111,9 +90,25 @@ const SUPPORTED_SORT_FIELDS = [
 // Advanced search helper functions
 
 /**
- * Parse date range string
- * @param rangeStr Format: "2020-2023" or "2020-" or "-2023" or "2023-01-01,2023-12-31"
- * @returns {start: Date|null, end: Date|null}
+ * Build a Date from local-time year/month/day components. `new Date(string)`
+ * parses ISO strings as UTC, which produces off-by-one results in negative-
+ * UTC time zones — calling code does day-precision compares.
+ */
+function localDate(y: number, m: number, d: number): Date {
+  return new Date(y, m - 1, d);
+}
+
+/**
+ * Parse date range string. Accepts:
+ *   - "2020-2023"           → year range, Jan 1 of start through Dec 31 of end
+ *   - "2020-"               → from Jan 1 of 2020, no end
+ *   - "-2023"               → no start, through Dec 31 of 2023
+ *   - "2023-01-01,2023-12-31" → ISO date pair (comma-separated)
+ *   - "2023-01-01"          → single ISO date, treated as both start and end
+ *
+ * The previous version returned {null, null} for single ISO dates, silently
+ * dropping the filter, and used new Date("YYYY-01-01") which is UTC and
+ * shifts to the previous day in negative-UTC zones.
  */
 function parseDateRange(rangeStr: string): {
   start: Date | null;
@@ -121,28 +116,47 @@ function parseDateRange(rangeStr: string): {
 } {
   if (!rangeStr) return { start: null, end: null };
 
-  // Handle comma-separated date format
+  // Comma-separated ISO date pair.
   if (rangeStr.includes(",")) {
     const [startStr, endStr] = rangeStr.split(",").map((s) => s.trim());
     return {
-      start: startStr ? new Date(startStr) : null,
-      end: endStr ? new Date(endStr) : null,
+      start: startStr ? parseIsoLocal(startStr) : null,
+      end: endStr ? parseIsoLocal(endStr) : null,
     };
   }
 
-  // Handle hyphen-separated year format
-  if (rangeStr.includes("-")) {
-    const parts = rangeStr.split("-");
-    if (parts.length === 2) {
-      const [startYear, endYear] = parts;
-      return {
-        start: startYear ? new Date(`${startYear}-01-01`) : null,
-        end: endYear ? new Date(`${endYear}-12-31`) : null,
-      };
-    }
+  // Single ISO date YYYY-MM-DD.
+  const isoMatch = rangeStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const d = localDate(
+      parseInt(isoMatch[1], 10),
+      parseInt(isoMatch[2], 10),
+      parseInt(isoMatch[3], 10),
+    );
+    return { start: d, end: d };
+  }
+
+  // Year-range "YYYY-YYYY", "YYYY-", "-YYYY".
+  const yearRangeMatch = rangeStr.match(/^(\d{4})?-(\d{4})?$/);
+  if (yearRangeMatch) {
+    const startYear = yearRangeMatch[1];
+    const endYear = yearRangeMatch[2];
+    return {
+      start: startYear ? localDate(parseInt(startYear, 10), 1, 1) : null,
+      end: endYear ? localDate(parseInt(endYear, 10), 12, 31) : null,
+    };
   }
 
   return { start: null, end: null };
+}
+
+function parseIsoLocal(s: string): Date | null {
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) {
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return localDate(parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10));
 }
 
 /**
@@ -199,12 +213,14 @@ function matchesFieldQuery(
       return fieldStr.endsWith(queryStr);
     case "regex":
       try {
-        // Reject patterns with nested quantifiers that cause catastrophic backtracking
-        if (/(\+|\*|\{)\)?(\+|\*|\{)/.test(queryValue)) {
-          return false;
-        }
+        // ReDoS hardening: JS has no native regex timeout, so we reject
+        // pathologically long patterns and cap input length. The previous
+        // guard tried to detect nested quantifiers via a naive regex, but
+        // (a+)+ / (.*a){25}b / (a|a)* all evade it. Limiting both pattern
+        // and haystack length is a more reliable bound.
+        if (queryValue.length > 256) return false;
         const regex = new RegExp(queryValue, "i");
-        return regex.test(fieldStr.slice(0, 100000));
+        return regex.test(fieldStr.slice(0, 16_384));
       } catch {
         return false;
       }
@@ -464,10 +480,10 @@ function applyAdvancedFilters(
   params: SearchParams,
 ): Zotero.Item[] {
   return items.filter((item) => {
-    // Date range filter
+    // Year range filter (`yearRange` is the published-year window).
     if (params.yearRange) {
       const { start, end } = parseDateRange(params.yearRange);
-      if (start || end) {
+      if (start !== null || end !== null) {
         const itemDate = item.getField("date");
         if (itemDate) {
           const year = parseInt(itemDate.toString().substring(0, 4), 10);
@@ -477,33 +493,42 @@ function applyAdvancedFilters(
       }
     }
 
-    // Date added range filter
-    if (params.dateAddedRange) {
-      const { start, end } = parseDateRange(params.dateAddedRange);
-      if (start || end) {
+    // dateAdded: single ISO date OR range. Both paths supported now —
+    // previously `dateAdded` (single) was silently dropped because
+    // parseDateRange returned {null, null} for ISO dates.
+    if (params.dateAdded || params.dateAddedRange) {
+      const { start, end } = parseDateRange(
+        params.dateAddedRange || params.dateAdded || "",
+      );
+      if (start !== null || end !== null) {
         const dateAdded = new Date(item.dateAdded);
         if (start && dateAdded < start) return false;
-        if (end && dateAdded > end) return false;
+        if (end && dateAdded > new Date(end.getTime() + 86_400_000 - 1)) {
+          return false;
+        }
       }
     }
 
-    // Date modified range filter
-    if (params.dateModifiedRange) {
-      const { start, end } = parseDateRange(params.dateModifiedRange);
-      if (start || end) {
+    if (params.dateModified || params.dateModifiedRange) {
+      const { start, end } = parseDateRange(
+        params.dateModifiedRange || params.dateModified || "",
+      );
+      if (start !== null || end !== null) {
         const dateModified = new Date(item.dateModified);
         if (start && dateModified < start) return false;
-        if (end && dateModified > end) return false;
+        if (end && dateModified > new Date(end.getTime() + 86_400_000 - 1)) {
+          return false;
+        }
       }
     }
 
-    // Page count range filter
+    // Page count range filter. Use !== null so `min === 0` still applies.
     if (params.numPagesRange) {
       const { min, max } = parseNumberRange(params.numPagesRange);
-      if (min || max) {
+      if (min !== null || max !== null) {
         const numPages = parseInt(item.getField("numPages") || "0", 10);
-        if (min && numPages < min) return false;
-        if (max && numPages > max) return false;
+        if (min !== null && numPages < min) return false;
+        if (max !== null && numPages > max) return false;
       }
     }
 
@@ -584,7 +609,18 @@ export async function handleSearchRequest(
   const libraryID = params.libraryID
     ? parseInt(params.libraryID, 10)
     : Zotero.Libraries.userLibraryID;
-  const limit = Math.min(parseInt(params.limit || "100", 10), 500);
+  // Cap from MCPSettingsService so the search limit, mode-config, and the
+  // value advertised in /capabilities all agree on a single number.
+  let effectiveCap = 500;
+  try {
+    const cap = (MCPSettingsService.getEffectiveSettings() as any)
+      ?.searchItemLimit;
+    if (typeof cap === "number" && cap > 0) effectiveCap = cap;
+  } catch {
+    // settings service unavailable — fall back to compiled default
+  }
+  const requestedLimit = parseInt(params.limit || "100", 10);
+  const limit = Math.max(1, Math.min(requestedLimit || 100, effectiveCap));
   const offset = parseInt(params.offset || "0", 10);
   const sort = params.sort || "dateAdded";
   const direction = params.direction || "desc";

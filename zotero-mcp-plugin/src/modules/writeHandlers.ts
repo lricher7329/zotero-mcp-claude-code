@@ -1,26 +1,59 @@
 /**
  * Write Handlers for Zotero MCP Plugin
  * Provides write operations (notes, tags, collections, items) via Zotero's internal JS API.
- * All writes are gated by the mcp.write.enabled preference.
+ *
+ * Writes are gated by per-scope preferences in serverPreferences (notes,
+ * tags, collections, metadata, delete, bulk, import). Each handler asserts
+ * the specific scope it needs, so a user who only enables "notes" cannot be
+ * tricked into a destructive call.
  */
 
 declare let Zotero: any;
 declare let ztoolkit: ZToolkit;
 
-import { config } from "../../package.json";
+import { serverPreferences, type WriteScope } from "./serverPreferences";
 
-const PREF_PREFIX = config.prefsPrefix;
-const MCP_WRITE_ENABLED = `${PREF_PREFIX}.mcp.write.enabled`;
+const ZOTERO_KEY_RE = /^[A-Z0-9]{8}$/;
+
+function assertValidItemKey(itemKey: string, label = "itemKey"): void {
+  if (!itemKey || typeof itemKey !== "string" || !ZOTERO_KEY_RE.test(itemKey)) {
+    throw new Error(`Invalid ${label} format (expected 8-char A-Z/0-9)`);
+  }
+}
+
+function assertValidCollectionKey(
+  collectionKey: string,
+  label = "collectionKey",
+): void {
+  if (
+    !collectionKey ||
+    typeof collectionKey !== "string" ||
+    !ZOTERO_KEY_RE.test(collectionKey)
+  ) {
+    throw new Error(`Invalid ${label} format (expected 8-char A-Z/0-9)`);
+  }
+}
 
 // --- Error Classes ---
 
+export class InvalidURLError extends Error {
+  constructor(url: string, reason: string) {
+    super(`Invalid attachment URL "${url}": ${reason}`);
+    this.name = "InvalidURLError";
+  }
+}
+
 export class WriteDisabledError extends Error {
-  constructor(message?: string) {
+  public scope?: WriteScope;
+  constructor(scope?: WriteScope, message?: string) {
     super(
       message ||
-        "Write operations are disabled. Enable 'Allow write operations' in Zotero → Settings → Zotero MCP Plugin.",
+        (scope
+          ? `Write scope '${scope}' is disabled. Enable it in Zotero → Settings → Zotero MCP Plugin.`
+          : "Write operations are disabled. Enable the relevant scope in Zotero → Settings → Zotero MCP Plugin."),
     );
     this.name = "WriteDisabledError";
+    this.scope = scope;
   }
 }
 
@@ -57,22 +90,28 @@ export interface MutationResult {
 
 // --- Shared Utilities ---
 
+/** Back-compat shim: any write scope on means "write enabled". */
 export function isWriteEnabled(): boolean {
-  try {
-    const enabled = Zotero.Prefs.get(MCP_WRITE_ENABLED, true);
-    return enabled === true;
-  } catch {
-    return false;
+  return serverPreferences.isAnyWriteScopeEnabled();
+}
+
+export function isScopeEnabled(scope: WriteScope): boolean {
+  return serverPreferences.isScopeEnabled(scope);
+}
+
+function assertScope(scope: WriteScope): void {
+  if (!serverPreferences.isScopeEnabled(scope)) {
+    throw new WriteDisabledError(scope);
   }
 }
 
-function assertWriteEnabled(): void {
-  if (!isWriteEnabled()) {
-    throw new WriteDisabledError();
-  }
+/** Require every listed scope (e.g. bulk-trash needs `bulk` AND `delete`). */
+function assertScopes(scopes: WriteScope[]): void {
+  for (const s of scopes) assertScope(s);
 }
 
 function resolveItem(itemKey: string): any {
+  assertValidItemKey(itemKey);
   const item = Zotero.Items.getByLibraryAndKey(
     Zotero.Libraries.userLibraryID,
     itemKey,
@@ -84,6 +123,7 @@ function resolveItem(itemKey: string): any {
 }
 
 function resolveCollection(collectionKey: string): any {
+  assertValidCollectionKey(collectionKey);
   const collection = Zotero.Collections.getByLibraryAndKey(
     Zotero.Libraries.userLibraryID,
     collectionKey,
@@ -101,7 +141,7 @@ export async function handleAddNote(args: {
   content: string;
   tags?: string[];
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("notes");
 
   if (!args.content || args.content.trim().length === 0) {
     throw new Error("Note content cannot be empty");
@@ -153,7 +193,7 @@ export async function handleAddTags(args: {
   tags: string[];
   type?: number;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("tags");
 
   if (!args.tags || args.tags.length === 0) {
     throw new Error("At least one tag is required");
@@ -202,7 +242,7 @@ export async function handleRemoveTags(args: {
   itemKey: string;
   tags: string[];
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("tags");
 
   if (!args.tags || args.tags.length === 0) {
     throw new Error("At least one tag is required");
@@ -250,7 +290,7 @@ export async function handleAddToCollection(args: {
   itemKey: string;
   collectionKey: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("collections");
 
   const item = resolveItem(args.itemKey);
   const collection = resolveCollection(args.collectionKey);
@@ -297,7 +337,7 @@ export async function handleCreateCollection(args: {
   name: string;
   parentCollectionKey?: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("collections");
 
   if (!args.name || args.name.trim().length === 0) {
     throw new Error("Collection name cannot be empty");
@@ -343,7 +383,7 @@ export async function handleUpdateItem(args: {
     creatorType: string;
   }>;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("metadata");
 
   const item = resolveItem(args.itemKey);
 
@@ -427,7 +467,7 @@ export async function handleCreateItem(args: {
   tags?: string[];
   collections?: string[];
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("metadata");
 
   const item = new Zotero.Item(args.itemType);
   item.libraryID = Zotero.Libraries.userLibraryID;
@@ -506,7 +546,7 @@ export async function handleRemoveFromCollection(args: {
   itemKey: string;
   collectionKey: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("collections");
 
   const item = resolveItem(args.itemKey);
   const collection = resolveCollection(args.collectionKey);
@@ -557,7 +597,7 @@ export async function handleBatchTag(args: {
   tags: string[];
   type?: number;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScopes(["bulk", "tags"]);
 
   if (!args.itemKeys || args.itemKeys.length === 0) {
     throw new Error("At least one itemKey is required");
@@ -635,7 +675,7 @@ export async function handleBatchAddToCollection(args: {
   itemKeys: string[];
   collectionKey: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScopes(["bulk", "collections"]);
 
   if (!args.itemKeys || args.itemKeys.length === 0) {
     throw new Error("At least one itemKey is required");
@@ -712,7 +752,7 @@ export async function handleUpdateNote(args: {
   content: string;
   tags?: string[];
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("notes");
 
   if (!args.noteKey) {
     throw new Error("noteKey is required");
@@ -766,7 +806,7 @@ export async function handleUpdateNote(args: {
 export async function handleTrashItem(args: {
   itemKey: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("delete");
 
   if (!args.itemKey) {
     throw new Error("itemKey is required");
@@ -797,7 +837,7 @@ export async function handleRenameCollection(args: {
   collectionKey: string;
   newName: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("collections");
 
   if (!args.collectionKey) {
     throw new Error("collectionKey is required");
@@ -833,7 +873,13 @@ export async function handleDeleteCollection(args: {
   collectionKey: string;
   deleteItems?: boolean;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  // Always require `delete`. If the user opted into deleteItems=true, require
+  // `bulk` too — this turns one tool call into a hard delete of every item.
+  if (args.deleteItems === true) {
+    assertScopes(["delete", "bulk"]);
+  } else {
+    assertScope("delete");
+  }
 
   if (!args.collectionKey) {
     throw new Error("collectionKey is required");
@@ -866,7 +912,9 @@ export async function handleRenameTag(args: {
   oldName: string;
   newName: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  // Library-wide tag rewrite. Need both `tags` and `bulk` since a single call
+  // mutates every item carrying that tag.
+  assertScopes(["tags", "bulk"]);
 
   if (!args.oldName || args.oldName.trim().length === 0) {
     throw new Error("oldName is required");
@@ -898,7 +946,8 @@ export async function handleRenameTag(args: {
 export async function handleDeleteTag(args: {
   tagName: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  // Library-wide tag deletion strips the tag from every item.
+  assertScopes(["delete", "bulk"]);
 
   if (!args.tagName || args.tagName.trim().length === 0) {
     throw new Error("tagName is required");
@@ -935,7 +984,7 @@ export async function handleAddRelatedItem(args: {
   itemKey: string;
   relatedItemKey: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("metadata");
 
   if (!args.itemKey) {
     throw new Error("itemKey is required");
@@ -950,12 +999,15 @@ export async function handleAddRelatedItem(args: {
   const item = resolveItem(args.itemKey);
   const relatedItem = resolveItem(args.relatedItemKey);
 
-  // Add bidirectional relation
-  item.addRelatedItem(relatedItem);
-  await item.saveTx();
-
-  relatedItem.addRelatedItem(item);
-  await relatedItem.saveTx();
+  // Atomic bidirectional relation: both sides save in the same transaction.
+  // Without this, a failure on the second save leaves a half-related state
+  // (A→B exists, B→A doesn't) while still reporting success.
+  await Zotero.DB.executeTransaction(async () => {
+    item.addRelatedItem(relatedItem);
+    await item.save();
+    relatedItem.addRelatedItem(item);
+    await relatedItem.save();
+  });
 
   ztoolkit.log(
     `[WriteHandlers] Related items ${args.itemKey} ↔ ${args.relatedItemKey}`,
@@ -978,7 +1030,7 @@ export async function handleRemoveRelatedItem(args: {
   itemKey: string;
   relatedItemKey: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("metadata");
 
   if (!args.itemKey) {
     throw new Error("itemKey is required");
@@ -990,12 +1042,13 @@ export async function handleRemoveRelatedItem(args: {
   const item = resolveItem(args.itemKey);
   const relatedItem = resolveItem(args.relatedItemKey);
 
-  // Remove bidirectional relation
-  item.removeRelatedItem(relatedItem);
-  await item.saveTx();
-
-  relatedItem.removeRelatedItem(item);
-  await relatedItem.saveTx();
+  // Atomic bidirectional removal — see handleAddRelatedItem for rationale.
+  await Zotero.DB.executeTransaction(async () => {
+    item.removeRelatedItem(relatedItem);
+    await item.save();
+    relatedItem.removeRelatedItem(item);
+    await relatedItem.save();
+  });
 
   ztoolkit.log(
     `[WriteHandlers] Unrelated items ${args.itemKey} ↔ ${args.relatedItemKey}`,
@@ -1014,15 +1067,147 @@ export async function handleRemoveRelatedItem(args: {
   };
 }
 
+/**
+ * Reject obviously dangerous URLs before passing them to
+ * Zotero.Attachments.importFromURL. The MCP server is reachable from any local
+ * client, so an unvalidated URL is an SSRF vector — the Zotero process can be
+ * coerced into hitting cloud metadata services, internal LAN hosts, or local
+ * file paths.
+ *
+ * This is a string-level guard. It does not resolve DNS, so a public hostname
+ * that resolves to a private IP, or a public URL that 30x-redirects to one,
+ * still gets through. The `import` write scope must be enabled separately,
+ * which is the second layer of defense; treat this validator as defense-in-
+ * depth, not a complete fix.
+ */
+function validateAttachmentURL(url: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return "invalid URL";
+  }
+
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    return `scheme not allowed (${u.protocol})`;
+  }
+
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host) {
+    return "missing hostname";
+  }
+
+  // Loopback hostnames.
+  if (host === "localhost" || host.endsWith(".localhost")) {
+    return "loopback hostname not allowed";
+  }
+
+  const v4 = parseIPv4Liberal(host);
+  if (v4) {
+    if (isPrivateIPv4(v4)) {
+      return `private or loopback IPv4 not allowed (${host})`;
+    }
+  }
+
+  // IPv6 loopback / link-local / unique-local plus v4-mapped-v6.
+  if (host === "::1" || host === "::") {
+    return `private or loopback IPv6 not allowed (${host})`;
+  }
+  if (/^fe[89ab][0-9a-f]:/i.test(host) || /^f[cd][0-9a-f]{2}:/i.test(host)) {
+    return `private or loopback IPv6 not allowed (${host})`;
+  }
+  // ::ffff:127.0.0.1 or ::ffff:7f00:0001 — IPv4-mapped IPv6.
+  const mapped = host.match(/^::ffff:(.+)$/i);
+  if (mapped) {
+    const inner = mapped[1];
+    const innerV4 = parseIPv4Liberal(inner);
+    if (innerV4 && isPrivateIPv4(innerV4)) {
+      return `private or loopback IPv6-mapped IPv4 not allowed (${host})`;
+    }
+    // Inner could be hex pairs (7f00:0001 = 127.0.0.1).
+    const hexMatch = inner.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (hexMatch) {
+      const a = parseInt(hexMatch[1], 16);
+      const b = parseInt(hexMatch[2], 16);
+      const tuple: [number, number, number, number] = [
+        (a >> 8) & 0xff,
+        a & 0xff,
+        (b >> 8) & 0xff,
+        b & 0xff,
+      ];
+      if (isPrivateIPv4(tuple)) {
+        return `private or loopback IPv6-mapped IPv4 not allowed (${host})`;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Parse an IPv4 address that may be in dotted-decimal, decimal, or octal
+ * forms. Returns the four octets, or null if the string is not a valid
+ * IPv4 address. `2130706433` and `0177.0.0.1` both decode to 127.0.0.1.
+ */
+function parseIPv4Liberal(s: string): [number, number, number, number] | null {
+  const parts = s.split(".");
+  const parsePart = (p: string): number | null => {
+    if (p === "") return null;
+    let n: number;
+    if (/^0x/i.test(p)) {
+      n = parseInt(p, 16);
+    } else if (/^0/.test(p) && p.length > 1) {
+      n = parseInt(p, 8);
+    } else if (/^\d+$/.test(p)) {
+      n = parseInt(p, 10);
+    } else {
+      return null;
+    }
+    return isNaN(n) ? null : n;
+  };
+  if (parts.length === 4) {
+    const out = parts.map(parsePart);
+    if (
+      out.some((x) => x === null || (x as number) > 255 || (x as number) < 0)
+    ) {
+      return null;
+    }
+    return out as [number, number, number, number];
+  }
+  if (parts.length === 1) {
+    const n = parsePart(parts[0]);
+    if (n === null || n < 0 || n > 0xffffffff) return null;
+    return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
+  }
+  return null;
+}
+
+function isPrivateIPv4(ip: [number, number, number, number]): boolean {
+  const [a, b] = ip;
+  return (
+    a === 127 ||
+    a === 10 ||
+    (a === 192 && b === 168) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 169 && b === 254) ||
+    a === 0
+  );
+}
+
 export async function handleImportAttachmentURL(args: {
   url: string;
   parentItemKey?: string;
   title?: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("import");
 
   if (!args.url) {
     throw new Error("url is required");
+  }
+
+  const urlError = validateAttachmentURL(args.url);
+  if (urlError) {
+    throw new InvalidURLError(args.url, urlError);
   }
 
   const libraryID = Zotero.Libraries.userLibraryID;
@@ -1069,7 +1254,7 @@ export async function handleImportAttachmentURL(args: {
 export async function handleRestoreFromTrash(args: {
   itemKey: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("delete");
 
   if (!args.itemKey) {
     throw new Error("itemKey is required");
@@ -1132,10 +1317,19 @@ export async function handleMoveCollection(args: {
   collectionKey: string;
   newParentKey?: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("collections");
 
   if (!args.collectionKey) {
     throw new Error("collectionKey is required");
+  }
+
+  // Reject self-parent up front. The previous loop walked the new parent's
+  // ancestry checking parentKey === collectionKey, which only catches
+  // *transitive* cycles, not the direct case `move(A, A)`.
+  if (args.newParentKey === args.collectionKey) {
+    throw new Error(
+      "Cannot move collection: a collection cannot be its own parent",
+    );
   }
 
   const collection = resolveCollection(args.collectionKey);
@@ -1145,8 +1339,8 @@ export async function handleMoveCollection(args: {
     const newParent = resolveCollection(args.newParentKey);
 
     // Validate no circular parent: walk up from newParent to ensure we don't hit collection
-    let current = newParent;
-    while (current.parentKey) {
+    let current: any = newParent;
+    while (current && current.parentKey) {
       if (current.parentKey === args.collectionKey) {
         throw new Error(
           "Cannot move collection: would create circular parent hierarchy",
@@ -1156,7 +1350,6 @@ export async function handleMoveCollection(args: {
         Zotero.Libraries.userLibraryID,
         current.parentKey,
       );
-      if (!current) break;
     }
 
     collection.parentKey = args.newParentKey;
@@ -1189,7 +1382,7 @@ export async function handleBatchRemoveFromCollection(args: {
   itemKeys: string[];
   collectionKey: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScopes(["bulk", "collections"]);
 
   if (!args.itemKeys || args.itemKeys.length === 0) {
     throw new Error("At least one itemKey is required");
@@ -1265,7 +1458,8 @@ export async function handleBatchRemoveFromCollection(args: {
 export async function handleBatchTrash(args: {
   itemKeys: string[];
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  // Most dangerous tool: bulk + delete required.
+  assertScopes(["bulk", "delete"]);
 
   if (!args.itemKeys || args.itemKeys.length === 0) {
     throw new Error("At least one itemKey is required");
@@ -1313,7 +1507,7 @@ export async function handleMoveItemToCollection(args: {
   fromCollectionKey: string;
   toCollectionKey: string;
 }): Promise<MutationResult> {
-  assertWriteEnabled();
+  assertScope("collections");
 
   if (!args.itemKey) {
     throw new Error("itemKey is required");

@@ -8,11 +8,9 @@ declare let ztoolkit: ZToolkit;
  * Helper to get UTF-8 byte length of a string
  */
 function getByteLength(str: string): number {
-  // Use TextEncoder for accurate UTF-8 byte count
   try {
     return new TextEncoder().encode(str).length;
   } catch {
-    // Fallback for environments without TextEncoder
     let bytes = 0;
     for (let i = 0; i < str.length; i++) {
       const charCode = str.charCodeAt(i);
@@ -20,7 +18,6 @@ function getByteLength(str: string): number {
       else if (charCode < 0x800) bytes += 2;
       else if (charCode < 0xd800 || charCode >= 0xe000) bytes += 3;
       else {
-        // surrogate pair
         i++;
         bytes += 4;
       }
@@ -29,9 +26,6 @@ function getByteLength(str: string): number {
   }
 }
 
-/**
- * Write string to output stream with correct UTF-8 encoding
- */
 function writeStringToStream(output: any, str: string): void {
   const converterStream = Cc[
     "@mozilla.org/intl/converter-output-stream;1"
@@ -42,31 +36,45 @@ function writeStringToStream(output: any, str: string): void {
 }
 
 /**
- * Simple token-bucket rate limiter per IP address.
- * Only active when remote access is enabled.
+ * Two-tier token-bucket rate limiter:
+ *   - per-key bucket (per IP, or per session for loopback)
+ *   - global bucket as a final cap
+ *
+ * Both run on every accepted request, regardless of allowRemote, because a
+ * prompt-injected LLM or runaway local client can flood the server just as
+ * easily as a remote attacker.
  */
 class RateLimiter {
   private buckets: Map<string, { tokens: number; lastRefill: number }> =
     new Map();
   private maxTokens: number;
   private refillRate: number; // tokens per second
+  private maxBuckets: number;
 
-  constructor(maxTokens = 60, refillRate = 10) {
+  constructor(maxTokens = 60, refillRate = 10, maxBuckets = 1024) {
     this.maxTokens = maxTokens;
     this.refillRate = refillRate;
+    this.maxBuckets = maxBuckets;
   }
 
-  allow(ip: string): boolean {
+  allow(key: string): boolean {
     const now = Date.now();
-    let bucket = this.buckets.get(ip);
+    let bucket = this.buckets.get(key);
 
     if (!bucket) {
+      // Cap unique-key memory so an attacker can't grow the Map unboundedly
+      // by spraying random session IDs.
+      if (this.buckets.size >= this.maxBuckets) {
+        // Evict the oldest entry. Maps preserve insertion order so the first
+        // key out of .keys() is the oldest.
+        const firstKey = this.buckets.keys().next().value;
+        if (firstKey) this.buckets.delete(firstKey);
+      }
       bucket = { tokens: this.maxTokens - 1, lastRefill: now };
-      this.buckets.set(ip, bucket);
+      this.buckets.set(key, bucket);
       return true;
     }
 
-    // Refill tokens based on elapsed time
     const elapsed = (now - bucket.lastRefill) / 1000;
     bucket.tokens = Math.min(
       this.maxTokens,
@@ -78,21 +86,20 @@ class RateLimiter {
       bucket.tokens -= 1;
       return true;
     }
-
     return false;
   }
 
-  /** Prune stale entries (call periodically) */
   prune(): void {
     const now = Date.now();
-    const staleThreshold = 60000; // 1 minute
-    for (const [ip, bucket] of this.buckets.entries()) {
-      if (now - bucket.lastRefill > staleThreshold) {
-        this.buckets.delete(ip);
-      }
+    const staleThreshold = 60000;
+    for (const [k, b] of this.buckets.entries()) {
+      if (now - b.lastRefill > staleThreshold) this.buckets.delete(k);
     }
   }
 }
+
+const SESSION_ID_RE = /^mcp-[a-f0-9-]{8,80}$/i;
+const MAX_ACTIVE_SESSIONS = 256;
 
 export class HttpServer {
   public static testServer() {
@@ -104,13 +111,18 @@ export class HttpServer {
   private port: number = 8080;
   private activeSessions: Map<string, { createdAt: Date; lastActivity: Date }> =
     new Map();
-  private keepAliveTimeout: number = 30000; // 30 seconds
+  private keepAliveTimeout: number = 30000;
   private sessionTimeout: number = 300000; // 5 minutes
   private sessionCleanupInterval: ReturnType<typeof setInterval> | null = null;
-  // Track active transports to close them on shutdown
   private activeTransports: Set<any> = new Set();
-  // Rate limiter (active only when remote access is enabled)
-  private rateLimiter: RateLimiter = new RateLimiter();
+
+  // Per-key (IP or session) limiter for general traffic.
+  private rateLimiter: RateLimiter = new RateLimiter(60, 10, 2048);
+  // Stricter limiter for write tool calls — destructive operations should
+  // never need to be issued at high frequency.
+  private writeRateLimiter: RateLimiter = new RateLimiter(15, 0.5, 2048);
+  // Global cap independent of caller identity.
+  private globalRateLimiter: RateLimiter = new RateLimiter(120, 30, 4);
 
   public isServerRunning(): boolean {
     return this.isRunning;
@@ -122,7 +134,6 @@ export class HttpServer {
       return;
     }
 
-    // Validate port parameter
     if (!port || isNaN(port) || port < 1 || port > 65535) {
       const errorMsg = `[HttpServer] Invalid port number: ${port}. Port must be between 1 and 65535.`;
       Zotero.debug(errorMsg);
@@ -139,9 +150,6 @@ export class HttpServer {
         "@mozilla.org/network/server-socket;1"
       ].createInstance(Ci.nsIServerSocket);
 
-      // init() params: port, loopback only, backlog queue size
-      // loopbackOnly=true: listen on 127.0.0.1 only
-      // loopbackOnly=false: listen on 0.0.0.0 (all interfaces)
       const loopbackOnly = !serverPreferences.isRemoteAccessAllowed();
       Zotero.debug(
         `[HttpServer] Binding to ${loopbackOnly ? "127.0.0.1" : "0.0.0.0"}:${port}`,
@@ -154,10 +162,15 @@ export class HttpServer {
         `[HttpServer] Successfully started HTTP server on port ${port}`,
       );
 
-      // Initialize integrated MCP server if enabled
-      this.initializeMCPServer();
+      // Make sure an auth token exists so the prefs UI never has to handle an
+      // empty state and so remote-allowed servers always require auth.
+      try {
+        serverPreferences.ensureAuthToken();
+      } catch (e) {
+        Zotero.debug(`[HttpServer] Could not ensure auth token: ${e}`);
+      }
 
-      // Start session cleanup timer
+      this.initializeMCPServer();
       this.startSessionCleanup();
     } catch (e) {
       const errorMsg = `[HttpServer] Failed to start server on port ${port}: ${e}`;
@@ -173,7 +186,6 @@ export class HttpServer {
       ztoolkit.log(`[HttpServer] Integrated MCP server initialized`);
     } catch (error) {
       ztoolkit.log(`[HttpServer] Failed to initialize MCP server: ${error}`);
-      // Don't throw error, HTTP server can still work without MCP
     }
   }
 
@@ -185,15 +197,14 @@ export class HttpServer {
       return;
     }
 
-    // Close all active transports first
     ztoolkit.log(
       `[HttpServer] Closing ${this.activeTransports.size} active connections...`,
     );
     for (const transport of this.activeTransports) {
       try {
-        transport.close(0); // 0 = normal close
-      } catch (e) {
-        // Ignore errors when closing individual transports
+        transport.close(0);
+      } catch {
+        // best-effort
       }
     }
     this.activeTransports.clear();
@@ -206,13 +217,8 @@ export class HttpServer {
       Zotero.debug(`[HttpServer] Error stopping server: ${e}`);
     }
 
-    // Stop session cleanup timer
     this.stopSessionCleanup();
-
-    // Clear active sessions
     this.activeSessions.clear();
-
-    // Clean up MCP server
     this.cleanupMCPServer();
   }
 
@@ -223,14 +229,10 @@ export class HttpServer {
     }
   }
 
-  /**
-   * Generate a unique session ID for MCP connections
-   */
   private generateSessionId(): string {
     try {
       return "mcp-" + (globalThis as any).crypto.randomUUID();
     } catch {
-      // Fallback for environments without crypto.randomUUID
       const bytes = new Uint8Array(16);
       (globalThis as any).crypto.getRandomValues(bytes);
       const hex = Array.from(bytes, (b) =>
@@ -240,13 +242,8 @@ export class HttpServer {
     }
   }
 
-  /**
-   * Start session cleanup timer to remove expired sessions
-   */
   private startSessionCleanup(): void {
-    // Clear any existing interval first
     this.stopSessionCleanup();
-
     this.sessionCleanupInterval = setInterval(() => {
       const now = new Date();
       for (const [sessionId, session] of this.activeSessions.entries()) {
@@ -258,14 +255,12 @@ export class HttpServer {
           ztoolkit.log(`[HttpServer] Cleaned up expired session: ${sessionId}`);
         }
       }
-      // Prune stale rate limiter entries
       this.rateLimiter.prune();
-    }, 60000); // Check every minute
+      this.writeRateLimiter.prune();
+      this.globalRateLimiter.prune();
+    }, 60000);
   }
 
-  /**
-   * Stop session cleanup timer
-   */
   private stopSessionCleanup(): void {
     if (this.sessionCleanupInterval) {
       clearInterval(this.sessionCleanupInterval);
@@ -274,9 +269,6 @@ export class HttpServer {
     }
   }
 
-  /**
-   * Update session activity
-   */
   private updateSessionActivity(sessionId: string): void {
     const session = this.activeSessions.get(sessionId);
     if (session) {
@@ -285,46 +277,228 @@ export class HttpServer {
   }
 
   /**
-   * Determine if connection should be kept alive based on request
+   * Read a header value from the raw request text (case-insensitive name).
+   * Returns the first matching value, trimmed, or undefined if not present.
+   *
+   * Header parsing is intentionally line-based and bounded to the headers
+   * section so a body containing a header-shaped line cannot impersonate one.
    */
-  private shouldKeepAlive(requestText: string, path: string): boolean {
-    // Keep alive for MCP endpoints
-    if (path === "/mcp" || path.startsWith("/mcp/")) {
-      return true;
+  private getRequestHeader(
+    requestText: string,
+    name: string,
+  ): string | undefined {
+    const headersEnd = requestText.indexOf("\r\n\r\n");
+    const headersText =
+      headersEnd === -1 ? requestText : requestText.substring(0, headersEnd);
+    const wantedLower = name.toLowerCase();
+    const lines = headersText.split("\r\n");
+    // First line is the request line; skip it.
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      const colon = line.indexOf(":");
+      if (colon === -1) continue;
+      const headerName = line.substring(0, colon).trim().toLowerCase();
+      if (headerName === wantedLower) {
+        return line.substring(colon + 1).trim();
+      }
     }
-
-    // Check for Connection header in request
-    const connectionHeader = requestText.match(/Connection:\s*([^\r\n]+)/i);
-    if (
-      connectionHeader &&
-      connectionHeader[1].toLowerCase().includes("keep-alive")
-    ) {
-      return true;
-    }
-
-    return false;
+    return undefined;
   }
 
   /**
-   * Build appropriate HTTP headers with session and connection management
+   * Count occurrences of a header (case-insensitive). Used to reject
+   * duplicate Host (RFC 7230 §5.4) which is otherwise smuggleable through
+   * fronting proxies.
    */
+  private countHeaderOccurrences(requestText: string, name: string): number {
+    const headersEnd = requestText.indexOf("\r\n\r\n");
+    const headersText =
+      headersEnd === -1 ? requestText : requestText.substring(0, headersEnd);
+    const wantedLower = name.toLowerCase();
+    const lines = headersText.split("\r\n");
+    let count = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      const colon = line.indexOf(":");
+      if (colon === -1) continue;
+      if (line.substring(0, colon).trim().toLowerCase() === wantedLower) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Validate Host, Origin, and Content-Type to prevent DNS-rebinding and
+   * browser simple-form CSRF.
+   *
+   * - Host: must be a real loopback name when remote access is disabled.
+   *   `0.0.0.0` is no longer accepted as a loopback alias — Chrome stopped
+   *   treating it as one in 2024 and we follow suit.
+   * - Origin: when present, must be loopback or browser-extension. `null`
+   *   (sandboxed iframe, file://, cross-origin redirect) is REJECTED — the
+   *   previous code special-cased null-as-allowed which opened the CSRF gap.
+   * - Content-Type: POST /mcp must be application/json. Browsers can submit
+   *   text/plain via simple form POST without preflight, which would
+   *   otherwise sneak JSON-shaped bodies through CORS.
+   *
+   * Returns null when allowed, otherwise a short reason string for logging.
+   */
+  private validateRequestHeaders(
+    requestText: string,
+    method: string,
+    path: string,
+  ): string | null {
+    const allowRemote = serverPreferences.isRemoteAccessAllowed();
+
+    const isLoopbackName = (n: string): boolean => {
+      const s = n.toLowerCase().replace(/^\[|\]$/g, "");
+      return (
+        s === "127.0.0.1" ||
+        s === "localhost" ||
+        s === "::1" ||
+        s.endsWith(".localhost")
+      );
+    };
+
+    if (this.countHeaderOccurrences(requestText, "Host") > 1) {
+      return "duplicate Host header";
+    }
+
+    const host = this.getRequestHeader(requestText, "Host");
+    if (!host) return "missing Host header";
+    const hostName = host.replace(/:\d+$/, "");
+    if (!allowRemote && !isLoopbackName(hostName)) {
+      return `non-loopback Host header (${host})`;
+    }
+
+    // Origin: any non-loopback, non-extension origin (including null) is
+    // rejected. Native MCP clients usually omit Origin entirely.
+    const origin = this.getRequestHeader(requestText, "Origin");
+    if (origin !== undefined) {
+      if (origin === "null") {
+        return "Origin: null is not permitted";
+      }
+      let originUrl: URL;
+      try {
+        originUrl = new URL(origin);
+      } catch {
+        return `invalid Origin header (${origin})`;
+      }
+      const isExtensionOrigin =
+        originUrl.protocol === "chrome-extension:" ||
+        originUrl.protocol === "moz-extension:" ||
+        originUrl.protocol === "safari-web-extension:";
+      if (
+        !isExtensionOrigin &&
+        !(allowRemote || isLoopbackName(originUrl.hostname))
+      ) {
+        return `disallowed Origin (${origin})`;
+      }
+    }
+
+    // Content-Type enforcement on POST /mcp specifically. We don't enforce on
+    // /ping or GET endpoints because they don't accept bodies; we don't
+    // enforce on DELETE /mcp because session termination has no body.
+    if (method === "POST" && (path === "/mcp" || path.startsWith("/mcp/"))) {
+      const ct = this.getRequestHeader(requestText, "Content-Type");
+      if (!ct || !/^application\/json(\s*;|$)/i.test(ct)) {
+        return `unsupported Content-Type for /mcp (${ct ?? "<missing>"})`;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Validate Accept header per MCP Streamable HTTP transport spec. Clients
+   * must accept application/json or text/event-stream (or a wildcard). We
+   * only enforce on /mcp endpoints; other endpoints serve plain JSON.
+   */
+  private validateAcceptHeader(
+    requestText: string,
+    path: string,
+  ): string | null {
+    if (path !== "/mcp" && !path.startsWith("/mcp/")) return null;
+    const accept = this.getRequestHeader(requestText, "Accept");
+    if (!accept) return null; // permissive: missing Accept is fine
+    const lower = accept.toLowerCase();
+    if (
+      lower.includes("application/json") ||
+      lower.includes("text/event-stream") ||
+      lower.includes("*/*")
+    ) {
+      return null;
+    }
+    return `unacceptable Accept header (${accept})`;
+  }
+
+  /**
+   * Per MCP spec, the bearer token gates /mcp access; /ping and the
+   * capabilities/help endpoints stay public so health checks and config
+   * generators can reach them.
+   *
+   * Returns null when authorized.
+   */
+  private validateAuth(
+    requestText: string,
+    path: string,
+    method: string,
+  ): string | null {
+    if (path.startsWith("/ping")) return null;
+    // Allow the GET-only discovery endpoints to stay open for tooling.
+    if (
+      method === "GET" &&
+      (path === "/capabilities" ||
+        path === "/help" ||
+        path === "/mcp/capabilities" ||
+        path === "/mcp/status" ||
+        path === "/mcp")
+    ) {
+      // Auth not required for these read-only descriptors.
+      return null;
+    }
+
+    if (!serverPreferences.requiresAuth()) return null;
+
+    const authz = this.getRequestHeader(requestText, "Authorization");
+    let token = "";
+    if (authz) {
+      const m = authz.match(/^Bearer\s+(.+)$/i);
+      if (m) token = m[1].trim();
+    }
+    if (!token) {
+      // Also accept a custom header so clients that can't set Authorization
+      // (e.g. some browser extensions) still have a path. Custom headers
+      // trigger CORS preflight for browser callers, defeating simple-form
+      // CSRF.
+      const custom = this.getRequestHeader(requestText, "X-Zotero-MCP-Token");
+      if (custom) token = custom.trim();
+    }
+    if (!token) return "missing bearer token";
+    if (!serverPreferences.verifyAuthToken(token))
+      return "invalid bearer token";
+    return null;
+  }
+
+  private shouldKeepAlive(requestText: string, path: string): boolean {
+    if (path === "/mcp" || path.startsWith("/mcp/")) return true;
+    const v = this.getRequestHeader(requestText, "Connection");
+    if (v && v.toLowerCase().includes("keep-alive")) return true;
+    return false;
+  }
+
   private buildHttpHeaders(
     result: any,
     keepAlive: boolean,
     sessionId?: string,
   ): string {
-    const baseHeaders =
+    let headers =
       `HTTP/1.1 ${result.status} ${result.statusText}\r\n` +
       `Content-Type: ${result.headers?.["Content-Type"] || "application/json; charset=utf-8"}\r\n`;
 
-    let headers = baseHeaders;
+    if (sessionId) headers += `Mcp-Session-Id: ${sessionId}\r\n`;
 
-    // Add session ID for MCP requests
-    if (sessionId) {
-      headers += `Mcp-Session-Id: ${sessionId}\r\n`;
-    }
-
-    // Add connection management headers
     if (keepAlive) {
       headers +=
         `Connection: keep-alive\r\n` +
@@ -336,14 +510,34 @@ export class HttpServer {
     return headers;
   }
 
+  private writeJsonResponse(
+    output: any,
+    status: number,
+    statusText: string,
+    body: string,
+    keepAlive = false,
+    extraHeaders = "",
+  ): void {
+    const result = {
+      status,
+      statusText,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+    };
+    const headers =
+      this.buildHttpHeaders(result, keepAlive) +
+      extraHeaders +
+      `Content-Length: ${getByteLength(body)}\r\n` +
+      "\r\n";
+    output.write(headers, headers.length);
+    if (body.length > 0) writeStringToStream(output, body);
+  }
+
   private listener = {
     onSocketAccepted: async (_socket: any, transport: any) => {
       let input: any = null;
       let output: any = null;
       let sin: any = null;
-      const converterStream: any = null;
 
-      // Track this transport for cleanup on shutdown
       this.activeTransports.add(transport);
 
       ztoolkit.log(
@@ -354,7 +548,6 @@ export class HttpServer {
         input = transport.openInputStream(0, 0, 0);
         output = transport.openOutputStream(0, 0, 0);
 
-        // Use converter input stream to properly handle UTF-8 encoding
         const converterStream = Cc[
           "@mozilla.org/intl/converter-input-stream;1"
         ].createInstance(Ci.nsIConverterInputStream);
@@ -365,36 +558,39 @@ export class HttpServer {
         );
         sin.init(input);
 
-        // Improved request reading logic - read the full HTTP request (including body)
         let requestText = "";
         let totalBytesRead = 0;
-        const maxRequestSize = 1024 * 1024; // 1MB max request size
+        const maxRequestSize = 1024 * 1024; // 1MB
+        const readDeadline = Date.now() + 10000; // 10s wall clock for full read
         let waitAttempts = 0;
-        const maxWaitAttempts = 50; // Increase wait attempts for larger requests
+        const maxWaitAttempts = 50;
         let headersComplete = false;
         let contentLength = 0;
         let bodyStartIndex = -1;
+        let bodyByteCount = 0;
 
         try {
-          // Step 1: Read headers until we find \r\n\r\n
+          // Step 1: Read headers until we find \r\n\r\n.
           while (totalBytesRead < maxRequestSize && !headersComplete) {
+            if (Date.now() > readDeadline) {
+              ztoolkit.log(
+                `[HttpServer] Read deadline exceeded during header parse`,
+                "warn",
+              );
+              break;
+            }
             const bytesToRead = Math.min(4096, maxRequestSize - totalBytesRead);
             const available = input.available();
 
             if (available === 0) {
               waitAttempts++;
-              if (waitAttempts > maxWaitAttempts) {
-                ztoolkit.log(
-                  `[HttpServer] Timeout waiting for headers after ${waitAttempts} attempts, TotalBytes: ${totalBytesRead}`,
-                  "warn",
-                );
-                break;
-              }
+              if (waitAttempts > maxWaitAttempts) break;
               await new Promise((resolve) => setTimeout(resolve, 10));
               continue;
             }
 
             let chunk = "";
+            let chunkBytes = 0;
             try {
               const str: { value?: string } = {};
               const bytesRead = converterStream.readString(
@@ -402,6 +598,7 @@ export class HttpServer {
                 str,
               );
               chunk = str.value || "";
+              chunkBytes = bytesRead;
               if (bytesRead === 0) break;
             } catch (converterError) {
               ztoolkit.log(
@@ -409,76 +606,86 @@ export class HttpServer {
                 "error",
               );
               chunk = sin.read(Math.min(bytesToRead, available));
+              chunkBytes = getByteLength(chunk);
               if (!chunk) break;
             }
 
             requestText += chunk;
-            totalBytesRead += chunk.length;
+            totalBytesRead += chunkBytes;
 
-            // Check if headers are complete
             bodyStartIndex = requestText.indexOf("\r\n\r\n");
             if (bodyStartIndex !== -1) {
               headersComplete = true;
-              // Parse Content-Length from headers
               const headersSection = requestText.substring(0, bodyStartIndex);
-              const contentLengthMatch = headersSection.match(
-                /Content-Length:\s*(\d+)/i,
-              );
-              if (contentLengthMatch) {
-                contentLength = parseInt(contentLengthMatch[1], 10);
+              const m = headersSection.match(/Content-Length:\s*(\d+)/i);
+              if (m) contentLength = parseInt(m[1], 10);
+              // Reject oversized bodies up front so an attacker can't tie up
+              // the listener feeding 1MB of dribble.
+              if (contentLength > maxRequestSize) {
+                this.writeJsonResponse(
+                  output,
+                  413,
+                  "Payload Too Large",
+                  JSON.stringify({ error: "Request body too large" }),
+                );
+                return;
               }
+              // Bytes already read past the header boundary.
+              bodyByteCount = getByteLength(
+                requestText.substring(bodyStartIndex + 4),
+              );
             }
           }
 
-          // Step 2: Read body based on Content-Length (for POST requests)
+          // Step 2: Read body based on Content-Length.
           if (headersComplete && contentLength > 0) {
-            const bodyStart = bodyStartIndex + 4; // Skip \r\n\r\n
-            const currentBodyLength = requestText.length - bodyStart;
-
             ztoolkit.log(
-              `[HttpServer] Reading body: Content-Length=${contentLength}, current=${currentBodyLength}, remaining=${contentLength - currentBodyLength}`,
+              `[HttpServer] Reading body: Content-Length=${contentLength}, alreadyRead=${bodyByteCount}`,
             );
-
-            waitAttempts = 0; // Reset wait counter for body reading
-            while (requestText.length - bodyStart < contentLength) {
+            waitAttempts = 0;
+            while (bodyByteCount < contentLength) {
+              if (Date.now() > readDeadline) {
+                ztoolkit.log(
+                  `[HttpServer] Read deadline exceeded during body read`,
+                  "warn",
+                );
+                break;
+              }
               const available = input.available();
-
               if (available === 0) {
                 waitAttempts++;
-                if (waitAttempts > maxWaitAttempts) {
-                  ztoolkit.log(
-                    `[HttpServer] Timeout waiting for body after ${waitAttempts} attempts`,
-                    "warn",
-                  );
-                  break;
-                }
+                if (waitAttempts > maxWaitAttempts) break;
                 await new Promise((resolve) => setTimeout(resolve, 10));
                 continue;
               }
 
               const bytesToRead = Math.min(
                 8192,
-                contentLength - (requestText.length - bodyStart),
+                contentLength - bodyByteCount,
                 available,
               );
               let chunk = "";
+              let chunkBytes = 0;
               try {
                 const str: { value?: string } = {};
                 const bytesRead = converterStream.readString(bytesToRead, str);
                 chunk = str.value || "";
+                chunkBytes = bytesRead;
                 if (bytesRead === 0) break;
-              } catch (converterError) {
+              } catch {
                 chunk = sin.read(bytesToRead);
+                chunkBytes = getByteLength(chunk);
                 if (!chunk) break;
               }
 
               requestText += chunk;
-              totalBytesRead += chunk.length;
+              totalBytesRead += chunkBytes;
+              bodyByteCount += chunkBytes;
             }
           }
         } catch (readError) {
           ztoolkit.log(
-            `[HttpServer] Error reading request: ${readError}, BytesRead: ${totalBytesRead}, InputStream available: ${input?.available ? input.available() : "N/A"}`,
+            `[HttpServer] Error reading request: ${readError}, BytesRead: ${totalBytesRead}`,
             "error",
           );
           requestText = requestText || "INVALID_REQUEST";
@@ -496,91 +703,135 @@ export class HttpServer {
             "error",
           );
         }
-
         if (sin) sin.close();
 
-        // Handle empty connections (likely health checks or probes)
+        // Empty connection (probe / health check)
         if (totalBytesRead === 0 && requestText.length === 0) {
           ztoolkit.log(
-            `[HttpServer] Empty connection detected - likely health check/probe. Closing gracefully.`,
+            `[HttpServer] Empty connection - likely health check. Closing.`,
             "info",
           );
-          return; // Gracefully close without sending error response
+          return;
         }
 
         const requestLine = requestText.split("\r\n")[0];
         ztoolkit.log(
-          `[HttpServer] Received request: ${requestLine} (${requestText.length} bytes)`,
+          `[HttpServer] Received request: ${requestLine} (${requestText.length} chars)`,
         );
 
-        // Validate request format
         if (!requestLine || !requestLine.includes("HTTP/")) {
           ztoolkit.log(
-            `[HttpServer] Invalid request format - RequestLine: "${requestLine || "<empty>"}", TotalBytes: ${totalBytesRead}, RequestLength: ${requestText.length}, RequestPreview: "${requestText.substring(0, 100).replace(/\r?\n/g, "\\n")}"`,
+            `[HttpServer] Invalid request format - RequestLine preview: "${requestLine.substring(0, 80)}"`,
             "error",
           );
-          try {
-            const badRequestResult = {
-              status: 400,
-              statusText: "Bad Request",
-              headers: { "Content-Type": "text/plain; charset=utf-8" },
-            };
-            const badRequestHeaders =
-              this.buildHttpHeaders(badRequestResult, false) +
-              "Content-Length: 11\r\n" +
-              "\r\n";
-            const errorResponse = badRequestHeaders + "Bad Request";
-            output.write(errorResponse, errorResponse.length);
-          } catch (e) {
-            ztoolkit.log(
-              `[HttpServer] Error sending bad request response: ${e}`,
-              "error",
-            );
-          }
-          ztoolkit.log(
-            `[HttpServer] Returned 400 Bad Request due to invalid format. Connection will be closed.`,
-            "warn",
+          this.writeJsonResponse(
+            output,
+            400,
+            "Bad Request",
+            JSON.stringify({ error: "Bad Request" }),
           );
           return;
         }
 
         try {
-          const requestParts = requestLine.split(" ");
-          const method = requestParts[0];
-          const urlPath = requestParts[1];
+          const parts = requestLine.split(" ");
+          const method = parts[0];
+          const urlPath = parts[1] || "/";
           const url = new URL(urlPath, "http://127.0.0.1");
           const query = new URLSearchParams(url.search);
           const path = url.pathname;
+          void query;
 
-          // Rate limiting (only when remote access is enabled)
-          if (serverPreferences.isRemoteAccessAllowed()) {
-            const clientIp = transport.host || "unknown";
-            if (!this.rateLimiter.allow(clientIp)) {
-              ztoolkit.log(
-                `[HttpServer] Rate limit exceeded for ${clientIp}`,
-                "warn",
-              );
-              const rateLimitResult = {
-                status: 429,
-                statusText: "Too Many Requests",
-                headers: { "Content-Type": "application/json; charset=utf-8" },
-              };
-              const rateLimitBody = JSON.stringify({
-                error: "Rate limit exceeded. Try again later.",
-              });
-              const rateLimitByteLength = getByteLength(rateLimitBody);
-              const rateLimitHeaders =
-                this.buildHttpHeaders(rateLimitResult, false) +
-                `Retry-After: 5\r\n` +
-                `Content-Length: ${rateLimitByteLength}\r\n` +
-                "\r\n";
-              output.write(rateLimitHeaders, rateLimitHeaders.length);
-              writeStringToStream(output, rateLimitBody);
-              return;
-            }
+          // 1. Origin / Host / Content-Type checks.
+          const headerRejection = this.validateRequestHeaders(
+            requestText,
+            method,
+            path,
+          );
+          if (headerRejection !== null) {
+            ztoolkit.log(
+              `[HttpServer] Rejecting request: ${headerRejection}`,
+              "warn",
+            );
+            this.writeJsonResponse(
+              output,
+              403,
+              "Forbidden",
+              JSON.stringify({
+                error:
+                  "Forbidden: request blocked by host/origin/content-type policy",
+              }),
+            );
+            return;
           }
 
-          // Extract POST request body
+          // 2. Accept header (per MCP Streamable HTTP spec).
+          const acceptRejection = this.validateAcceptHeader(requestText, path);
+          if (acceptRejection !== null) {
+            ztoolkit.log(`[HttpServer] ${acceptRejection}`, "warn");
+            this.writeJsonResponse(
+              output,
+              406,
+              "Not Acceptable",
+              JSON.stringify({ error: acceptRejection }),
+            );
+            return;
+          }
+
+          // 3. Auth.
+          const authRejection = this.validateAuth(requestText, path, method);
+          if (authRejection !== null) {
+            ztoolkit.log(
+              `[HttpServer] Auth rejection: ${authRejection}`,
+              "warn",
+            );
+            this.writeJsonResponse(
+              output,
+              401,
+              "Unauthorized",
+              JSON.stringify({ error: authRejection }),
+              false,
+              `WWW-Authenticate: Bearer realm="zotero-mcp"\r\n`,
+            );
+            return;
+          }
+
+          // 4. Rate limiting (always on, regardless of allowRemote).
+          const clientKey =
+            (transport.host && String(transport.host)) || "unknown";
+          if (!this.globalRateLimiter.allow("global")) {
+            ztoolkit.log(`[HttpServer] Global rate limit exceeded`, "warn");
+            this.writeJsonResponse(
+              output,
+              429,
+              "Too Many Requests",
+              JSON.stringify({
+                error: "Server is busy. Try again later.",
+              }),
+              false,
+              `Retry-After: 5\r\n`,
+            );
+            return;
+          }
+          if (!this.rateLimiter.allow(clientKey)) {
+            ztoolkit.log(
+              `[HttpServer] Rate limit exceeded for ${clientKey}`,
+              "warn",
+            );
+            this.writeJsonResponse(
+              output,
+              429,
+              "Too Many Requests",
+              JSON.stringify({
+                error: "Rate limit exceeded. Try again later.",
+              }),
+              false,
+              `Retry-After: 5\r\n`,
+            );
+            return;
+          }
+
+          // POST body extraction.
           let requestBody = "";
           if (method === "POST") {
             const bodyStart = requestText.indexOf("\r\n\r\n");
@@ -589,40 +840,80 @@ export class HttpServer {
             }
           }
 
-          // Extract existing session ID or create new one for MCP requests
+          // 5. Session-ID handling.
           let sessionId: string | undefined;
-          const mcpSessionHeader = requestText.match(
-            /Mcp-Session-Id:\s*([^\r\n]+)/i,
+          const presentedSessionId = this.getRequestHeader(
+            requestText,
+            "Mcp-Session-Id",
           );
 
           if (path === "/mcp" || path.startsWith("/mcp/")) {
-            if (mcpSessionHeader && mcpSessionHeader[1]) {
-              sessionId = mcpSessionHeader[1].trim();
-              this.updateSessionActivity(sessionId);
-              ztoolkit.log(
-                `[HttpServer] Using existing MCP session: ${sessionId}`,
-              );
+            if (presentedSessionId !== undefined) {
+              if (!SESSION_ID_RE.test(presentedSessionId)) {
+                this.writeJsonResponse(
+                  output,
+                  400,
+                  "Bad Request",
+                  JSON.stringify({ error: "Invalid Mcp-Session-Id format" }),
+                );
+                return;
+              }
+              if (this.activeSessions.has(presentedSessionId)) {
+                sessionId = presentedSessionId;
+                this.updateSessionActivity(sessionId);
+                ztoolkit.log(
+                  `[HttpServer] Using existing MCP session: ${sessionId}`,
+                );
+              } else {
+                // Per MCP spec, an unrecognized session-id should cause the
+                // server to start a new session rather than honor the client
+                // claim. We mint a fresh one and return it; the client must
+                // pick up the new value from the response header.
+                sessionId = this.generateSessionId();
+                this.recordSession(sessionId);
+                ztoolkit.log(
+                  `[HttpServer] Unknown session presented; minted new ${sessionId}`,
+                );
+              }
             } else {
               sessionId = this.generateSessionId();
-              this.activeSessions.set(sessionId, {
-                createdAt: new Date(),
-                lastActivity: new Date(),
-              });
+              this.recordSession(sessionId);
               ztoolkit.log(
                 `[HttpServer] Created new MCP session: ${sessionId}`,
               );
             }
           }
 
-          // Determine if connection should be kept alive
-          const keepAlive = this.shouldKeepAlive(requestText, path);
-          ztoolkit.log(`[HttpServer] Keep-alive for ${path}: ${keepAlive}`);
+          // Stricter bucket on writeable MCP POSTs.
+          if (
+            method === "POST" &&
+            path === "/mcp" &&
+            sessionId &&
+            !this.writeRateLimiter.allow(sessionId)
+          ) {
+            ztoolkit.log(
+              `[HttpServer] Per-session write rate limit exceeded for ${sessionId}`,
+              "warn",
+            );
+            this.writeJsonResponse(
+              output,
+              429,
+              "Too Many Requests",
+              JSON.stringify({
+                error: "Per-session rate limit exceeded.",
+              }),
+              false,
+              `Retry-After: 2\r\n`,
+            );
+            return;
+          }
 
-          let result;
+          const keepAlive = this.shouldKeepAlive(requestText, path);
+
+          let result: any;
 
           if (path === "/mcp") {
             if (method === "POST") {
-              // Handle MCP requests via streamable HTTP
               if (this.mcpServer) {
                 result = await this.mcpServer.handleMCPRequest(requestBody);
               } else {
@@ -636,7 +927,6 @@ export class HttpServer {
                 };
               }
             } else if (method === "GET") {
-              // Handle GET request to MCP endpoint - show endpoint info
               result = {
                 status: 200,
                 statusText: "OK",
@@ -645,34 +935,50 @@ export class HttpServer {
                   endpoint: "/mcp",
                   protocol: "MCP (Model Context Protocol)",
                   transport: "Streamable HTTP",
-                  version: "2024-11-05",
+                  versions: ["2024-11-05", "2025-03-26"],
                   description:
-                    "This endpoint accepts MCP protocol requests via POST method",
-                  usage: {
-                    method: "POST",
-                    contentType: "application/json",
-                    body: "MCP JSON-RPC 2.0 formatted requests",
-                  },
+                    "POST JSON-RPC 2.0 messages here; DELETE to end a session.",
                   status: this.mcpServer ? "available" : "disabled",
-                  documentation:
-                    "Send POST requests with MCP protocol messages to interact with Zotero data",
                 }),
               };
+            } else if (method === "DELETE") {
+              // Session termination per MCP 2025-03-26.
+              if (
+                presentedSessionId &&
+                this.activeSessions.has(presentedSessionId)
+              ) {
+                this.activeSessions.delete(presentedSessionId);
+                ztoolkit.log(
+                  `[HttpServer] Terminated session ${presentedSessionId}`,
+                );
+              }
+              const headers =
+                this.buildHttpHeaders(
+                  {
+                    status: 204,
+                    statusText: "No Content",
+                    headers: { "Content-Type": "application/json" },
+                  },
+                  false,
+                ) +
+                "Content-Length: 0\r\n" +
+                "\r\n";
+              output.write(headers, headers.length);
+              return;
             } else {
               result = {
                 status: 405,
                 statusText: "Method Not Allowed",
                 headers: {
                   "Content-Type": "application/json; charset=utf-8",
-                  Allow: "GET, POST",
+                  Allow: "GET, POST, DELETE",
                 },
                 body: JSON.stringify({
-                  error: `Method ${method} not allowed. Use GET for info or POST for MCP requests.`,
+                  error: `Method ${method} not allowed.`,
                 }),
               };
             }
           } else if (path === "/mcp/status") {
-            // MCP server status endpoint
             if (this.mcpServer) {
               result = {
                 status: 200,
@@ -696,7 +1002,6 @@ export class HttpServer {
             path === "/capabilities" ||
             path === "/help"
           ) {
-            // Comprehensive capabilities discovery endpoint
             result = {
               status: 200,
               statusText: "OK",
@@ -740,11 +1045,8 @@ export class HttpServer {
           }
 
           const body = result.body || "";
-
-          // Calculate UTF-8 byte length for Content-Length header
           const byteLength = getByteLength(body);
 
-          // Build headers with session and connection management
           const finalHeaders =
             this.buildHttpHeaders(result, keepAlive, sessionId) +
             `Content-Length: ${byteLength}\r\n` +
@@ -754,19 +1056,13 @@ export class HttpServer {
             `[HttpServer] Sending response: ${byteLength} bytes (chars: ${body.length})`,
           );
 
-          // Write headers (ASCII only, so length is safe)
           output.write(finalHeaders, finalHeaders.length);
+          if (byteLength > 0) writeStringToStream(output, body);
 
-          // Write body using converter stream for proper UTF-8 encoding
-          if (byteLength > 0) {
-            writeStringToStream(output, body);
-          }
-
-          // Ensure data is flushed
           try {
             output.flush();
-          } catch (flushError) {
-            // Some streams don't support flush, ignore
+          } catch {
+            // some streams don't flush
           }
         } catch (e) {
           const error = e instanceof Error ? e : new Error(String(e));
@@ -774,20 +1070,13 @@ export class HttpServer {
             `[HttpServer] Error in request handling: ${error.message}`,
             "error",
           );
-          const errorBody = JSON.stringify({ error: error.message });
-          // Use getByteLength for accurate Content-Length with non-ASCII characters
-          const errorByteLength = getByteLength(errorBody);
-          const errorResult = {
-            status: 500,
-            statusText: "Internal Server Error",
-            headers: { "Content-Type": "application/json; charset=utf-8" },
-          };
-          const errorHeaders =
-            this.buildHttpHeaders(errorResult, false) +
-            `Content-Length: ${errorByteLength}\r\n` +
-            "\r\n";
-          output.write(errorHeaders, errorHeaders.length);
-          writeStringToStream(output, errorBody);
+          // Don't reflect raw error message — could leak internal paths/IDs.
+          this.writeJsonResponse(
+            output,
+            500,
+            "Internal Server Error",
+            JSON.stringify({ error: "Internal Server Error" }),
+          );
         }
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));
@@ -800,18 +1089,12 @@ export class HttpServer {
           if (!output) {
             output = transport.openOutputStream(0, 0, 0);
           }
-          const criticalErrorResult = {
-            status: 500,
-            statusText: "Internal Server Error",
-            headers: { "Content-Type": "text/plain; charset=utf-8" },
-          };
-          const criticalErrorHeaders =
-            this.buildHttpHeaders(criticalErrorResult, false) +
-            "Content-Length: 21\r\n" +
-            "\r\n";
-          const errorResponse = criticalErrorHeaders + "Internal Server Error";
-          output.write(errorResponse, errorResponse.length);
-          ztoolkit.log(`[HttpServer] Error response sent`);
+          this.writeJsonResponse(
+            output,
+            500,
+            "Internal Server Error",
+            JSON.stringify({ error: "Internal Server Error" }),
+          );
         } catch (closeError) {
           ztoolkit.log(
             `[HttpServer] Error sending error response: ${closeError}`,
@@ -819,14 +1102,10 @@ export class HttpServer {
           );
         }
       } finally {
-        // Remove transport from tracking
         this.activeTransports.delete(transport);
-
-        // Ensure resource cleanup
         try {
           if (output) {
             output.close();
-            ztoolkit.log(`[HttpServer] Output stream closed`);
           }
         } catch (e) {
           ztoolkit.log(
@@ -834,11 +1113,9 @@ export class HttpServer {
             "error",
           );
         }
-
         try {
           if (input) {
             input.close();
-            ztoolkit.log(`[HttpServer] Input stream closed`);
           }
         } catch (e) {
           ztoolkit.log(
@@ -854,13 +1131,27 @@ export class HttpServer {
   };
 
   /**
-   * Get comprehensive capabilities and API documentation
+   * Insert into activeSessions with LRU eviction so an attacker can't grow
+   * the Map by spraying random session IDs into the Mcp-Session-Id header.
    */
+  private recordSession(sessionId: string): void {
+    if (this.activeSessions.size >= MAX_ACTIVE_SESSIONS) {
+      const firstKey = this.activeSessions.keys().next().value;
+      if (firstKey) this.activeSessions.delete(firstKey);
+    }
+    this.activeSessions.set(sessionId, {
+      createdAt: new Date(),
+      lastActivity: new Date(),
+    });
+  }
+
   private getCapabilities() {
+    // Trimmed: don't broadcast security posture (auth/rate-limit details) —
+    // it's reconnaissance for an attacker that reached the port.
     return {
       serverInfo: {
         name: "Zotero MCP for Claude Code",
-        version: "1.6.2",
+        version: SERVER_INFO_VERSION,
         description:
           "Model Context Protocol integration for Zotero research management (Claude Code fork)",
         author: "lricher7329",
@@ -870,440 +1161,24 @@ export class HttpServer {
       },
       protocols: {
         mcp: {
-          version: "2024-11-05",
+          versions: ["2024-11-05", "2025-03-26"],
           transport: "streamable-http",
           endpoint: "/mcp",
-          description: "Full MCP protocol support for AI clients",
+          description: "MCP protocol support for AI clients",
         },
         rest: {
-          version: "1.1.0",
+          version: SERVER_INFO_VERSION,
           description: "REST API for direct HTTP access",
           baseUrl: `http://127.0.0.1:${this.port}`,
         },
       },
-      capabilities: {
-        search: {
-          library: true,
-          annotations: true,
-          collections: true,
-          fullText: true,
-          advanced: true,
-        },
-        retrieval: {
-          items: true,
-          annotations: true,
-          pdfContent: true,
-          collections: true,
-          notes: true,
-        },
-        formats: {
-          json: true,
-          text: true,
-          markdown: false,
-        },
-      },
-      tools: [
-        {
-          name: "search_library",
-          description:
-            "Search the Zotero library with advanced parameters including boolean operators, relevance scoring, fulltext search, and pagination. Returns: {query, pagination, searchTime, results: [{key, title, creators, date, attachments: [{key, filename, filePath, contentType, linkMode}], fulltextMatch: {query, mode, attachments: [{snippet, score}], notes: [{snippet, score}]}}], searchFeatures, version}",
-          category: "search",
-          parameters: {
-            q: {
-              type: "string",
-              description: "General search query",
-              required: false,
-            },
-            title: {
-              type: "string",
-              description: "Title search",
-              required: false,
-            },
-            titleOperator: {
-              type: "string",
-              enum: ["contains", "exact", "startsWith", "endsWith", "regex"],
-              description: "Title search operator",
-              required: false,
-            },
-            yearRange: {
-              type: "string",
-              description: "Year range (e.g., '2020-2023')",
-              required: false,
-            },
-            fulltext: {
-              type: "string",
-              description: "Full-text search in attachments and notes",
-              required: false,
-            },
-            fulltextMode: {
-              type: "string",
-              enum: ["attachment", "note", "both"],
-              description:
-                "Full-text search mode: 'attachment' (PDFs only), 'note' (notes only), 'both' (default)",
-              required: false,
-            },
-            fulltextOperator: {
-              type: "string",
-              enum: ["contains", "exact", "regex"],
-              description: "Full-text search operator (default: 'contains')",
-              required: false,
-            },
-            relevanceScoring: {
-              type: "boolean",
-              description: "Enable relevance scoring",
-              required: false,
-            },
-            sort: {
-              type: "string",
-              enum: ["relevance", "date", "title", "year"],
-              description: "Sort order",
-              required: false,
-            },
-            limit: {
-              type: "number",
-              description: "Maximum results to return",
-              required: false,
-            },
-            offset: {
-              type: "number",
-              description: "Pagination offset",
-              required: false,
-            },
-          },
-          examples: [
-            {
-              query: { q: "machine learning" },
-              description: "Basic text search",
-            },
-            {
-              query: { title: "deep learning", titleOperator: "contains" },
-              description: "Title-specific search",
-            },
-            {
-              query: { yearRange: "2020-2023", sort: "relevance" },
-              description: "Year-filtered search with relevance sorting",
-            },
-            {
-              query: {
-                fulltext: "neural networks",
-                fulltextMode: "attachment",
-              },
-              description: "Full-text search in PDF attachments only",
-            },
-            {
-              query: {
-                fulltext: "methodology",
-                fulltextMode: "both",
-                fulltextOperator: "exact",
-              },
-              description:
-                "Exact full-text search in both attachments and notes",
-            },
-          ],
-        },
-        {
-          name: "search_annotations",
-          description:
-            "Search all notes, PDF annotations and highlights with smart content processing",
-          category: "search",
-          parameters: {
-            q: {
-              type: "string",
-              description: "Search query for content, comments, and tags",
-              required: false,
-            },
-            type: {
-              type: "string",
-              enum: ["note", "highlight", "annotation", "ink", "text", "image"],
-              description: "Filter by annotation type",
-              required: false,
-            },
-            detailed: {
-              type: "boolean",
-              description:
-                "Return detailed content (default: false for preview)",
-              required: false,
-            },
-            limit: {
-              type: "number",
-              description: "Maximum results (preview: 20, detailed: 50)",
-              required: false,
-            },
-            offset: {
-              type: "number",
-              description: "Pagination offset",
-              required: false,
-            },
-          },
-          examples: [
-            {
-              query: { q: "important findings" },
-              description: "Search annotation content",
-            },
-            {
-              query: { type: "highlight", detailed: true },
-              description: "Get detailed highlights",
-            },
-          ],
-        },
-        {
-          name: "get_item_details",
-          description:
-            "Get detailed information for a specific item including metadata, abstract, attachments info, notes, and tags but not fulltext content. Returns: {key, title, creators, date, itemType, publicationTitle, volume, issue, pages, DOI, url, abstractNote, tags, notes: [note_content], attachments: [{key, title, path, contentType, filename, url, linkMode, hasFulltext, size}]}",
-          category: "retrieval",
-          parameters: {
-            itemKey: {
-              type: "string",
-              description: "Unique item key",
-              required: true,
-            },
-          },
-          examples: [
-            { query: { itemKey: "ABCD1234" }, description: "Get item by key" },
-          ],
-        },
-        {
-          name: "get_annotation_by_id",
-          description: "Get complete content of a specific annotation by ID",
-          category: "retrieval",
-          parameters: {
-            annotationId: {
-              type: "string",
-              description: "Annotation ID",
-              required: true,
-            },
-          },
-        },
-        {
-          name: "get_annotations_batch",
-          description: "Get complete content of multiple annotations by IDs",
-          category: "retrieval",
-          parameters: {
-            ids: {
-              type: "array",
-              items: { type: "string" },
-              description: "Array of annotation IDs",
-              required: true,
-            },
-          },
-        },
-        {
-          name: "get_item_pdf_content",
-          description: "Extract text content from PDF attachments",
-          category: "retrieval",
-          parameters: {
-            itemKey: {
-              type: "string",
-              description: "Item key",
-              required: true,
-            },
-            page: {
-              type: "number",
-              description: "Specific page number (optional)",
-              required: false,
-            },
-          },
-        },
-        {
-          name: "get_collections",
-          description: "Get list of all collections in the library",
-          category: "collections",
-          parameters: {
-            limit: {
-              type: "number",
-              description: "Maximum results to return",
-              required: false,
-            },
-            offset: {
-              type: "number",
-              description: "Pagination offset",
-              required: false,
-            },
-          },
-        },
-        {
-          name: "search_collections",
-          description: "Search collections by name",
-          category: "collections",
-          parameters: {
-            q: {
-              type: "string",
-              description: "Collection name search query",
-              required: true,
-            },
-            limit: {
-              type: "number",
-              description: "Maximum results to return",
-              required: false,
-            },
-          },
-        },
-        {
-          name: "get_collection_details",
-          description: "Get detailed information about a specific collection",
-          category: "collections",
-          parameters: {
-            collectionKey: {
-              type: "string",
-              description: "Collection key",
-              required: true,
-            },
-          },
-        },
-        {
-          name: "get_collection_items",
-          description: "Get items in a specific collection",
-          category: "collections",
-          parameters: {
-            collectionKey: {
-              type: "string",
-              description: "Collection key",
-              required: true,
-            },
-            limit: {
-              type: "number",
-              description: "Maximum results to return",
-              required: false,
-            },
-            offset: {
-              type: "number",
-              description: "Pagination offset",
-              required: false,
-            },
-          },
-        },
-        {
-          name: "get_item_fulltext",
-          description:
-            "Get comprehensive fulltext content from item including attachments, notes, abstracts, and webpage snapshots. Returns: {itemKey, title, itemType, abstract, fulltext: {attachments: [{attachmentKey, filename, filePath, contentType, type, content, length, extractionMethod}], notes: [{noteKey, title, content, htmlContent, length, dateModified}], webpage: {url, filename, filePath, content, length, type}, total_length}, metadata: {extractedAt, sources}}",
-          category: "fulltext",
-          parameters: {
-            itemKey: {
-              type: "string",
-              description: "Item key",
-              required: true,
-            },
-            attachments: {
-              type: "boolean",
-              description: "Include attachment content (default: true)",
-              required: false,
-            },
-            notes: {
-              type: "boolean",
-              description: "Include notes content (default: true)",
-              required: false,
-            },
-            webpage: {
-              type: "boolean",
-              description: "Include webpage snapshots (default: true)",
-              required: false,
-            },
-            abstract: {
-              type: "boolean",
-              description: "Include abstract (default: true)",
-              required: false,
-            },
-          },
-          examples: [
-            {
-              query: { itemKey: "ABCD1234" },
-              description: "Get all fulltext content for an item",
-            },
-            {
-              query: { itemKey: "ABCD1234", attachments: true, notes: false },
-              description: "Get only attachment content",
-            },
-          ],
-        },
-        {
-          name: "get_attachment_content",
-          description:
-            "Extract text content from a specific attachment (PDF, HTML, text files). Returns: {attachmentKey, filename, filePath, contentType, type, content, length, extractionMethod, extractedAt}",
-          category: "fulltext",
-          parameters: {
-            attachmentKey: {
-              type: "string",
-              description: "Attachment key",
-              required: true,
-            },
-            format: {
-              type: "string",
-              enum: ["json", "text"],
-              description: "Response format (default: json)",
-              required: false,
-            },
-          },
-        },
-        {
-          name: "search_fulltext",
-          description:
-            "Search within fulltext content of items with context and relevance scoring",
-          category: "fulltext",
-          parameters: {
-            q: { type: "string", description: "Search query", required: true },
-            itemKeys: {
-              type: "array",
-              items: { type: "string" },
-              description: "Limit search to specific items (optional)",
-              required: false,
-            },
-            contextLength: {
-              type: "number",
-              description: "Context length around matches (default: 200)",
-              required: false,
-            },
-            maxResults: {
-              type: "number",
-              description: "Maximum results to return (default: 50)",
-              required: false,
-            },
-            caseSensitive: {
-              type: "boolean",
-              description: "Case sensitive search (default: false)",
-              required: false,
-            },
-          },
-          examples: [
-            {
-              query: { q: "machine learning" },
-              description: "Search for 'machine learning' in all fulltext",
-            },
-            {
-              query: {
-                q: "neural networks",
-                maxResults: 10,
-                contextLength: 100,
-              },
-              description: "Limited context search",
-            },
-          ],
-        },
-        {
-          name: "get_item_abstract",
-          description: "Get the abstract/summary of a specific item",
-          category: "retrieval",
-          parameters: {
-            itemKey: {
-              type: "string",
-              description: "Item key",
-              required: true,
-            },
-            format: {
-              type: "string",
-              enum: ["json", "text"],
-              description: "Response format (default: json)",
-              required: false,
-            },
-          },
-        },
-      ],
       endpoints: {
         mcp: {
           "/mcp": {
-            method: "POST",
-            description: "MCP protocol endpoint for AI clients",
+            methods: ["POST", "GET", "DELETE"],
+            description:
+              "MCP protocol endpoint (POST), info (GET), session termination (DELETE)",
             contentType: "application/json",
-            protocol: "MCP 2024-11-05",
           },
         },
         rest: {
@@ -1314,54 +1189,24 @@ export class HttpServer {
           },
           "/mcp/status": {
             method: "GET",
-            description: "MCP server status and capabilities",
+            description: "MCP server status",
             response: "application/json",
           },
           "/capabilities": {
             method: "GET",
-            description: "This endpoint - comprehensive API documentation",
-            response: "application/json",
-          },
-          "/help": {
-            method: "GET",
-            description: "Alias for /capabilities",
-            response: "application/json",
-          },
-          "/test/mcp": {
-            method: "GET",
-            description: "MCP integration testing endpoint",
+            description: "API capabilities",
             response: "application/json",
           },
         },
-      },
-      usage: {
-        gettingStarted: {
-          mcp: {
-            description: "Connect via MCP protocol",
-            steps: [
-              "Configure MCP client to connect to this server",
-              "Use streamable HTTP transport",
-              "Send MCP requests to /mcp endpoint",
-              "Available tools will be listed via tools/list method",
-            ],
-          },
-          rest: {
-            description: "Use REST API directly",
-            examples: [
-              "GET /capabilities - Get this documentation",
-              "GET /ping - Health check",
-              "GET /mcp/status - Check MCP server status",
-            ],
-          },
-        },
-        authentication: "None required for local connections",
-        rateLimit: "No rate limiting currently implemented",
-        cors: "CORS headers not currently set",
       },
       timestamp: new Date().toISOString(),
       status: this.mcpServer ? "ready" : "mcp-disabled",
     };
   }
 }
+
+// Single source of truth for the version reported in /capabilities and
+// /mcp/status. Bumped during release per zotero-mcp-plugin/CLAUDE.md.
+export const SERVER_INFO_VERSION = "1.8.0";
 
 export const httpServer = new HttpServer();

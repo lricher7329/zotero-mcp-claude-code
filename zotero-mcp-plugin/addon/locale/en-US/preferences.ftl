@@ -13,6 +13,34 @@ pref-server-write-enabled =
     .label = Allow write operations (create collections, notes, tags)
 pref-server-write-enabled-hint = Enables MCP tools that can modify your Zotero library. Disabled by default for safety.
 
+pref-auth-title = Authentication
+pref-server-require-auth =
+    .label = Require auth token on local connections
+pref-server-require-auth-hint = Always required when remote access is enabled. When disabled here, loopback callers can connect without a token.
+pref-auth-token-label = Token:
+pref-auth-copy-token-button =
+    .label = Copy
+pref-auth-regen-token-button =
+    .label = Regenerate
+pref-auth-token-hint = Paste this into your AI client's MCP config as Authorization: Bearer <token>. Regenerating invalidates existing client configs.
+
+pref-write-scopes-title = Write Scopes
+pref-write-scopes-hint = Each scope must be enabled before its tools are exposed. Destructive scopes are highlighted.
+pref-write-scope-notes =
+    .label = Notes (add/update notes)
+pref-write-scope-tags =
+    .label = Tags (add/remove tags on items)
+pref-write-scope-collections =
+    .label = Collections (create/rename/move/add-to/remove-from)
+pref-write-scope-metadata =
+    .label = Item metadata (create items, edit fields, related items)
+pref-write-scope-delete =
+    .label = Delete (trash items, delete collections, delete tags) — destructive
+pref-write-scope-bulk =
+    .label = Bulk operations (batch tag, batch trash, library-wide tag rename) — destructive
+pref-write-scope-import =
+    .label = Import attachments from URL (SSRF risk) — destructive
+
 pref-mcp-settings-title = MCP Content Settings
 pref-mcp-settings-description = Configure how the MCP server processes and returns content to AI clients
 pref-max-tokens-label = Max Tokens per Response:
