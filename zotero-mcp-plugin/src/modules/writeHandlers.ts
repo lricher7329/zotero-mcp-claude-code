@@ -1231,11 +1231,66 @@ export function inferContentTypeFromURL(url: string): string | undefined {
   return undefined;
 }
 
+export type IfExistsPolicy = "add" | "skip" | "replace";
+
+export interface ExistingAttachmentInfo {
+  key: string;
+  title: string;
+  contentType: string;
+  dateAdded: string;
+}
+
+/**
+ * Decide what to do given existing same-type attachments and a policy.
+ * Pure function — no Zotero access. Extracted so the policy logic can
+ * be tested independently of the rest of the import pipeline.
+ */
+export function decideImportAction(
+  existing: ExistingAttachmentInfo[],
+  policy: IfExistsPolicy,
+): "create" | "skip" | "replace" {
+  if (existing.length === 0) return "create";
+  if (policy === "skip") return "skip";
+  if (policy === "replace") return "replace";
+  return "create"; // policy === "add"
+}
+
+/**
+ * Enumerate existing attachments on a parent item that share the given
+ * content type. Used for dedup decisions before importing a new
+ * attachment. Returns [] when contentType is undefined (no signal to
+ * match on) or the parent has no matching attachments.
+ */
+export function findSameTypeAttachments(
+  parentItem: any,
+  contentType: string | undefined,
+): ExistingAttachmentInfo[] {
+  if (!contentType || !parentItem) return [];
+  const wanted = contentType.toLowerCase();
+  const ids: number[] = parentItem.getAttachments?.() || [];
+  const out: ExistingAttachmentInfo[] = [];
+  for (const id of ids) {
+    const att = Zotero.Items.get(id);
+    if (!att) continue;
+    const ct = (att.attachmentContentType || "").toLowerCase();
+    if (!ct || ct !== wanted) continue;
+    out.push({
+      key: att.key,
+      title: att.getField("title") || "",
+      contentType: att.attachmentContentType || "",
+      dateAdded: att.dateAdded || "",
+    });
+  }
+  return out;
+}
+
 export async function handleImportAttachmentURL(args: {
   url: string;
   parentItemKey?: string;
   title?: string;
   contentType?: string;
+  dryRun?: boolean;
+  ifExists?: IfExistsPolicy;
 }): Promise<MutationResult> {
   assertScope("import");
 
@@ -1248,11 +1303,15 @@ export async function handleImportAttachmentURL(args: {
     throw new InvalidURLError(args.url, urlError);
   }
 
+  const ifExists: IfExistsPolicy = args.ifExists ?? "add";
+  const dryRun = !!args.dryRun;
+
   const libraryID = Zotero.Libraries.userLibraryID;
   let parentItemID: number | undefined;
+  let parentItem: any;
 
   if (args.parentItemKey) {
-    const parentItem = resolveItem(args.parentItemKey);
+    parentItem = resolveItem(args.parentItemKey);
     parentItemID = parentItem.id;
   }
 
@@ -1285,6 +1344,70 @@ export async function handleImportAttachmentURL(args: {
     (resolvedViaPMCMirror
       ? "application/pdf"
       : inferContentTypeFromURL(importURL));
+
+  // Dedup check — only meaningful when we have a parent and a known
+  // content type. Standalone attachments and ambiguous-type imports
+  // skip the check (treat as `add`).
+  const existing =
+    ifExists !== "add" && parentItem && resolvedContentType
+      ? findSameTypeAttachments(parentItem, resolvedContentType)
+      : [];
+  const decision = decideImportAction(existing, ifExists);
+
+  if (dryRun) {
+    return {
+      success: true,
+      action: "import_attachment_url",
+      itemKey: existing[0]?.key ?? "",
+      details: {
+        dryRun: true,
+        decision,
+        url: importURL,
+        originalUrl: importURL === args.url ? null : args.url,
+        parentItemKey: args.parentItemKey || null,
+        title: args.title || null,
+        contentType: resolvedContentType || null,
+        ifExists,
+        existingAttachments: existing,
+      },
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (decision === "skip") {
+    return {
+      success: true,
+      action: "import_attachment_url",
+      itemKey: existing[0].key,
+      details: {
+        skipped: true,
+        decision: "skip",
+        url: importURL,
+        originalUrl: importURL === args.url ? null : args.url,
+        parentItemKey: args.parentItemKey || null,
+        title: args.title || null,
+        contentType: resolvedContentType || null,
+        ifExists,
+        existingAttachments: existing,
+      },
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  // Replace path: trash the existing same-type attachments. This needs
+  // delete scope on top of import scope, since the user-visible effect
+  // includes removing data.
+  const trashedKeys: string[] = [];
+  if (decision === "replace") {
+    assertScope("delete");
+    for (const info of existing) {
+      const att = Zotero.Items.getByLibraryAndKey(libraryID, info.key);
+      if (!att) continue;
+      att.deleted = true;
+      await att.saveTx();
+      trashedKeys.push(info.key);
+    }
+  }
 
   const importOptions: any = {
     libraryID,
@@ -1342,6 +1465,9 @@ export async function handleImportAttachmentURL(args: {
       parentItemKey: args.parentItemKey || null,
       title: args.title || null,
       contentType: resolvedContentType || null,
+      decision,
+      ifExists,
+      trashedAttachmentKeys: trashedKeys.length > 0 ? trashedKeys : null,
     },
     timestamp: new Date().toISOString(),
   };

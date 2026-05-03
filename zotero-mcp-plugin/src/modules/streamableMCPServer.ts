@@ -1946,7 +1946,10 @@ export class StreamableMCPServer {
             "Import a file from a URL as an attachment. Can be standalone or attached to a parent item. " +
             "Pass contentType (e.g. 'application/pdf') to force the binary-download path; " +
             "without it, .pdf/.epub URLs and PMC /pdf/ paths are auto-detected, and " +
-            "anything else falls back to Zotero's HTML snapshot path.",
+            "anything else falls back to Zotero's HTML snapshot path. " +
+            "Use dryRun + ifExists for dedup-aware workflows: dryRun returns the " +
+            "decision and existing same-type attachments without writing, so the " +
+            "caller can resolve conflicts file-by-file before committing.",
           inputSchema: {
             type: "object",
             properties: {
@@ -1968,6 +1971,22 @@ export class StreamableMCPServer {
                 description:
                   "MIME type override (e.g. 'application/pdf', 'application/epub+zip', 'text/html'). " +
                   "Recommended for PMC/PubMed PDF URLs to bypass Zotero's SingleFile snapshot path.",
+              },
+              dryRun: {
+                type: "boolean",
+                description:
+                  "If true, no writes happen — return the would-be decision and any " +
+                  "existing same-type attachments on the parent. Pair with ifExists to " +
+                  "preview conflicts before committing.",
+              },
+              ifExists: {
+                type: "string",
+                enum: ["add", "skip", "replace"],
+                description:
+                  "What to do when the parent already has an attachment with the same " +
+                  "content-type. 'add' (default) imports anyway. 'skip' returns the " +
+                  "existing attachment without importing. 'replace' trashes the existing " +
+                  "same-type attachments and imports the new one (requires delete scope).",
               },
             },
             required: ["url"],
