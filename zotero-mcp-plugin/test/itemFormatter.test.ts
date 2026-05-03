@@ -64,10 +64,16 @@ const mockNotes: Record<number, { getNote: () => string }> = {
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const itemFormatter = require("../src/modules/itemFormatter");
-const { formatItem, ALL_FIELDS_SENTINEL } = itemFormatter as {
-  formatItem: (item: any, fields?: string[]) => Promise<Record<string, any>>;
-  ALL_FIELDS_SENTINEL: string;
-};
+const { formatItem, ALL_FIELDS_SENTINEL, parseExtraIdentifiers } =
+  itemFormatter as {
+    formatItem: (item: any, fields?: string[]) => Promise<Record<string, any>>;
+    ALL_FIELDS_SENTINEL: string;
+    parseExtraIdentifiers: (extra: string | null | undefined) => {
+      PMID?: string;
+      PMCID?: string;
+      citationKey?: string;
+    };
+  };
 
 /** Build a fake Zotero.Item for testing. */
 function makeItem(opts: {
@@ -258,6 +264,165 @@ describe("itemFormatter", function () {
       expect(note).to.include("First paragraph.");
       expect(note).to.include("Second & third.");
       expect(note).to.include("Block");
+    });
+  });
+
+  describe("parseExtraIdentifiers (§6.2 invariant)", function () {
+    it("parses canonical PMID/PMCID/Citation Key block", function () {
+      const out = parseExtraIdentifiers(
+        "PMID: 12345\nPMCID: PMC67890\nCitation Key: smith2024",
+      );
+      expect(out).to.deep.equal({
+        PMID: "12345",
+        PMCID: "PMC67890",
+        citationKey: "smith2024",
+      });
+    });
+
+    it("normalizes PMCID without the PMC prefix", function () {
+      // Zotero permits the bare-digit form in extra; we normalize on read
+      // so consumers always see the canonical PMC########## form.
+      const out = parseExtraIdentifiers("PMCID: 1234567");
+      expect(out.PMCID).to.equal("PMC1234567");
+    });
+
+    it("preserves PMCID when PMC prefix is already present", function () {
+      const out = parseExtraIdentifiers("PMCID: PMC1234567");
+      expect(out.PMCID).to.equal("PMC1234567");
+    });
+
+    it("handles non-canonical PMID variants", function () {
+      const variants = [
+        ["PMID:99999", "99999"],
+        ["pmid: 99999", "99999"],
+        ["PubMed ID: 99999", "99999"],
+        ["PubMed ID:99999", "99999"],
+        ["PMID 99999", "99999"],
+      ];
+      for (const [input, expected] of variants) {
+        const out = parseExtraIdentifiers(input);
+        expect(out.PMID, `input: ${input}`).to.equal(expected);
+      }
+    });
+
+    it("returns empty object for null/undefined/empty extra", function () {
+      expect(parseExtraIdentifiers(null)).to.deep.equal({});
+      expect(parseExtraIdentifiers(undefined)).to.deep.equal({});
+      expect(parseExtraIdentifiers("")).to.deep.equal({});
+    });
+
+    it("only returns identifiers actually present", function () {
+      // Just a citation key, no PubMed identifiers.
+      const out = parseExtraIdentifiers("Citation Key: jones2023");
+      expect(out).to.deep.equal({ citationKey: "jones2023" });
+      expect(out).to.not.have.property("PMID");
+      expect(out).to.not.have.property("PMCID");
+    });
+
+    it("finds identifiers interleaved with other extra fields", function () {
+      // Real Zotero `extra` blocks often mix BBT/citation tooling fields
+      // with PubMed IDs and free-form notes. We anchor identifiers to line
+      // starts but don't require a particular order.
+      const extra = [
+        "tex.note: imported from medline",
+        "PMID: 40123456",
+        "Citation Key: doe2024foo",
+        "type: article",
+        "PMCID: PMC10987654",
+      ].join("\n");
+      const out = parseExtraIdentifiers(extra);
+      expect(out).to.deep.equal({
+        PMID: "40123456",
+        PMCID: "PMC10987654",
+        citationKey: "doe2024foo",
+      });
+    });
+
+    it("ignores PMID-like substrings that aren't at line start", function () {
+      // The regex anchors to (?:^|\n) — a passing mention of "see PMID
+      // 12345 in the abstract" inside a free-form note shouldn't poison
+      // structured output.
+      const out = parseExtraIdentifiers(
+        "tex.note: see PMID 99999 in the abstract",
+      );
+      expect(out).to.not.have.property("PMID");
+    });
+  });
+
+  describe("formatItem identifier synthesis", function () {
+    it("exposes PMID/PMCID/citationKey as top-level fields", async function () {
+      const item = makeItem({
+        key: "SYNTH001",
+        itemType: "journalArticle",
+        fields: {
+          title: "Synth test",
+          extra: "PMID: 40123456\nPMCID: PMC10987654\nCitation Key: doe2024",
+        },
+      });
+      const out = await formatItem(item);
+      expect(out.PMID).to.equal("40123456");
+      expect(out.PMCID).to.equal("PMC10987654");
+      expect(out.citationKey).to.equal("doe2024");
+    });
+
+    it("preserves the raw `extra` string alongside synthesized fields", async function () {
+      // Anything already parsing extra directly must keep working —
+      // synthesis is additive, not a replacement.
+      const raw = "PMID: 40123456\nPMCID: PMC10987654\nCitation Key: doe2024";
+      const item = makeItem({
+        key: "SYNTH002",
+        itemType: "journalArticle",
+        fields: { title: "Raw preserved", extra: raw },
+      });
+      const out = await formatItem(item);
+      expect(out.extra).to.equal(raw);
+    });
+
+    it("synthesizes identifiers in ALL_FIELDS_SENTINEL (complete) mode too", async function () {
+      const item = makeItem({
+        key: "SYNTH003",
+        itemType: "journalArticle",
+        fields: {
+          title: "Complete mode",
+          extra: "PMID: 40000001",
+        },
+      });
+      const out = await formatItem(item, [ALL_FIELDS_SENTINEL]);
+      expect(out.PMID).to.equal("40000001");
+    });
+
+    it("does not add identifier keys when extra has none", async function () {
+      const item = makeItem({
+        key: "SYNTH004",
+        itemType: "journalArticle",
+        fields: { title: "No identifiers", extra: "type: article" },
+      });
+      const out = await formatItem(item);
+      expect(out).to.not.have.property("PMID");
+      expect(out).to.not.have.property("PMCID");
+      expect(out).to.not.have.property("citationKey");
+    });
+
+    it("does not add identifier keys when extra is empty", async function () {
+      const item = makeItem({
+        key: "SYNTH005",
+        itemType: "journalArticle",
+        fields: { title: "Empty extra" },
+      });
+      const out = await formatItem(item);
+      expect(out).to.not.have.property("PMID");
+      expect(out).to.not.have.property("PMCID");
+      expect(out).to.not.have.property("citationKey");
+    });
+
+    it("normalizes a bare-digit PMCID through formatItem", async function () {
+      const item = makeItem({
+        key: "SYNTH006",
+        itemType: "journalArticle",
+        fields: { title: "Bare PMCID", extra: "PMCID: 1234567" },
+      });
+      const out = await formatItem(item);
+      expect(out.PMCID).to.equal("PMC1234567");
     });
   });
 

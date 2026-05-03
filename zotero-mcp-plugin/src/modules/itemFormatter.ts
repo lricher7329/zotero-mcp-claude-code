@@ -9,6 +9,42 @@ declare let ztoolkit: ZToolkit;
 export const ALL_FIELDS_SENTINEL = "__zmcp_all_fields__";
 
 /**
+ * Parse PMID, PMCID, and citation key identifiers out of a Zotero `extra`
+ * field. Zotero stores these (and other identifiers) as free-form lines in
+ * `extra` by convention — PubMed/PMC and Better BibTeX both look there.
+ * Surfacing them as structured top-level fields keeps every consumer from
+ * re-implementing the same regex set, and matches the literature-search
+ * development plan §6.2 invariant.
+ *
+ * Naming follows the existing Zotero formatter pattern: ALL-CAPS for
+ * established acronyms (PMID, PMCID — same shape as DOI, ISBN, URL) and
+ * camelCase for multi-word non-acronyms (citationKey — same shape as
+ * abstractNote, dateAdded; also matches Better BibTeX's own field name).
+ *
+ * PMCID is normalized to always carry the `PMC` prefix so callers don't
+ * have to handle the bare-digit form Zotero permits in `extra`.
+ */
+export function parseExtraIdentifiers(extra: string | null | undefined): {
+  PMID?: string;
+  PMCID?: string;
+  citationKey?: string;
+} {
+  if (!extra) return {};
+  const result: { PMID?: string; PMCID?: string; citationKey?: string } = {};
+
+  const pmid = extra.match(/(?:^|\n)\s*(?:PMID|PubMed\s*ID)\s*:?\s*(\d+)/i);
+  if (pmid) result.PMID = pmid[1];
+
+  const pmcid = extra.match(/(?:^|\n)\s*PMCID\s*:?\s*(PMC)?(\d+)/i);
+  if (pmcid) result.PMCID = `PMC${pmcid[2]}`;
+
+  const ck = extra.match(/(?:^|\n)\s*Citation\s*Key\s*:?\s*(\S+)/i);
+  if (ck) result.citationKey = ck[1];
+
+  return result;
+}
+
+/**
  * Strip HTML tags and decode common entities from a note. Notes are stored
  * as HTML in Zotero; for LLM consumers, plain text is more useful and
  * matches what get_content returns (so the two surfaces stay consistent).
@@ -376,6 +412,26 @@ export async function formatItem(
       );
       formattedItem[field] = null;
     }
+  }
+
+  // Synthesize structured identifiers from `extra`. PMID/PMCID/citationKey
+  // are stored in `extra` per Zotero/BBT convention; surfacing them as
+  // top-level fields lets consumers match by identifier without
+  // re-implementing the same regex set. The raw `extra` field is left
+  // untouched, so anything already parsing it directly still works.
+  try {
+    const extraText = String(item.getField("extra") || "");
+    if (extraText) {
+      const ids = parseExtraIdentifiers(extraText);
+      if (ids.PMID) formattedItem.PMID = ids.PMID;
+      if (ids.PMCID) formattedItem.PMCID = ids.PMCID;
+      if (ids.citationKey) formattedItem.citationKey = ids.citationKey;
+    }
+  } catch (e) {
+    ztoolkit.log(
+      `[ItemFormatter] Error parsing extra identifiers: ${e}`,
+      "warn",
+    );
   }
 
   return formattedItem;
