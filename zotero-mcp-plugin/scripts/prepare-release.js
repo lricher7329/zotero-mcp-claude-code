@@ -18,10 +18,12 @@ const {
 } = packageJson;
 
 const repoUrl = "https://github.com/lricher7329/zotero-mcp-claude-code";
+const xpiFilename = "zotero-mcp-for-claude-code.xpi";
 
 function generateUpdateJson(isBeta = false) {
-  const currentVersion = isBeta ? `${version}-beta.0` : version;
-  const updateLink = `${repoUrl}/releases/download/v${currentVersion}/zotero-mcp-plugin-${currentVersion}.xpi`;
+  const currentVersion =
+    isBeta && !version.includes("-") ? `${version}-beta.0` : version;
+  const updateLink = `${repoUrl}/releases/download/v${currentVersion}/${xpiFilename}`;
 
   return {
     addons: {
@@ -53,5 +55,5 @@ fs.writeFileSync(
 );
 
 console.log(
-  `Generated update.json and update-beta.json for version ${version}`,
+  `Generated update.json and update-beta.json for version ${version} (${xpiFilename})`,
 );

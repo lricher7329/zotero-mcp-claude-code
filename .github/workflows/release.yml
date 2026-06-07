@@ -42,7 +42,7 @@ jobs:
         with:
           files: |
             zotero-mcp-plugin/.scaffold/build/zotero-mcp-for-claude-code.xpi
-            zotero-mcp-plugin/update.json
+            zotero-mcp-plugin/.scaffold/build/update.json
           tag_name: v${{ steps.plugin-info.outputs.version }}
           name: v${{ steps.plugin-info.outputs.version }}
           draft: false

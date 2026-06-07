@@ -3,58 +3,8 @@
     "zotero-mcp-plugin@lricher7329.github.io": {
       "updates": [
         {
-          "version": "1.7.0",
-          "update_link": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/download/v1.7.0/zotero-mcp-plugin-1.7.0.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "9.*"
-            }
-          }
-        },
-        {
-          "version": "1.8.0",
-          "update_link": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/download/v1.8.0/zotero-mcp-plugin-1.8.0.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "9.*"
-            }
-          }
-        },
-        {
-          "version": "1.8.1",
-          "update_link": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/download/v1.8.1/zotero-mcp-plugin-1.8.1.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "9.*"
-            }
-          }
-        },
-        {
-          "version": "1.8.2",
-          "update_link": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/download/v1.8.2/zotero-mcp-plugin-1.8.2.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "9.*"
-            }
-          }
-        },
-        {
-          "version": "1.8.3",
-          "update_link": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/download/v1.8.3/zotero-mcp-plugin-1.8.3.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "9.*"
-            }
-          }
-        },
-        {
-          "version": "1.8.4",
-          "update_link": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/download/v1.8.4/zotero-mcp-plugin-1.8.4.xpi",
+          "version": "1.8.5",
+          "update_link": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/download/v1.8.5/zotero-mcp-for-claude-code.xpi",
           "applications": {
             "zotero": {
               "strict_min_version": "6.999",

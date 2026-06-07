@@ -100,6 +100,32 @@ class RateLimiter {
 
 const SESSION_ID_RE = /^mcp-[a-f0-9-]{8,80}$/i;
 const MAX_ACTIVE_SESSIONS = 256;
+const WRITE_TOOL_NAMES = new Set([
+  "add_note",
+  "update_note",
+  "add_tags",
+  "remove_tags",
+  "add_to_collection",
+  "remove_from_collection",
+  "create_collection",
+  "rename_collection",
+  "move_collection",
+  "move_item_to_collection",
+  "create_item",
+  "update_item",
+  "add_related_item",
+  "remove_related_item",
+  "trash_item",
+  "restore_from_trash",
+  "delete_collection",
+  "delete_tag",
+  "rename_tag",
+  "batch_tag",
+  "batch_add_to_collection",
+  "batch_remove_from_collection",
+  "batch_trash",
+  "import_attachment_url",
+]);
 
 export class HttpServer {
   public static testServer() {
@@ -532,6 +558,105 @@ export class HttpServer {
     if (body.length > 0) writeStringToStream(output, body);
   }
 
+  /**
+   * Wait until the socket input stream is actually readable. Zotero 9's newer
+   * Gecko base can report `available() === 0` immediately after accept even
+   * when the client has already sent bytes, so polling available()+setTimeout
+   * can silently drop valid requests. asyncWait lets Gecko tell us when data
+   * has arrived, while retaining a deadline for empty probes and slowloris.
+   */
+  private async waitForReadable(input: any, deadline: number): Promise<number> {
+    const getAvailable = (): number => {
+      try {
+        return Math.max(0, Number(input.available?.() ?? 0));
+      } catch {
+        return 0;
+      }
+    };
+
+    const available = getAvailable();
+    if (available > 0) return available;
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return 0;
+
+    let asyncInput: any = null;
+    try {
+      asyncInput = input.QueryInterface?.(Ci.nsIAsyncInputStream);
+    } catch {
+      asyncInput = null;
+    }
+
+    if (asyncInput?.asyncWait) {
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(finish, remaining);
+
+        try {
+          const eventTarget = (globalThis as any).Services?.tm?.currentThread;
+          asyncInput.asyncWait(
+            {
+              onInputStreamReady: finish,
+            },
+            0,
+            1,
+            eventTarget || null,
+          );
+        } catch {
+          finish();
+        }
+      });
+    } else {
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(remaining, 25)),
+      );
+    }
+
+    return getAvailable();
+  }
+
+  private readStreamChunk(
+    converterStream: any,
+    sin: any,
+    bytesToRead: number,
+  ): { chunk: string; bytes: number } {
+    try {
+      const str: { value?: string } = {};
+      const bytesRead = converterStream.readString(bytesToRead, str);
+      const chunk = str.value || "";
+      return { chunk, bytes: chunk ? getByteLength(chunk) : bytesRead };
+    } catch (converterError) {
+      ztoolkit.log(
+        `[HttpServer] Converter failed, using fallback: ${converterError}`,
+        "error",
+      );
+      const chunk = sin.read(bytesToRead);
+      return { chunk, bytes: getByteLength(chunk) };
+    }
+  }
+
+  private requestBodyContainsWriteTool(requestBody: string): boolean {
+    if (!requestBody.trim()) return false;
+    try {
+      const parsed = JSON.parse(requestBody);
+      const isWriteToolCall = (req: any): boolean =>
+        req?.method === "tools/call" &&
+        WRITE_TOOL_NAMES.has(String(req.params?.name || ""));
+
+      return Array.isArray(parsed)
+        ? parsed.some(isWriteToolCall)
+        : isWriteToolCall(parsed);
+    } catch {
+      return false;
+    }
+  }
+
   private listener = {
     onSocketAccepted: async (_socket: any, transport: any) => {
       let input: any = null;
@@ -562,8 +687,6 @@ export class HttpServer {
         let totalBytesRead = 0;
         const maxRequestSize = 1024 * 1024; // 1MB
         const readDeadline = Date.now() + 10000; // 10s wall clock for full read
-        let waitAttempts = 0;
-        const maxWaitAttempts = 50;
         let headersComplete = false;
         let contentLength = 0;
         let bodyStartIndex = -1;
@@ -579,36 +702,20 @@ export class HttpServer {
               );
               break;
             }
-            const bytesToRead = Math.min(4096, maxRequestSize - totalBytesRead);
-            const available = input.available();
+            const available = await this.waitForReadable(input, readDeadline);
+            if (available <= 0) break;
 
-            if (available === 0) {
-              waitAttempts++;
-              if (waitAttempts > maxWaitAttempts) break;
-              await new Promise((resolve) => setTimeout(resolve, 10));
-              continue;
-            }
-
-            let chunk = "";
-            let chunkBytes = 0;
-            try {
-              const str: { value?: string } = {};
-              const bytesRead = converterStream.readString(
-                Math.min(bytesToRead, available),
-                str,
-              );
-              chunk = str.value || "";
-              chunkBytes = bytesRead;
-              if (bytesRead === 0) break;
-            } catch (converterError) {
-              ztoolkit.log(
-                `[HttpServer] Converter failed, using fallback: ${converterError}`,
-                "error",
-              );
-              chunk = sin.read(Math.min(bytesToRead, available));
-              chunkBytes = getByteLength(chunk);
-              if (!chunk) break;
-            }
+            const bytesToRead = Math.min(
+              4096,
+              maxRequestSize - totalBytesRead,
+              available,
+            );
+            const { chunk, bytes: chunkBytes } = this.readStreamChunk(
+              converterStream,
+              sin,
+              bytesToRead,
+            );
+            if (!chunk || chunkBytes === 0) break;
 
             requestText += chunk;
             totalBytesRead += chunkBytes;
@@ -642,7 +749,6 @@ export class HttpServer {
             ztoolkit.log(
               `[HttpServer] Reading body: Content-Length=${contentLength}, alreadyRead=${bodyByteCount}`,
             );
-            waitAttempts = 0;
             while (bodyByteCount < contentLength) {
               if (Date.now() > readDeadline) {
                 ztoolkit.log(
@@ -651,32 +757,20 @@ export class HttpServer {
                 );
                 break;
               }
-              const available = input.available();
-              if (available === 0) {
-                waitAttempts++;
-                if (waitAttempts > maxWaitAttempts) break;
-                await new Promise((resolve) => setTimeout(resolve, 10));
-                continue;
-              }
+              const available = await this.waitForReadable(input, readDeadline);
+              if (available <= 0) break;
 
               const bytesToRead = Math.min(
                 8192,
                 contentLength - bodyByteCount,
                 available,
               );
-              let chunk = "";
-              let chunkBytes = 0;
-              try {
-                const str: { value?: string } = {};
-                const bytesRead = converterStream.readString(bytesToRead, str);
-                chunk = str.value || "";
-                chunkBytes = bytesRead;
-                if (bytesRead === 0) break;
-              } catch {
-                chunk = sin.read(bytesToRead);
-                chunkBytes = getByteLength(chunk);
-                if (!chunk) break;
-              }
+              const { chunk, bytes: chunkBytes } = this.readStreamChunk(
+                converterStream,
+                sin,
+                bytesToRead,
+              );
+              if (!chunk || chunkBytes === 0) break;
 
               requestText += chunk;
               totalBytesRead += chunkBytes;
@@ -708,8 +802,14 @@ export class HttpServer {
         // Empty connection (probe / health check)
         if (totalBytesRead === 0 && requestText.length === 0) {
           ztoolkit.log(
-            `[HttpServer] Empty connection - likely health check. Closing.`,
-            "info",
+            `[HttpServer] No request bytes received before read deadline`,
+            "warn",
+          );
+          this.writeJsonResponse(
+            output,
+            408,
+            "Request Timeout",
+            JSON.stringify({ error: "No request bytes received" }),
           );
           return;
         }
@@ -884,28 +984,38 @@ export class HttpServer {
             }
           }
 
-          // Stricter bucket on writeable MCP POSTs.
+          // Stricter bucket on actual write tool calls only. Read-heavy clients
+          // should not be throttled as writes, and clients that don't persist
+          // Mcp-Session-Id fall back to a per-client key instead of minting a
+          // new write bucket for every request.
           if (
             method === "POST" &&
             path === "/mcp" &&
-            sessionId &&
-            !this.writeRateLimiter.allow(sessionId)
+            this.requestBodyContainsWriteTool(requestBody)
           ) {
-            ztoolkit.log(
-              `[HttpServer] Per-session write rate limit exceeded for ${sessionId}`,
-              "warn",
-            );
-            this.writeJsonResponse(
-              output,
-              429,
-              "Too Many Requests",
-              JSON.stringify({
-                error: "Per-session rate limit exceeded.",
-              }),
-              false,
-              `Retry-After: 2\r\n`,
-            );
-            return;
+            const writeLimitKey =
+              presentedSessionId &&
+              sessionId === presentedSessionId &&
+              this.activeSessions.has(presentedSessionId)
+                ? `session:${presentedSessionId}`
+                : `client:${clientKey}`;
+            if (!this.writeRateLimiter.allow(writeLimitKey)) {
+              ztoolkit.log(
+                `[HttpServer] Write rate limit exceeded for ${writeLimitKey}`,
+                "warn",
+              );
+              this.writeJsonResponse(
+                output,
+                429,
+                "Too Many Requests",
+                JSON.stringify({
+                  error: "Write rate limit exceeded.",
+                }),
+                false,
+                `Retry-After: 2\r\n`,
+              );
+              return;
+            }
           }
 
           const keepAlive = this.shouldKeepAlive(requestText, path);
@@ -1207,6 +1317,6 @@ export class HttpServer {
 
 // Single source of truth for the version reported in /capabilities and
 // /mcp/status. Bumped during release per zotero-mcp-plugin/CLAUDE.md.
-export const SERVER_INFO_VERSION = "1.8.4";
+export const SERVER_INFO_VERSION = "1.8.5";
 
 export const httpServer = new HttpServer();

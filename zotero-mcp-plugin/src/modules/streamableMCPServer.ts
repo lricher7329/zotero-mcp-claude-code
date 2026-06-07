@@ -1743,7 +1743,7 @@ export class StreamableMCPServer {
                 description: "Replace all creators with this list",
               },
             },
-            required: ["itemKey", "fields"],
+            required: ["itemKey"],
           },
         },
         {
@@ -2306,6 +2306,17 @@ export class StreamableMCPServer {
           break;
 
         case "update_item":
+          if (!args?.itemKey) {
+            throw new InvalidParamsError("itemKey is required");
+          }
+          if (
+            (!args.fields || Object.keys(args.fields).length === 0) &&
+            !args.creators
+          ) {
+            throw new InvalidParamsError(
+              "At least one of fields or creators is required",
+            );
+          }
           result = await handleUpdateItem(args);
           break;
 
@@ -3529,6 +3540,7 @@ export class StreamableMCPServer {
         "search_collections",
         "get_collection_details",
         "get_collection_items",
+        "get_subcollections",
         "search_fulltext",
         "get_item_abstract",
         // Semantic Search Tools (read-only)
@@ -3537,7 +3549,19 @@ export class StreamableMCPServer {
         "semantic_status",
         // Full-text Database Tool (read-only)
         "fulltext_database",
+        "get_tags",
+        "get_related_items",
+        "generate_bibliography",
+        "search_by_identifier",
+        "get_library_stats",
+        "get_item_types",
+        "get_creator_types",
+        "get_item_type_fields",
+        "get_trash_items",
+        "get_recently_modified",
       ],
+      writeTools:
+        "Scope-dependent. Use tools/list for the current enabled write surface.",
       transport: {
         type: "streamable-http",
         keepAliveSupported: true,

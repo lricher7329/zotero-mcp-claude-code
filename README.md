@@ -4,7 +4,7 @@ A Zotero plugin that exposes your library to AI assistants via the [Model Contex
 
 [![GitHub](https://img.shields.io/badge/GitHub-zotero--mcp--claude--code-blue?logo=github)](https://github.com/lricher7329/zotero-mcp-claude-code)
 [![Zotero](https://img.shields.io/badge/Zotero-7--9-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![Version](https://img.shields.io/badge/Version-1.8.4-brightgreen)]()
+[![Version](https://img.shields.io/badge/Version-1.8.5-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
 > **Note:** This fork has been developed and tested with **Claude Code** on **Zotero 7–9 for macOS** (latest macOS). The plugin manifest declares compatibility with Zotero 7, 8, and 9. It uses standard MCP over Streamable HTTP, so it should work with any MCP-compatible client and platform, but other clients and operating systems have not been tested by this fork's author.
@@ -89,9 +89,9 @@ You should see `zotero-mcp` with the available tools listed.
 
 The plugin preferences include a **Client Configuration Generator** that produces ready-to-use config for each client.
 
-## MCP tools (36 total)
+## MCP tools (50 max total)
 
-### Read tools (21 — always available)
+### Read tools (26 — always available)
 
 | Tool | Description |
 |------|-------------|
@@ -122,7 +122,7 @@ The plugin preferences include a **Client Configuration Generator** that produce
 | `semantic_status` | Check semantic index status |
 | `fulltext_database` | Query the full-text content cache (list, search, get, stats) |
 
-### Write tools (15 — when enabled in preferences)
+### Write tools (24 — when enabled in preferences)
 
 | Tool | Description |
 |------|-------------|
@@ -192,6 +192,8 @@ These run regardless of auth state:
 - Global + per-IP + per-session token-bucket rate limits, with a stricter bucket on write tools
 - 10s wall-clock deadline on full request body read
 - `Content-Length > 1MB` rejected before reading
+- Zotero 9-compatible socket reads use Gecko readiness callbacks rather than
+  `available()` polling, avoiding accepted-but-unresponsive MCP connections
 
 ## Write scopes
 

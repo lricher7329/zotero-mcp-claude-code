@@ -376,7 +376,7 @@ export async function handleCreateCollection(args: {
 
 export async function handleUpdateItem(args: {
   itemKey: string;
-  fields: Record<string, string>;
+  fields?: Record<string, string>;
   creators?: Array<{
     firstName?: string;
     lastName?: string;
@@ -385,6 +385,11 @@ export async function handleUpdateItem(args: {
   }>;
 }): Promise<MutationResult> {
   assertScope("metadata");
+
+  const fields = args.fields ?? {};
+  if (Object.keys(fields).length === 0 && !args.creators) {
+    throw new Error("At least one of fields or creators is required");
+  }
 
   const item = resolveItem(args.itemKey);
 
@@ -400,7 +405,7 @@ export async function handleUpdateItem(args: {
   const updated: string[] = [];
   const errors: Array<{ field: string; error: string }> = [];
 
-  for (const [field, value] of Object.entries(args.fields)) {
+  for (const [field, value] of Object.entries(fields)) {
     if (restrictedFields.includes(field)) {
       errors.push({
         field,
