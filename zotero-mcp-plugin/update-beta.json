@@ -3,8 +3,8 @@
     "zotero-mcp-plugin@lricher7329.github.io": {
       "updates": [
         {
-          "version": "1.8.5-beta.0",
-          "update_link": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/download/v1.8.5-beta.0/zotero-mcp-for-claude-code.xpi",
+          "version": "1.8.6-beta.0",
+          "update_link": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/download/v1.8.6-beta.0/zotero-mcp-for-claude-code.xpi",
           "applications": {
             "zotero": {
               "strict_min_version": "6.999",

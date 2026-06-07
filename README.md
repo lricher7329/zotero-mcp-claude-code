@@ -4,7 +4,7 @@ A Zotero plugin that exposes your library to AI assistants via the [Model Contex
 
 [![GitHub](https://img.shields.io/badge/GitHub-zotero--mcp--claude--code-blue?logo=github)](https://github.com/lricher7329/zotero-mcp-claude-code)
 [![Zotero](https://img.shields.io/badge/Zotero-7--9-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![Version](https://img.shields.io/badge/Version-1.8.5-brightgreen)]()
+[![Version](https://img.shields.io/badge/Version-1.8.6-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
 > **Note:** This fork has been developed and tested with **Claude Code** on **Zotero 7–9 for macOS** (latest macOS). The plugin manifest declares compatibility with Zotero 7, 8, and 9. It uses standard MCP over Streamable HTTP, so it should work with any MCP-compatible client and platform, but other clients and operating systems have not been tested by this fork's author.
@@ -77,6 +77,7 @@ You should see `zotero-mcp` with the available tools listed.
 | Client | Connection | Tested |
 |--------|-----------|--------|
 | **Claude Code** | Native HTTP MCP (recommended) | Yes |
+| **Codex** | Native Streamable HTTP MCP via `~/.codex/config.toml` | Yes |
 | **Claude Desktop** | Streamable HTTP via mcp-remote | No |
 | **Cursor IDE** | Streamable HTTP via mcp-remote | No |
 | **Cherry Studio** | Native Streamable HTTP | No |

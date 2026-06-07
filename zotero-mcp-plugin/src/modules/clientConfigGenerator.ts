@@ -10,6 +10,7 @@ export interface ClientConfig {
   name: string;
   displayName: string;
   description: string;
+  configFormat?: "json" | "toml";
   configTemplate: (port: number, serverName?: string) => any;
   getInstructions?: (port?: number) => string[];
 }
@@ -59,6 +60,34 @@ export class ClientConfigGenerator {
         "- If using VPN/proxy with TUN mode, add 127.0.0.1 to bypass list",
         "- Or temporarily disable TUN mode for local development",
         "- Configuration uses 127.0.0.1 instead of localhost for better proxy compatibility",
+      ],
+    },
+    {
+      name: "codex",
+      displayName: "Codex",
+      description: "OpenAI Codex CLI and IDE extension",
+      configFormat: "toml",
+      configTemplate: (port: number, serverName = "zotero-mcp") =>
+        `[mcp_servers.${serverName}]
+url = "http://127.0.0.1:${port}/mcp"
+
+# If Zotero MCP requires auth, uncomment this line and set the token
+# in your shell environment before starting Codex:
+# bearer_token_env_var = "ZOTERO_MCP_TOKEN"`,
+      getInstructions: (port: number = 23120) => [
+        "1. Open Codex MCP configuration:",
+        "   - Global: ~/.codex/config.toml",
+        "   - Project-scoped: .codex/config.toml in a trusted project",
+        "",
+        "2. Add the generated [mcp_servers.zotero-mcp] TOML block.",
+        "",
+        "3. If Require auth token on local connections is enabled in Zotero MCP:",
+        "   export ZOTERO_MCP_TOKEN='zmcp_<your-token>'",
+        "   Then uncomment bearer_token_env_var in the TOML block.",
+        "",
+        "4. Restart Codex, or start a new Codex session, then use /mcp to confirm the server is connected.",
+        "",
+        `5. The endpoint should be http://127.0.0.1:${port}/mcp while Zotero is running.`,
       ],
     },
     {
@@ -280,7 +309,9 @@ export class ClientConfigGenerator {
     }
 
     const config = client.configTemplate(port, serverName || "zotero-mcp");
-    return JSON.stringify(config, null, 2);
+    return client.configFormat === "toml"
+      ? String(config)
+      : JSON.stringify(config, null, 2);
   }
 
   static getInstructions(clientName: string, port?: number): string[] {
@@ -301,6 +332,11 @@ export class ClientConfigGenerator {
     const config = this.generateConfig(clientName, port, serverName);
     const instructions = this.getInstructions(clientName, port);
     const actualServerName = serverName || "zotero-mcp";
+    const configLanguage = client.configFormat || "json";
+    const configHeader =
+      client.configFormat === "toml"
+        ? "## Configuration TOML"
+        : getString("config-guide-json-header");
 
     return `${getString("config-guide-header", { args: { clientName: client.displayName } })}
 
@@ -309,8 +345,8 @@ ${getString("config-guide-server-name", { args: { serverName: actualServerName }
 ${getString("config-guide-server-port", { args: { port: port.toString() } })}
 ${getString("config-guide-server-endpoint", { args: { port: port.toString() } })}
 
-${getString("config-guide-json-header")}
-\`\`\`json
+${configHeader}
+\`\`\`${configLanguage}
 ${config}
 \`\`\`
 

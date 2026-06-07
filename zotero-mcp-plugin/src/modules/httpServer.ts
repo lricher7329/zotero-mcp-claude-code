@@ -1317,6 +1317,6 @@ export class HttpServer {
 
 // Single source of truth for the version reported in /capabilities and
 // /mcp/status. Bumped during release per zotero-mcp-plugin/CLAUDE.md.
-export const SERVER_INFO_VERSION = "1.8.5";
+export const SERVER_INFO_VERSION = "1.8.6";
 
 export const httpServer = new HttpServer();
