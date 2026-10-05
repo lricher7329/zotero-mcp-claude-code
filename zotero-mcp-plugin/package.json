@@ -1,7 +1,7 @@
 {
   "name": "zotero-mcp-plugin",
   "type": "module",
-  "version": "1.8.6",
+  "version": "1.8.7",
   "description": "Zotero MCP for Claude Code",
   "config": {
     "addonName": "Zotero MCP for Claude Code",

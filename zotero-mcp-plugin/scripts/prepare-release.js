@@ -35,7 +35,7 @@ function generateUpdateJson(isBeta = false) {
             applications: {
               zotero: {
                 strict_min_version: "6.999",
-                strict_max_version: "9.*",
+                strict_max_version: "10.*",
               },
             },
           },

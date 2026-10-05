@@ -14,7 +14,7 @@ The built add-on manifest declares:
       "id": "zotero-mcp-plugin@lricher7329.github.io",
       "update_url": "https://github.com/lricher7329/zotero-mcp-claude-code/releases/latest/download/update.json",
       "strict_min_version": "6.999",
-      "strict_max_version": "9.*"
+      "strict_max_version": "10.*"
     }
   }
 }

@@ -1,4 +1,5 @@
 declare let ztoolkit: ZToolkit;
+declare const IOUtils: any;
 
 /**
  * Sentinel passed in `fields` to mean "every field this item type defines,
@@ -482,13 +483,14 @@ async function getAttachmentSize(attachment: Zotero.Item): Promise<number> {
     const path = attachment.getFilePath();
     if (!path) return 0;
 
-    // Try to get file size using OS.File
-    if (typeof OS !== "undefined" && OS.File && OS.File.stat) {
+    // Try to get file size using IOUtils (OS.File was removed from newer
+    // Gecko runtimes, e.g. Zotero 10 / Firefox 140)
+    if (typeof IOUtils !== "undefined" && IOUtils.stat) {
       try {
-        const stat = await OS.File.stat(path);
-        return (stat as any).size || 0;
+        const stat = await IOUtils.stat(path);
+        return stat.size || 0;
       } catch (e) {
-        ztoolkit.log(`[ItemFormatter] OS.File.stat failed: ${e}`, "error");
+        ztoolkit.log(`[ItemFormatter] IOUtils.stat failed: ${e}`, "error");
       }
     }
 
