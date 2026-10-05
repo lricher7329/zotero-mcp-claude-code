@@ -8,6 +8,7 @@
  */
 
 import { PDFProcessor } from "./pdfProcessor";
+import { getCachedFulltext } from "./zoteroFulltextCache";
 import { MCPSettingsService } from "./mcpSettingsService";
 import {
   IntelligentContentProcessor,
@@ -617,24 +618,15 @@ export class UnifiedContentExtractor {
   private async getZoteroCachedFulltext(
     attachmentId: number,
   ): Promise<string | null> {
-    try {
-      if (Zotero.Fulltext && Zotero.Fulltext.getItemContent) {
-        const content = await Zotero.Fulltext.getItemContent(attachmentId);
-        if (content && content.content && content.content.trim().length > 0) {
-          ztoolkit.log(
-            `[UnifiedContentExtractor] Using Zotero cached fulltext (${content.content.length} chars)`,
-          );
-          return content.content;
-        }
-      }
-      return null;
-    } catch (error) {
+    const attachment = Zotero.Items.get(attachmentId);
+    if (!attachment) return null;
+    const text = await getCachedFulltext(attachment);
+    if (text) {
       ztoolkit.log(
-        `[UnifiedContentExtractor] Zotero fulltext cache not available: ${error}`,
-        "warn",
+        `[UnifiedContentExtractor] Using Zotero cached fulltext (${text.length} chars)`,
       );
-      return null;
     }
+    return text;
   }
 
   /**

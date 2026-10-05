@@ -14,7 +14,8 @@ A Zotero plugin that provides MCP (Model Context Protocol) server functionality,
 ## Compatibility
 
 - **Zotero versions:** 7, 8, 9, and 10 (manifest declares `strict_min_version: "6.999"`, `strict_max_version: "10.*"` in `addon/manifest.json` and `update.json`)
-- **Runtime:** Firefox/Gecko runtime shipped by Zotero. Zotero 7/8 are Firefox 115-era; Zotero 9 uses a newer ESR-era runtime; Zotero 10 is Firefox 140 ESR (`OS.File` is gone — use `IOUtils`).
+- **Runtime:** Firefox/Gecko runtime shipped by Zotero. Zotero 7/8 are Firefox 115 ESR; Zotero 9 and 10 are Firefox 140 ESR. Prefer `IOUtils` over `OS.File` for new code.
+- **Zotero 10 API changes that affect this plugin:** `Zotero.Fulltext.getItemContent` was removed (read the `.zotero-ft-cache` file via `Zotero.Fulltext.getItemCacheFile` — see `zoteroFulltextCache.ts`); undo/redo via `undoAction` save options or `Zotero.UndoHistory.stageAction` (see `undoSupport.ts`); search condition groups, `resultLevel`, `isEmpty`/`isNotEmpty` (see `searchConditions.ts`). Feature-detect these so Zotero 7–9 keep working.
 - **Platforms:** developed/tested on macOS; standard Streamable HTTP MCP so should run anywhere Zotero does, but other platforms not verified by maintainer
 
 ## Key Directories

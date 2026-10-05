@@ -3,6 +3,8 @@
  * Handles extraction and retrieval of full-text content from various sources
  */
 
+import { getCachedFulltext } from "./zoteroFulltextCache";
+
 declare let Zotero: any;
 declare let ztoolkit: ZToolkit;
 
@@ -356,11 +358,7 @@ export class FulltextService {
           )
           .filter((item) => item);
       } else {
-        // Search all items (limit for performance)
-        const allItems = await Zotero.Items.getAll(
-          Zotero.Libraries.userLibraryID,
-        );
-        itemsToSearch = allItems.slice(0, 1000); // Limit for performance
+        itemsToSearch = await this.findCandidateItems(query);
       }
 
       for (const item of itemsToSearch) {
@@ -527,19 +525,42 @@ export class FulltextService {
    * @returns Fulltext content or null
    */
   private async getZoteroFulltext(attachment: any): Promise<string | null> {
+    return getCachedFulltext(attachment);
+  }
+
+  /**
+   * Narrow a library-wide search to items that can match, using Zotero's own
+   * search (its full-text index, plus abstracts and notes), and map matching
+   * attachments/notes to their top-level items. Falls back to the first 1000
+   * items if the search fails.
+   */
+  private async findCandidateItems(query: string): Promise<any[]> {
+    const libraryID = Zotero.Libraries.userLibraryID;
     try {
-      // Use Zotero's fulltext API if available
-      if (Zotero.Fulltext && Zotero.Fulltext.getItemContent) {
-        const content = await Zotero.Fulltext.getItemContent(attachment.id);
-        return content && content.content ? content.content : null;
+      const search = new Zotero.Search();
+      search.libraryID = libraryID;
+      search.addCondition("joinMode", "any");
+      search.addCondition("fulltextContent", "contains", query);
+      search.addCondition("abstractNote", "contains", query);
+      search.addCondition("note", "contains", query);
+      const ids: number[] = await search.search();
+
+      const topLevel = new Map<number, any>();
+      for (const item of await Zotero.Items.getAsync(ids)) {
+        if (!item || item.deleted) continue;
+        const top = item.parentItemID
+          ? Zotero.Items.get(item.parentItemID)
+          : item;
+        if (top && !topLevel.has(top.id)) topLevel.set(top.id, top);
       }
-      return null;
+      return [...topLevel.values()].slice(0, 1000);
     } catch (error) {
       ztoolkit.log(
-        `[FulltextService] Error using Zotero fulltext: ${error}`,
+        `[FulltextService] Indexed search failed, scanning items: ${error}`,
         "warn",
       );
-      return null;
+      const allItems = await Zotero.Items.getAll(libraryID);
+      return allItems.slice(0, 1000);
     }
   }
 

@@ -74,15 +74,44 @@ function htmlToPlainText(html: string): string {
  * @returns A JSON object with essential item details.
  */
 export function formatItemBrief(item: Zotero.Item): Record<string, any> {
-  return {
+  // Child results (resultLevel attachment/note/annotation) describe the child
+  // and point at the top-level item they belong to.
+  const top = item.isTopLevelItem() ? null : item.topLevelItem;
+
+  if (item.isAnnotation()) {
+    return {
+      key: item.key,
+      itemType: "annotation",
+      title: top?.getDisplayTitle() || "No Title",
+      annotationType: item.annotationType,
+      text: item.annotationText || "",
+      comment: item.annotationComment || "",
+      color: item.annotationColor || "",
+      pageLabel: item.annotationPageLabel || "",
+      attachmentKey: item.parentItem?.key || "",
+      parentItemKey: top?.key || "",
+      creators: "",
+      date: "",
+    };
+  }
+
+  const brief: Record<string, any> = {
     key: item.key,
-    title: item.getField("title") || "No Title",
+    itemType: item.itemType,
+    title: item.isNote()
+      ? item.getNoteTitle() || "Untitled Note"
+      : item.getField("title") || "No Title",
     creators: item
       .getCreators()
       .map((c) => `${c.firstName || ""} ${c.lastName || ""}`.trim())
       .join(", "),
     date: item.getField("date")?.match(/\d{4}/)?.[0] || "", // Extract year
   };
+  if (top) {
+    brief.parentItemKey = top.key;
+    brief.parentTitle = top.getDisplayTitle();
+  }
+  return brief;
 }
 
 /**

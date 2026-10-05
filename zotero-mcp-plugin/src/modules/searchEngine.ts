@@ -1,5 +1,15 @@
 import { formatItem, formatItemBrief } from "./itemFormatter";
 import { MCPSettingsService } from "./mcpSettingsService";
+import {
+  buildConditionList,
+  ConditionNode,
+  JoinMode,
+  parseConditions,
+  RESULT_LEVELS,
+  ResultLevel,
+  SearchConditionError,
+  supportsConditionGroups,
+} from "./searchConditions";
 
 declare let ztoolkit: ZToolkit;
 
@@ -36,6 +46,12 @@ interface SearchParams {
   libraryID?: string; // Library ID parameter
   includeAttachments?: string; // Whether to include attachments
   includeNotes?: string; // Whether to include notes
+
+  // Structured conditions (see searchConditions.ts); JSON array when passed
+  // through URLSearchParams
+  conditions?: string | ConditionNode[];
+  conditionJoinMode?: JoinMode;
+  resultLevel?: ResultLevel; // Zotero 10+
 
   // Fulltext search parameters
   fulltext?: string; // Fulltext search content
@@ -733,9 +749,37 @@ export async function handleSearchRequest(
   if (params.hasAttachment)
     s.addCondition("attachment", "is", params.hasAttachment);
   if (params.hasNote) s.addCondition("note", "is", params.hasNote);
-  if (params.includeAttachments !== "true")
+
+  // Structured conditions and result level (condition groups, resultLevel
+  // and isEmpty/isNotEmpty need Zotero 10)
+  const supportsGroups = supportsConditionGroups();
+  if (params.conditions) {
+    const conditionList = buildConditionList(
+      parseConditions(params.conditions),
+      { joinMode: params.conditionJoinMode, supportsGroups },
+    );
+    for (const [name, operator, value] of conditionList) {
+      (s as any).addCondition(name, operator, value);
+    }
+  }
+  if (params.resultLevel) {
+    if (!RESULT_LEVELS.includes(params.resultLevel)) {
+      throw new SearchConditionError(
+        `Invalid resultLevel "${params.resultLevel}"`,
+      );
+    }
+    if (!supportsGroups) {
+      throw new SearchConditionError("resultLevel requires Zotero 10");
+    }
+    (s as any).addCondition("resultLevel", params.resultLevel);
+  }
+
+  // Hide attachments/notes by default, unless the caller asked for that level
+  const childLevel =
+    params.resultLevel !== undefined && params.resultLevel !== "item";
+  if (params.includeAttachments !== "true" && !childLevel)
     s.addCondition("itemType", "isNot", "attachment");
-  if (params.includeNotes !== "true")
+  if (params.includeNotes !== "true" && !childLevel)
     s.addCondition("itemType", "isNot", "note");
 
   // --- 4. Execute initial search ---

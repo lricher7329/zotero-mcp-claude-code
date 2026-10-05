@@ -4,7 +4,7 @@ A Zotero plugin that exposes your library to AI assistants via the [Model Contex
 
 [![GitHub](https://img.shields.io/badge/GitHub-zotero--mcp--claude--code-blue?logo=github)](https://github.com/lricher7329/zotero-mcp-claude-code)
 [![Zotero](https://img.shields.io/badge/Zotero-7--9-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![Version](https://img.shields.io/badge/Version-1.8.8-brightgreen)]()
+[![Version](https://img.shields.io/badge/Version-1.8.9-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
 > **Note:** This fork has been developed and tested with **Claude Code** on **Zotero 7–10 for macOS** (latest macOS). The plugin manifest declares compatibility with Zotero 7, 8, 9, and 10. It uses standard MCP over Streamable HTTP, so it should work with any MCP-compatible client and platform, but other clients and operating systems have not been tested by this fork's author.
@@ -98,7 +98,7 @@ The plugin preferences include a **Client Configuration Generator** that produce
 
 | Tool | Description |
 |------|-------------|
-| `search_library` | Search with advanced filtering (title, creator, year, tags, item type, boolean operators, relevance scoring, pagination) |
+| `search_library` | Search with advanced filtering (title, creator, year, tags, item type, boolean operators, relevance scoring, pagination). On Zotero 10, structured `conditions` with nested and/or groups, `resultLevel` (items, attachments, notes, annotations), and `isEmpty`/`isNotEmpty` |
 | `search_annotations` | Search annotations/highlights by query, color, or tags |
 | `get_item_details` | Get full metadata for an item |
 | `get_item_abstract` | Get an item's abstract |
@@ -309,6 +309,7 @@ This fork ([lricher7329/zotero-mcp-claude-code](https://github.com/lricher7329/z
 - **Security hardening (v1.8.0)** -- Per-install bearer token auth; Origin/Content-Type CSRF protection; per-scope write opt-ins (destructive ops default off); global + per-IP + per-session rate limits; SSRF guard with IPv6-mapped-IPv4 and decimal/octal IPv4 detection; itemKey/collectionKey format validation; session ID hardening with LRU cap; body-read deadline; sanitized error messages
 - **MCP/JSON-RPC compliance fixes (v1.8.0)** -- Tool execution failures returned as `result.isError` (LLM can recover) rather than `-32603`; argument validation maps to `-32602`; parse-error `id: null` per spec; `notifications/initialized` correct; empty batch returns `-32600`; dropped false `tools.listChanged` advertisement
 - **`get_item_details` mode=complete** -- Now enumerates all item-type fields via `Zotero.ItemFields.getItemTypeFields`, including `extra` (PMID/PMCID/citation key per Zotero convention), `collections` membership, `dateAdded`/`dateModified`/`accessDate`. Critical for downstream identifier extraction.
+- **Zotero 10 native features (v1.8.9)** -- MCP edits (metadata, notes, tags, collections, related items, restore) can be undone in Zotero with Cmd/Ctrl+Z, one undo step per call or batch; full text reads Zotero's cached index again (Zotero 10 removed the old API, so PDF text timed out) and `search_fulltext` uses Zotero's search index; `get_content` on long papers drops from minutes to about a second; `search_library` accepts structured condition groups and `resultLevel`
 - **Zotero 10 support (v1.8.7)** -- Manifest and auto-update `strict_max_version` raised to `10.*` (Zotero 10 runs on Firefox 140 ESR); attachment file-size lookup moved from the removed `OS.File` API to `IOUtils`
 - **Codebase audit** -- Typed errors, API validation, singleton fixes, batched queries, module refactoring, 37 unit tests
 

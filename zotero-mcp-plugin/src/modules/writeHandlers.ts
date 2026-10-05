@@ -13,6 +13,7 @@ declare let ztoolkit: ZToolkit;
 
 import { serverPreferences, type WriteScope } from "./serverPreferences";
 import { resolvePMCPDFURL } from "./pmcURLResolver";
+import { stageUndo, undoOptions } from "./undoSupport";
 
 const ZOTERO_KEY_RE = /^[A-Z0-9]{8}$/;
 
@@ -219,7 +220,7 @@ export async function handleAddTags(args: {
   }
 
   if (added.length > 0) {
-    await item.saveTx();
+    await item.saveTx(undoOptions("undo-action-add-tag", added.length));
   }
 
   ztoolkit.log(
@@ -267,7 +268,7 @@ export async function handleRemoveTags(args: {
   }
 
   if (removed.length > 0) {
-    await item.saveTx();
+    await item.saveTx(undoOptions("undo-action-remove-tag", removed.length));
   }
 
   ztoolkit.log(
@@ -315,7 +316,10 @@ export async function handleAddToCollection(args: {
   }
 
   item.addToCollection(collection.key);
-  await item.saveTx({ skipDateModifiedUpdate: true });
+  await item.saveTx({
+    skipDateModifiedUpdate: true,
+    ...undoOptions("undo-action-add-to-collection"),
+  });
 
   ztoolkit.log(
     `[WriteHandlers] Added ${args.itemKey} to collection "${collection.name}"`,
@@ -445,7 +449,7 @@ export async function handleUpdateItem(args: {
   }
 
   if (updated.length > 0) {
-    await item.saveTx();
+    await item.saveTx(undoOptions("undo-action-edit-metadata"));
   }
 
   ztoolkit.log(
@@ -575,7 +579,10 @@ export async function handleRemoveFromCollection(args: {
   }
 
   item.removeFromCollection(collection.key);
-  await item.saveTx({ skipDateModifiedUpdate: true });
+  await item.saveTx({
+    skipDateModifiedUpdate: true,
+    ...undoOptions("undo-action-remove-from-collection"),
+  });
 
   ztoolkit.log(
     `[WriteHandlers] Removed ${args.itemKey} from collection "${collection.name}"`,
@@ -656,6 +663,10 @@ export async function handleBatchTag(args: {
         });
       }
     }
+    const taggedCount = results.filter((r) => r.added.length > 0).length;
+    if (taggedCount > 0) {
+      stageUndo("undo-action-add-tag", taggedCount);
+    }
   });
 
   const totalAdded = results.reduce((sum, r) => sum + r.added.length, 0);
@@ -728,6 +739,10 @@ export async function handleBatchAddToCollection(args: {
         });
       }
     }
+    const addedCount = results.filter((r) => r.added).length;
+    if (addedCount > 0) {
+      stageUndo("undo-action-add-to-collection", addedCount);
+    }
   });
 
   const totalAdded = results.filter((r) => r.added).length;
@@ -791,7 +806,7 @@ export async function handleUpdateNote(args: {
     }
   }
 
-  await item.saveTx();
+  await item.saveTx(undoOptions("undo-action-edit-note"));
 
   ztoolkit.log(
     `[WriteHandlers] Updated note ${args.noteKey} (${args.content.length} chars)`,
@@ -856,7 +871,7 @@ export async function handleRenameCollection(args: {
   const oldName = collection.name;
 
   collection.name = args.newName.trim();
-  await collection.saveTx();
+  await collection.saveTx(undoOptions("undo-action-rename-collection"));
 
   ztoolkit.log(
     `[WriteHandlers] Renamed collection "${oldName}" → "${collection.name}"`,
@@ -1013,6 +1028,7 @@ export async function handleAddRelatedItem(args: {
     await item.save();
     relatedItem.addRelatedItem(item);
     await relatedItem.save();
+    stageUndo("undo-action-add-related");
   });
 
   ztoolkit.log(
@@ -1054,6 +1070,7 @@ export async function handleRemoveRelatedItem(args: {
     await item.save();
     relatedItem.removeRelatedItem(item);
     await relatedItem.save();
+    stageUndo("undo-action-remove-related");
   });
 
   ztoolkit.log(
@@ -1409,7 +1426,7 @@ export async function handleImportAttachmentURL(args: {
       const att = Zotero.Items.getByLibraryAndKey(libraryID, info.key);
       if (!att) continue;
       att.deleted = true;
-      await att.saveTx();
+      await att.saveTx(undoOptions("undo-action-trash"));
       trashedKeys.push(info.key);
     }
   }
@@ -1521,7 +1538,7 @@ export async function handleRestoreFromTrash(args: {
   }
 
   item.deleted = false;
-  await item.saveTx();
+  await item.saveTx(undoOptions("undo-action-restore-items"));
 
   const title = item.getField("title") || item.key;
 
@@ -1587,7 +1604,7 @@ export async function handleMoveCollection(args: {
     collection.parentKey = false;
   }
 
-  await collection.saveTx();
+  await collection.saveTx(undoOptions("undo-action-move-collection"));
 
   ztoolkit.log(
     `[WriteHandlers] Moved collection "${collection.name}" (parent: ${oldParentKey} → ${args.newParentKey || "root"})`,
@@ -1660,6 +1677,10 @@ export async function handleBatchRemoveFromCollection(args: {
           error: e instanceof Error ? e.message : String(e),
         });
       }
+    }
+    const removedCount = results.filter((r) => r.removed).length;
+    if (removedCount > 0) {
+      stageUndo("undo-action-remove-from-collection", removedCount);
     }
   });
 
@@ -1760,7 +1781,10 @@ export async function handleMoveItemToCollection(args: {
 
   item.removeFromCollection(fromCollection.key);
   item.addToCollection(toCollection.key);
-  await item.saveTx({ skipDateModifiedUpdate: true });
+  await item.saveTx({
+    skipDateModifiedUpdate: true,
+    ...undoOptions("undo-action-move-to-collection"),
+  });
 
   ztoolkit.log(
     `[WriteHandlers] Moved ${args.itemKey} from "${fromCollection.name}" to "${toCollection.name}"`,

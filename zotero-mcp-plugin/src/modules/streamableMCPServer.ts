@@ -833,6 +833,25 @@ export class StreamableMCPServer {
               description: "Maximum results to return (overrides mode default)",
             },
             offset: { type: "number", description: "Pagination offset" },
+            conditions: {
+              type: "array",
+              description:
+                'Structured Zotero search conditions, combined with the other filters. Each entry is either a condition {field, operator, value} or a group {joinMode: "all"|"any", resultLevel?, conditions: [...]}. Fields are Zotero search conditions, e.g. title, creator, tag, itemType, year, dateAdded, abstractNote, publicationTitle, DOI, extra, note, fulltextContent, collection, numNotes, numAttachments, numAnnotations, numTags, annotationText, annotationComment, annotationColor, annotationType, retracted. Operators: is, isNot, contains, doesNotContain, beginsWith, isLessThan, isGreaterThan, isBefore, isAfter, isInTheLast, isEmpty, isNotEmpty. A group with a resultLevel must match at that level together, e.g. {resultLevel: "annotation", conditions: [{field: "annotationText", operator: "contains", value: "birth weight"}, {field: "annotationColor", operator: "is", value: "#ffd400"}]} finds items with one yellow highlight containing that text. Groups, resultLevel, isEmpty and isNotEmpty require Zotero 10; on Zotero 7-9 only a flat list joined with "all" is supported.',
+              items: { type: "object" },
+              maxItems: 50,
+            },
+            conditionJoinMode: {
+              type: "string",
+              enum: ["all", "any"],
+              description:
+                'How the top-level conditions combine (default "all"). "any" requires Zotero 10.',
+            },
+            resultLevel: {
+              type: "string",
+              enum: ["item", "attachment", "note", "annotation"],
+              description:
+                "What the search returns: top-level items, attachments, notes, or annotations. Requires Zotero 10; omit for the existing behaviour.",
+            },
           },
         },
       },
@@ -2469,14 +2488,22 @@ export class StreamableMCPServer {
     for (const [key, value] of Object.entries(processedArgs)) {
       if (value !== undefined && value !== null) {
         if (key !== "mode") {
-          // Don't pass mode to API
-          searchParams.append(key, String(value));
+          // Don't pass mode to API; structured values (conditions) go as JSON
+          searchParams.append(
+            key,
+            typeof value === "object" ? JSON.stringify(value) : String(value),
+          );
         }
       }
     }
 
     const response = await handleSearch(searchParams);
     const result = response.body ? JSON.parse(response.body) : response;
+    if (response.status === 400) {
+      throw new InvalidParamsError(
+        result?.error || "Invalid search parameters",
+      );
+    }
 
     // Add mode information to metadata
     if (result && typeof result === "object") {

@@ -80,7 +80,7 @@ The plugin exposes these tools via MCP protocol:
 
 ## Key Technical Details
 
-- **Target:** Zotero 7, 8, 9, and 10 (manifest `strict_min_version: "6.999"`, `strict_max_version: "10.*"`); Firefox 115 ESR (Zotero 7/8) through Firefox 140 ESR (Zotero 10) runtime
+- **Target:** Zotero 7, 8, 9, and 10 (manifest `strict_min_version: "6.999"`, `strict_max_version: "10.*"`); Firefox 115 ESR (Zotero 7/8) and Firefox 140 ESR (Zotero 9/10) runtime
 - **Protocol:** MCP 2024-11-05 and 2025-03-26 with Streamable HTTP transport
 - **Default Port:** 23120
 - **Endpoints:** `/mcp` (MCP requests), `/ping` (health check), `/mcp/status`, `/capabilities`

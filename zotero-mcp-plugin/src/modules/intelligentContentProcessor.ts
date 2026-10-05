@@ -178,10 +178,14 @@ export class IntelligentContentProcessor {
     );
 
     // Calculate TF-IDF scores
-    const tfIdfScores = this.calculateTfIdf(sentences, fullText);
+    // Tokenize each sentence once; the scorers below reuse these.
+    const sentenceTokens = sentences.map((s) => this.tokenize(s.content));
+    const sentenceTokenSets = sentenceTokens.map((tokens) => new Set(tokens));
+
+    const tfIdfScores = this.calculateTfIdf(sentenceTokens, sentenceTokenSets);
 
     // Calculate TextRank scores
-    const textRankScores = this.calculateTextRank(sentences);
+    const textRankScores = this.calculateTextRank(sentenceTokenSets);
 
     // Calculate position weights
     const positionWeights = this.calculatePositionWeights(sentences);
@@ -232,85 +236,68 @@ export class IntelligentContentProcessor {
    * TF-IDF calculation implementation
    */
   private calculateTfIdf(
-    sentences: ProcessedSentence[],
-    fullText: string,
+    sentenceTokens: string[][],
+    sentenceTokenSets: Set<string>[],
   ): number[] {
-    // Tokenize all text
-    const allWords = this.tokenize(fullText.toLowerCase());
-    const wordCount = allWords.length;
-    const uniqueWords = [...new Set(allWords)];
-
-    // Calculate document frequency for each word
+    // Document frequency: number of sentences containing each word. One pass
+    // over the token sets (previously a substring scan of every sentence per
+    // unique word, which was quadratic on long documents).
     const documentFreq = new Map<string, number>();
-    uniqueWords.forEach((word) => {
-      let count = 0;
-      sentences.forEach((sentence) => {
-        if (sentence.content.toLowerCase().includes(word)) {
-          count++;
-        }
-      });
-      documentFreq.set(word, count);
-    });
+    for (const tokenSet of sentenceTokenSets) {
+      for (const word of tokenSet) {
+        documentFreq.set(word, (documentFreq.get(word) || 0) + 1);
+      }
+    }
 
-    // Calculate TF-IDF for each sentence
-    return sentences.map((sentence) => {
-      const sentenceWords = this.tokenize(sentence.content.toLowerCase());
+    const numSentences = sentenceTokens.length;
+    return sentenceTokens.map((sentenceWords) => {
       const sentenceWordCount = sentenceWords.length;
-
       if (sentenceWordCount === 0) return 0;
 
-      // Calculate term frequency and IDF
-      let totalTfIdf = 0;
-      const wordFreq = new Map<string, number>();
-
       // Count word frequency in sentence
-      sentenceWords.forEach((word) => {
+      const wordFreq = new Map<string, number>();
+      for (const word of sentenceWords) {
         wordFreq.set(word, (wordFreq.get(word) || 0) + 1);
-      });
+      }
 
-      // Calculate TF-IDF for each unique word in sentence
-      [...wordFreq.keys()].forEach((word) => {
-        const tf = wordFreq.get(word)! / sentenceWordCount;
+      // Average TF-IDF over the sentence's unique words
+      let totalTfIdf = 0;
+      for (const [word, freq] of wordFreq) {
+        const tf = freq / sentenceWordCount;
         const df = documentFreq.get(word) || 1;
-        const idf = Math.log(sentences.length / df);
-        totalTfIdf += tf * idf;
-      });
-
-      return totalTfIdf / wordFreq.size; // Average TF-IDF
+        totalTfIdf += tf * Math.log(numSentences / df);
+      }
+      return totalTfIdf / wordFreq.size;
     });
   }
 
   /**
    * TextRank calculation implementation (simplified graph-based approach)
    */
-  private calculateTextRank(sentences: ProcessedSentence[]): number[] {
-    const numSentences = sentences.length;
+  private calculateTextRank(sentenceTokenSets: Set<string>[]): number[] {
+    const numSentences = sentenceTokenSets.length;
     if (numSentences <= 1) return [1.0];
 
-    // Create similarity matrix
-    const similarityMatrix = this.createSimilarityMatrix(sentences);
+    const similarityMatrix = this.createSimilarityMatrix(sentenceTokenSets);
 
-    // Initialize ranks
+    // Outbound similarity per sentence is constant across iterations; it was
+    // previously recomputed inside the inner loop (cubic per iteration).
+    const outboundSums = similarityMatrix.map((row) =>
+      row.reduce((acc, val) => acc + val, 0),
+    );
+
     let ranks = new Array(numSentences).fill(1.0 / numSentences);
     const dampingFactor = 0.85;
     const iterations = 10; // Simplified iteration count
 
-    // Iterative calculation
     for (let iter = 0; iter < iterations; iter++) {
       const newRanks = new Array(numSentences).fill(0);
-
       for (let i = 0; i < numSentences; i++) {
         let sum = 0;
         for (let j = 0; j < numSentences; j++) {
-          if (i !== j && similarityMatrix[j][i] > 0) {
-            // Calculate sum of outbound similarities for sentence j
-            const outboundSum = similarityMatrix[j].reduce(
-              (acc, val, idx) => (idx !== j ? acc + val : acc),
-              0,
-            );
-            if (outboundSum > 0) {
-              sum += (similarityMatrix[j][i] / outboundSum) * ranks[j];
-            }
+          const similarity = similarityMatrix[j][i];
+          if (i !== j && similarity > 0 && outboundSums[j] > 0) {
+            sum += (similarity / outboundSums[j]) * ranks[j];
           }
         }
         newRanks[i] = 1 - dampingFactor + dampingFactor * sum;
@@ -319,30 +306,35 @@ export class IntelligentContentProcessor {
     }
 
     // Normalize to 0-1 range
-    const maxRank = Math.max(...ranks);
-    const minRank = Math.min(...ranks);
+    let maxRank = -Infinity;
+    let minRank = Infinity;
+    for (const rank of ranks) {
+      if (rank > maxRank) maxRank = rank;
+      if (rank < minRank) minRank = rank;
+    }
     const range = maxRank - minRank;
 
     return range > 0 ? ranks.map((rank) => (rank - minRank) / range) : ranks;
   }
 
   /**
-   * Create similarity matrix for TextRank
+   * Create the (symmetric) Jaccard similarity matrix for TextRank. The
+   * diagonal stays 0.
    */
-  private createSimilarityMatrix(sentences: ProcessedSentence[]): number[][] {
-    const numSentences = sentences.length;
-    const matrix = Array(numSentences)
-      .fill(null)
-      .map(() => Array(numSentences).fill(0));
+  private createSimilarityMatrix(sentenceTokenSets: Set<string>[]): number[][] {
+    const numSentences = sentenceTokenSets.length;
+    const matrix: number[][] = Array.from({ length: numSentences }, () =>
+      new Array(numSentences).fill(0),
+    );
 
     for (let i = 0; i < numSentences; i++) {
-      for (let j = 0; j < numSentences; j++) {
-        if (i !== j) {
-          matrix[i][j] = this.calculateSentenceSimilarity(
-            sentences[i],
-            sentences[j],
-          );
-        }
+      for (let j = i + 1; j < numSentences; j++) {
+        const similarity = this.jaccardSimilarity(
+          sentenceTokenSets[i],
+          sentenceTokenSets[j],
+        );
+        matrix[i][j] = similarity;
+        matrix[j][i] = similarity;
       }
     }
 
@@ -350,21 +342,17 @@ export class IntelligentContentProcessor {
   }
 
   /**
-   * Calculate similarity between two sentences using word overlap
+   * Word-overlap (Jaccard) similarity between two token sets
    */
-  private calculateSentenceSimilarity(
-    sent1: ProcessedSentence,
-    sent2: ProcessedSentence,
-  ): number {
-    const words1 = new Set(this.tokenize(sent1.content.toLowerCase()));
-    const words2 = new Set(this.tokenize(sent2.content.toLowerCase()));
-
-    const intersection = new Set(
-      [...words1].filter((word) => words2.has(word)),
-    );
-    const union = new Set([...words1, ...words2]);
-
-    return union.size > 0 ? intersection.size / union.size : 0;
+  private jaccardSimilarity(words1: Set<string>, words2: Set<string>): number {
+    const [small, large] =
+      words1.size <= words2.size ? [words1, words2] : [words2, words1];
+    let intersection = 0;
+    for (const word of small) {
+      if (large.has(word)) intersection++;
+    }
+    const union = words1.size + words2.size - intersection;
+    return union > 0 ? intersection / union : 0;
   }
 
   /**
