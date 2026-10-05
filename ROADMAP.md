@@ -9,10 +9,10 @@
 - **Tier:** C — Direct (solo tooling; remote CI is the tag-triggered release workflow only)
 - **Local check:** `cd zotero-mcp-plugin && npm run check` (Prettier + ESLint, build + `tsc`, Mocha unit tests in Node)
   (`npm test` is scaffold's in-Zotero runner; it launches a second Zotero and is not part of the gate)
-- **Released:** v1.8.7 (2026-10-05), verified live on Zotero 10.0.5 / Firefox 140 ESR
+- **Released:** v1.8.8 (2026-10-05) — M2 tooling refresh + annotation-order fix; v1.8.7 added Zotero 10 support
 - **Active milestone:** none — between milestones
 - **Branch:** `main`
-- **Next step:** decide whether to release M2 as v1.8.8 (annotation-order fix is user-visible); then M3 scoping
+- **Next step:** M3 — scope which write tools benefit from the Zotero web API (Phase 3.1)
 - **Updated:** 2026-10-05
 
 ## Milestones
@@ -25,7 +25,7 @@ Branch: `main` · Merged: 2026-10-05 · Release: v1.8.7
 - [x] Phase 1.4 — Release v1.8.7; verify port 23120, `initialize`, `search_library`, `get_item_details` on Zotero 10.0.5
 
 ### M2 — Tooling refresh  `[x] complete`
-Branch: `main` (worked in `claude/plugin-version-check-6fff38` worktree) · Merged: 2026-10-05
+Branch: `main` (worked in `claude/plugin-version-check-6fff38` worktree) · Merged: 2026-10-05 · Release: v1.8.8
 - [x] Phase 2.1 — `zotero-plugin-scaffold` 0.8.0 → 0.9.2, `zotero-types` beta → 4.1.3, `zotero-plugin-toolkit` beta → 6.0.0 (`ZoteroToolkit` now imported from `zotero-plugin-toolkit/ztoolkit`; 6.0 drops Prompt manager / plugin + debug bridges / toolkit global — none were used); stricter types surfaced a real bug — `annotationSortIndex` is a zero-padded string, was sorted as a number (NaN / string concatenation) — fixed with regression tests
 - [x] Phase 2.2 — Local tests: `npm run test:unit` (Mocha + tsx in Node, mocked Zotero globals) is the runnable suite; scaffold's `npm test` stays out of the gate
 - [x] Phase 2.3 — `npm run check` = lint + build/type check + unit tests; release workflow now runs unit tests and uses Node 24 (scaffold 0.9 requires Node ≥ 22.8)
@@ -47,4 +47,4 @@ Branch: `main` (worked in `claude/plugin-version-check-6fff38` worktree) · Merg
 
 - 2026-10-05 — ROADMAP created; M1 (Zotero 10 compatibility) complete, v1.8.7 released
 - 2026-10-05 — M2 started; phases 2.1–2.4 done, Zotero 10 smoke test pending
-- 2026-10-05 — M2 complete (toolkit 6.0.0, scaffold 0.9.2, `npm run check`, annotation-order fix); landed on `main`
+- 2026-10-05 — M2 complete (toolkit 6.0.0, scaffold 0.9.2, `npm run check`, annotation-order fix); landed on `main`; released as v1.8.8
