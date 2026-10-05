@@ -57,3 +57,4 @@ Branch: `main` (worked in `claude/plugin-version-check-6fff38` worktree) · Merg
 - 2026-10-05 — M2 complete (toolkit 6.0.0, scaffold 0.9.2, `npm run check`, annotation-order fix); landed on `main`; released as v1.8.8
 - 2026-10-05 — M3 redefined as Zotero 10 native features (fulltext fix, undoable writes, richer search); web-API writes moved to M4 (deferred)
 - 2026-10-05 — M3 complete (fulltext on Zotero 10, sentence-scoring speed-up, undoable writes, structured search); released as v1.8.9. v1.8.8 left tagged but unreleased
+- 2026-10-05 — Claude Desktop verified end to end with v1.8.9 via `mcp-remote` (stdio bridge; Custom Connectors can't reach localhost); README row → Tested: Yes, setup section added

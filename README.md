@@ -80,7 +80,7 @@ You should see `zotero-mcp` with the available tools listed.
 |--------|-----------|--------|
 | **Claude Code** | Native HTTP MCP (recommended) | Yes |
 | **Codex** | Native Streamable HTTP MCP via `~/.codex/config.toml` | Yes |
-| **Claude Desktop** | Streamable HTTP via mcp-remote | No |
+| **Claude Desktop** | Streamable HTTP via mcp-remote (see [Claude Desktop setup](#claude-desktop-setup)) | Yes |
 | **Cursor IDE** | Streamable HTTP via mcp-remote | No |
 | **Cherry Studio** | Native Streamable HTTP | No |
 | **Gemini CLI** | Native HTTP MCP | No |
@@ -91,6 +91,26 @@ You should see `zotero-mcp` with the available tools listed.
 | **Trae AI** | Streamable HTTP via mcp-remote | No |
 
 The plugin preferences include a **Client Configuration Generator** that produces ready-to-use config for each client.
+
+### Claude Desktop setup
+
+Claude Desktop runs local MCP servers as stdio commands, so it reaches the plugin's HTTP endpoint through the [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) bridge (requires Node.js). Custom Connectors (Settings → Connectors) can't be used for this: Anthropic's cloud makes those connections, so `127.0.0.1` is unreachable.
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Settings → Developer → Edit config), then quit and reopen Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "zotero-mcp": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": ["-y", "mcp-remote", "http://127.0.0.1:23120/mcp"],
+      "env": { "PATH": "/opt/homebrew/bin:/usr/bin:/bin" }
+    }
+  }
+}
+```
+
+Use full paths: Claude Desktop launched from the Dock doesn't load your shell profile, so `npx` from nvm or other shell-managed installs isn't on its `PATH`. Point `command` at your `npx` (`which npx`) and include the directory containing `node` in `env.PATH`. With auth enabled, add `"--header", "Authorization: Bearer zmcp_<your-token>"` to `args`. Settings → Developer shows the server as **Running**; logs are in `~/Library/Logs/Claude/mcp-server-zotero-mcp.log`.
 
 ## MCP tools (50 max total)
 
