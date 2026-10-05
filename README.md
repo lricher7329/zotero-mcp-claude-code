@@ -25,7 +25,9 @@ Your AI assistant can then search your library, read PDFs, extract annotations, 
 
 ### 1. Install the plugin
 
-Download the latest `.xpi` from the [Releases page](https://github.com/lricher7329/zotero-mcp-claude-code/releases) and install it in Zotero via **Tools > Add-ons**.
+Download the latest `.xpi` from the [Releases page](https://github.com/lricher7329/zotero-mcp-claude-code/releases) and install it in Zotero via **Tools > Plugins** → gear menu → **Install Plugin From File…**.
+
+> **Upgrading to Zotero 10?** Zotero 10 disables plugin versions older than **v1.8.7** (their manifest caps compatibility at Zotero 9), which leaves nothing listening on port 23120 and MCP clients failing with `ECONNREFUSED`. Install v1.8.7 or later from the Releases page. Existing installs on Zotero 7–9 pick it up through auto-update.
 
 ### 2. Connect Claude Code
 
@@ -193,7 +195,7 @@ These run regardless of auth state:
 - Global + per-IP + per-session token-bucket rate limits, with a stricter bucket on write tools
 - 10s wall-clock deadline on full request body read
 - `Content-Length > 1MB` rejected before reading
-- Zotero 9-compatible socket reads use Gecko readiness callbacks rather than
+- Zotero 9/10-compatible socket reads use Gecko readiness callbacks rather than
   `available()` polling, avoiding accepted-but-unresponsive MCP connections
 
 ## Write scopes
@@ -264,7 +266,7 @@ The vector index is stored locally in SQLite with Int8 quantization for efficien
 
 ### Prerequisites
 
-- Zotero 7, 8, or 9
+- Zotero 7, 8, 9, or 10
 - Node.js 18+
 
 ### Setup
@@ -306,6 +308,7 @@ This fork ([lricher7329/zotero-mcp-claude-code](https://github.com/lricher7329/z
 - **Security hardening (v1.8.0)** -- Per-install bearer token auth; Origin/Content-Type CSRF protection; per-scope write opt-ins (destructive ops default off); global + per-IP + per-session rate limits; SSRF guard with IPv6-mapped-IPv4 and decimal/octal IPv4 detection; itemKey/collectionKey format validation; session ID hardening with LRU cap; body-read deadline; sanitized error messages
 - **MCP/JSON-RPC compliance fixes (v1.8.0)** -- Tool execution failures returned as `result.isError` (LLM can recover) rather than `-32603`; argument validation maps to `-32602`; parse-error `id: null` per spec; `notifications/initialized` correct; empty batch returns `-32600`; dropped false `tools.listChanged` advertisement
 - **`get_item_details` mode=complete** -- Now enumerates all item-type fields via `Zotero.ItemFields.getItemTypeFields`, including `extra` (PMID/PMCID/citation key per Zotero convention), `collections` membership, `dateAdded`/`dateModified`/`accessDate`. Critical for downstream identifier extraction.
+- **Zotero 10 support (v1.8.7)** -- Manifest and auto-update `strict_max_version` raised to `10.*` (Zotero 10 runs on Firefox 140 ESR); attachment file-size lookup moved from the removed `OS.File` API to `IOUtils`
 - **Codebase audit** -- Typed errors, API validation, singleton fixes, batched queries, module refactoring, 37 unit tests
 
 ## License
