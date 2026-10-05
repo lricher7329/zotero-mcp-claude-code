@@ -22,7 +22,7 @@ pref-auth-copy-token-button =
     .label = Copy
 pref-auth-regen-token-button =
     .label = Regenerate
-pref-auth-token-hint = Paste this into your AI client's MCP config as Authorization: Bearer <token>. Regenerating invalidates existing client configs.
+pref-auth-token-hint = Paste this into your AI client's MCP config as the value after Authorization: Bearer. Regenerating invalidates existing client configs.
 
 pref-write-scopes-title = Write Scopes
 pref-write-scopes-hint = Each scope must be enabled before its tools are exposed. Destructive scopes are highlighted.

@@ -29,6 +29,7 @@ A Zotero plugin that provides MCP (Model Context Protocol) server functionality,
 ```bash
 npm run build      # Production build
 npm run start      # Development with hot reload
+npm run check      # Local gate: lint + build/type check + unit tests
 npm run lint:check # Check formatting and linting
 npm run lint:fix   # Fix formatting and linting issues
 ```
@@ -45,7 +46,7 @@ A GitHub Actions workflow at `/.github/workflows/release.yml` automates releases
    - `update.json` / `update-beta.json` — regenerate with `npm run prepare-release`
    - `../README.md` — update version badge to `X.Y.Z`
 2. Update lockfile: `npm install --package-lock-only`
-3. Verify build: `npm run build`
+3. Verify: `npm run check` (lint, build + type check, unit tests)
 4. Commit, tag, and push:
    ```bash
    git add package.json package-lock.json src/modules/httpServer.ts update.json update-beta.json ../README.md

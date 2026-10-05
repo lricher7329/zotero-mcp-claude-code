@@ -22,7 +22,22 @@ export interface AnnotationContent {
   dateModified: string;
   page?: number;
   position?: any; // Position info in PDF
-  sortIndex?: number;
+  sortIndex?: string; // Zotero's zero-padded "page|offset|top" key; compare as a string
+}
+
+/**
+ * Compare Zotero annotation sort indexes. They are fixed-width, zero-padded
+ * strings, so plain string ordering is positional ordering.
+ */
+export function compareSortIndex(a?: string, b?: string): number {
+  const x = a || "";
+  const y = b || "";
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/** Sort key for "position" ordering: page label number, then sort index. */
+export function positionKey(a: AnnotationContent): string {
+  return `${String(a.page || 0).padStart(6, "0")}|${a.sortIndex || ""}`;
 }
 
 // Search parameters
@@ -183,7 +198,9 @@ export class AnnotationService {
         }
 
         const noteIds = parentItem.getNotes(false);
-        items = noteIds.map((id) => Zotero.Items.get(id)).filter(Boolean);
+        items = noteIds
+          .map((id) => Zotero.Items.get(id))
+          .filter((item): item is Zotero.Item => Boolean(item));
       } else {
         // Get all notes
         const search = new Zotero.Search();
@@ -285,7 +302,7 @@ export class AnnotationService {
         if (a.page !== b.page) {
           return (a.page || 0) - (b.page || 0);
         }
-        return (a.sortIndex || 0) - (b.sortIndex || 0);
+        return compareSortIndex(a.sortIndex, b.sortIndex);
       });
 
       ztoolkit.log(
@@ -679,8 +696,8 @@ export class AnnotationService {
           valueB = new Date(b.dateModified);
           break;
         case "position":
-          valueA = (a.page || 0) * 1000 + (a.sortIndex || 0);
-          valueB = (b.page || 0) * 1000 + (b.sortIndex || 0);
+          valueA = positionKey(a);
+          valueB = positionKey(b);
           break;
         case "type":
           valueA = a.type;

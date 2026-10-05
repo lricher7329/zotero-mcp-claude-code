@@ -24,6 +24,7 @@
     "start": "zotero-plugin serve",
     "build": "zotero-plugin build && tsc --noEmit",
     "lint:check": "prettier --check . && eslint .",
+    "check": "npm run lint:check && npm run build && npm run test:unit",
     "lint:fix": "prettier --write . && eslint . --fix",
     "release": "npm version patch --force -m \"Release v%s\" && git push --follow-tags",
     "release:beta": "npm version prepatch --preid beta --force -m \"Release v%s\" && git push --follow-tags",
@@ -35,7 +36,7 @@
     "update-deps": "npm update --save"
   },
   "dependencies": {
-    "zotero-plugin-toolkit": "^5.1.0-beta.4"
+    "zotero-plugin-toolkit": "^6.0.0"
   },
   "devDependencies": {
     "@types/chai": "^5.2.2",
@@ -48,8 +49,8 @@
     "prettier": "^3.6.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.2",
-    "zotero-plugin-scaffold": "^0.8.0",
-    "zotero-types": "^4.1.0-beta.1"
+    "zotero-plugin-scaffold": "^0.9.2",
+    "zotero-types": "^4.1.3"
   },
   "prettier": {
     "printWidth": 80,

@@ -267,7 +267,7 @@ The vector index is stored locally in SQLite with Int8 quantization for efficien
 ### Prerequisites
 
 - Zotero 7, 8, 9, or 10
-- Node.js 18+
+- Node.js 22.8+ (required by `zotero-plugin-scaffold` 0.9)
 
 ### Setup
 
@@ -281,7 +281,8 @@ npm run start    # Dev mode with auto-reload
 ### Testing
 
 ```bash
-npm run test:unit    # 37 unit tests (mathUtils, textChunker)
+npm run check        # lint + build/type check + unit tests (the local gate)
+npm run test:unit    # Mocha unit tests in Node (no Zotero needed)
 npm run lint:check   # Prettier + ESLint
 ```
 

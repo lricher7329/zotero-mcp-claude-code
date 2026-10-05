@@ -22,7 +22,7 @@ pref-auth-copy-token-button =
     .label = 复制
 pref-auth-regen-token-button =
     .label = 重新生成
-pref-auth-token-hint = 将此 Token 粘贴到 AI 客户端 MCP 配置的 Authorization: Bearer <token>。重新生成会使旧的客户端配置失效。
+pref-auth-token-hint = 将此 Token 粘贴到 AI 客户端 MCP 配置的 Authorization: Bearer 之后。重新生成会使旧的客户端配置失效。
 
 pref-write-scopes-title = 写入范围
 pref-write-scopes-hint = 各范围需单独启用，对应工具才会暴露。带颜色项为破坏性操作。
