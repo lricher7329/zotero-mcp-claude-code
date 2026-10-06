@@ -3,11 +3,11 @@
 A Zotero plugin that exposes your library to AI assistants via the [Model Context Protocol](https://modelcontextprotocol.org/) (MCP). This fork adds Claude Code compatibility and write operations.
 
 [![GitHub](https://img.shields.io/badge/GitHub-zotero--mcp--claude--code-blue?logo=github)](https://github.com/lricher7329/zotero-mcp-claude-code)
-[![Zotero](https://img.shields.io/badge/Zotero-7--9-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
+[![Zotero](https://img.shields.io/badge/Zotero-7--10-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
 [![Version](https://img.shields.io/badge/Version-1.8.9-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
-> **Note:** This fork has been developed and tested with **Claude Code** on **Zotero 7–10 for macOS** (latest macOS). The plugin manifest declares compatibility with Zotero 7, 8, 9, and 10. It uses standard MCP over Streamable HTTP, so it should work with any MCP-compatible client and platform, but other clients and operating systems have not been tested by this fork's author.
+> **Note:** This fork has been developed and tested with **Claude Code**, **Claude Desktop**, and **Codex** on **Zotero 7–10 for macOS** (latest macOS). The plugin manifest declares compatibility with Zotero 7, 8, 9, and 10. It uses standard MCP over Streamable HTTP, so it should work with any MCP-compatible client and platform, but other clients and operating systems have not been tested by this fork's author.
 
 ---
 
@@ -176,6 +176,8 @@ Use full paths: Claude Desktop launched from the Dock doesn't load your shell pr
 
 Write tools are gated by **per-scope opt-in checkboxes** in preferences (see [Write scopes](#write-scopes) below). Tools whose scopes are disabled are hidden from the `tools/list` response — they don't just fail-on-call, they don't exist as far as the client can see.
 
+**Undo (Zotero 10):** changes made through write tools land on Zotero's undo stack, so **Edit → Undo** (Cmd/Ctrl+Z in the items list) reverts them like Zotero's own edits — labelled "Undo Add Tag", "Undo Edit Metadata", and so on. A batch tool is one undo step. Trashing and restoring are undoable; creating items and permanently deleting are not (a Zotero limitation). The undo history lives in memory and clears when Zotero restarts. On Zotero 7–9 there is no undo.
+
 ## Authentication
 
 The plugin auto-generates a per-install bearer token on first start, stored in the `extensions.zotero.zotero-mcp-plugin.mcp.server.authToken` preference and surfaced in **Settings → Zotero MCP for Claude Code → MCP Server → Authentication** with **Copy** and **Regenerate** buttons.
@@ -312,7 +314,7 @@ npm run lint:check   # Prettier + ESLint
 |----------|--------|---------|---|
 | `/mcp` | POST | MCP JSON-RPC 2.0 requests | yes |
 | `/mcp` | GET | Endpoint info (JSON) | no |
-| `/mcp` | DELETE | Session termination (per MCP 2025-03-26 spec) | no |
+| `/mcp` | DELETE | Session termination (per MCP 2025-03-26 spec) | yes |
 | `/ping` | GET | Health check (returns `pong`) | no |
 | `/mcp/status` | GET | Server status | no |
 | `/capabilities` | GET | Server capabilities (also at `/help`, `/mcp/capabilities`) | no |
@@ -330,8 +332,8 @@ This fork ([lricher7329/zotero-mcp-claude-code](https://github.com/lricher7329/z
 - **MCP/JSON-RPC compliance fixes (v1.8.0)** -- Tool execution failures returned as `result.isError` (LLM can recover) rather than `-32603`; argument validation maps to `-32602`; parse-error `id: null` per spec; `notifications/initialized` correct; empty batch returns `-32600`; dropped false `tools.listChanged` advertisement
 - **`get_item_details` mode=complete** -- Now enumerates all item-type fields via `Zotero.ItemFields.getItemTypeFields`, including `extra` (PMID/PMCID/citation key per Zotero convention), `collections` membership, `dateAdded`/`dateModified`/`accessDate`. Critical for downstream identifier extraction.
 - **Zotero 10 native features (v1.8.9)** -- MCP edits (metadata, notes, tags, collections, related items, restore) can be undone in Zotero with Cmd/Ctrl+Z, one undo step per call or batch; full text reads Zotero's cached index again (Zotero 10 removed the old API, so PDF text timed out) and `search_fulltext` uses Zotero's search index; `get_content` on long papers drops from minutes to about a second; `search_library` accepts structured condition groups and `resultLevel`
-- **Zotero 10 support (v1.8.7)** -- Manifest and auto-update `strict_max_version` raised to `10.*` (Zotero 10 runs on Firefox 140 ESR); attachment file-size lookup moved from the removed `OS.File` API to `IOUtils`
-- **Codebase audit** -- Typed errors, API validation, singleton fixes, batched queries, module refactoring, 37 unit tests
+- **Zotero 10 support (v1.8.7)** -- Manifest and auto-update `strict_max_version` raised to `10.*`; attachment file-size lookup moved from the legacy `OS.File` API to `IOUtils`
+- **Codebase audit** -- Typed errors, API validation, singleton fixes, batched queries, module refactoring, and a Node unit-test suite (`npm run test:unit`)
 
 ## License
 
