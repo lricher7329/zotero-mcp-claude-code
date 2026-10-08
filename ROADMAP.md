@@ -9,11 +9,11 @@
 - **Tier:** C — Direct (solo tooling; remote CI is the tag-triggered release workflow only)
 - **Local check:** `cd zotero-mcp-plugin && npm run check` (Prettier + ESLint, build + `tsc`, Mocha unit tests in Node)
   (`npm test` is scaffold's in-Zotero runner; it launches a second Zotero and is not part of the gate)
-- **Released:** v1.8.9 (2026-10-05) — M3 Zotero 10 native features; includes M2 (v1.8.8 tag was never published: GitHub Actions outage). v1.8.7 added Zotero 10 support
+- **Released:** v1.8.10 (2026-10-08) — per-session rate limits on loopback, reconnect reserve, global burst 120 → 240. Before that, v1.8.9 (2026-10-05) — M3 Zotero 10 native features; includes M2 (v1.8.8 tag was never published: GitHub Actions outage). v1.8.7 added Zotero 10 support
 - **Active milestone:** none — between milestones
 - **Branch:** `main`
 - **Next step:** none queued. Candidates: improve `get_content` sentence selection on PDFs (picks emails/table refs); M4 stays deferred
-- **Updated:** 2026-10-05
+- **Updated:** 2026-10-08
 
 ## Milestones
 

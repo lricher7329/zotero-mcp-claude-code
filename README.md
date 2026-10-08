@@ -4,7 +4,7 @@ A Zotero plugin that exposes your library to AI assistants via the [Model Contex
 
 [![GitHub](https://img.shields.io/badge/GitHub-zotero--mcp--claude--code-blue?logo=github)](https://github.com/lricher7329/zotero-mcp-claude-code)
 [![Zotero](https://img.shields.io/badge/Zotero-7--10-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
-[![Version](https://img.shields.io/badge/Version-1.8.9-brightgreen)]()
+[![Version](https://img.shields.io/badge/Version-1.8.10-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
 > **Note:** This fork has been developed and tested with **Claude Code**, **Claude Desktop**, and **Codex** on **Zotero 7–10 for macOS** (latest macOS). The plugin manifest declares compatibility with Zotero 7, 8, 9, and 10. It uses standard MCP over Streamable HTTP, so it should work with any MCP-compatible client and platform, but other clients and operating systems have not been tested by this fork's author.
@@ -214,7 +214,7 @@ These run regardless of auth state:
 - `Host` header must be loopback when `allowRemote=false`
 - Duplicate `Host` headers rejected
 - `Mcp-Session-Id` validated against `^mcp-[a-f0-9-]{8,80}$` and capped at 256 active sessions with LRU eviction
-- Global + per-IP + per-session token-bucket rate limits, with a stricter bucket on write tools
+- Global + per-client token-bucket rate limits, with a stricter bucket on write tools. Remote clients are limited per IP; loopback clients are limited per active `Mcp-Session-Id` (falling back to the address), so Claude Code, its subagents and Claude Desktop don't share one bucket. `initialize`, `notifications/*`, `tools/list` and `ping` get a small reserve so a client can still reconnect after a burst of tool calls
 - 10s wall-clock deadline on full request body read
 - `Content-Length > 1MB` rejected before reading
 - Zotero 9/10-compatible socket reads use Gecko readiness callbacks rather than
@@ -331,6 +331,7 @@ This fork ([lricher7329/zotero-mcp-claude-code](https://github.com/lricher7329/z
 - **Security hardening (v1.8.0)** -- Per-install bearer token auth; Origin/Content-Type CSRF protection; per-scope write opt-ins (destructive ops default off); global + per-IP + per-session rate limits; SSRF guard with IPv6-mapped-IPv4 and decimal/octal IPv4 detection; itemKey/collectionKey format validation; session ID hardening with LRU cap; body-read deadline; sanitized error messages
 - **MCP/JSON-RPC compliance fixes (v1.8.0)** -- Tool execution failures returned as `result.isError` (LLM can recover) rather than `-32603`; argument validation maps to `-32602`; parse-error `id: null` per spec; `notifications/initialized` correct; empty batch returns `-32600`; dropped false `tools.listChanged` advertisement
 - **`get_item_details` mode=complete** -- Now enumerates all item-type fields via `Zotero.ItemFields.getItemTypeFields`, including `extra` (PMID/PMCID/citation key per Zotero convention), `collections` membership, `dateAdded`/`dateModified`/`accessDate`. Critical for downstream identifier extraction.
+- **Per-session rate limits on loopback (v1.8.10)** -- Every local client shared one `127.0.0.1` bucket, so parallel Claude Code subagents could exhaust it and reconnects failed with "Rate limit exceeded". Loopback traffic is now limited per active session, reconnect handshakes draw on a small reserve, and the global cap burst rose from 120 to 240
 - **Zotero 10 native features (v1.8.9)** -- MCP edits (metadata, notes, tags, collections, related items, restore) can be undone in Zotero with Cmd/Ctrl+Z, one undo step per call or batch; full text reads Zotero's cached index again (Zotero 10 removed the old API, so PDF text timed out) and `search_fulltext` uses Zotero's search index; `get_content` on long papers drops from minutes to about a second; `search_library` accepts structured condition groups and `resultLevel`
 - **Zotero 10 support (v1.8.7)** -- Manifest and auto-update `strict_max_version` raised to `10.*`; attachment file-size lookup moved from the legacy `OS.File` API to `IOUtils`
 - **Codebase audit** -- Typed errors, API validation, singleton fixes, batched queries, module refactoring, and a Node unit-test suite (`npm run test:unit`)

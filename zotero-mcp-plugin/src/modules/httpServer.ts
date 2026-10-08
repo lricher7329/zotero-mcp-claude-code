@@ -1,6 +1,12 @@
 import { StreamableMCPServer } from "./streamableMCPServer";
 import { serverPreferences } from "./serverPreferences";
 import { testMCPIntegration } from "./mcpTest";
+import {
+  RateLimiter,
+  RequestRateLimiter,
+  isLightweightProtocolRequest,
+  resolveRateLimitKey,
+} from "./rateLimiting";
 
 declare let ztoolkit: ZToolkit;
 
@@ -33,69 +39,6 @@ function writeStringToStream(output: any, str: string): void {
   (converterStream as any).init(output, "UTF-8", 0, 0);
   converterStream.writeString(str);
   converterStream.flush();
-}
-
-/**
- * Two-tier token-bucket rate limiter:
- *   - per-key bucket (per IP, or per session for loopback)
- *   - global bucket as a final cap
- *
- * Both run on every accepted request, regardless of allowRemote, because a
- * prompt-injected LLM or runaway local client can flood the server just as
- * easily as a remote attacker.
- */
-class RateLimiter {
-  private buckets: Map<string, { tokens: number; lastRefill: number }> =
-    new Map();
-  private maxTokens: number;
-  private refillRate: number; // tokens per second
-  private maxBuckets: number;
-
-  constructor(maxTokens = 60, refillRate = 10, maxBuckets = 1024) {
-    this.maxTokens = maxTokens;
-    this.refillRate = refillRate;
-    this.maxBuckets = maxBuckets;
-  }
-
-  allow(key: string): boolean {
-    const now = Date.now();
-    let bucket = this.buckets.get(key);
-
-    if (!bucket) {
-      // Cap unique-key memory so an attacker can't grow the Map unboundedly
-      // by spraying random session IDs.
-      if (this.buckets.size >= this.maxBuckets) {
-        // Evict the oldest entry. Maps preserve insertion order so the first
-        // key out of .keys() is the oldest.
-        const firstKey = this.buckets.keys().next().value;
-        if (firstKey) this.buckets.delete(firstKey);
-      }
-      bucket = { tokens: this.maxTokens - 1, lastRefill: now };
-      this.buckets.set(key, bucket);
-      return true;
-    }
-
-    const elapsed = (now - bucket.lastRefill) / 1000;
-    bucket.tokens = Math.min(
-      this.maxTokens,
-      bucket.tokens + elapsed * this.refillRate,
-    );
-    bucket.lastRefill = now;
-
-    if (bucket.tokens >= 1) {
-      bucket.tokens -= 1;
-      return true;
-    }
-    return false;
-  }
-
-  prune(): void {
-    const now = Date.now();
-    const staleThreshold = 60000;
-    for (const [k, b] of this.buckets.entries()) {
-      if (now - b.lastRefill > staleThreshold) this.buckets.delete(k);
-    }
-  }
 }
 
 const SESSION_ID_RE = /^mcp-[a-f0-9-]{8,80}$/i;
@@ -142,13 +85,12 @@ export class HttpServer {
   private sessionCleanupInterval: ReturnType<typeof setInterval> | null = null;
   private activeTransports: Set<any> = new Set();
 
-  // Per-key (IP or session) limiter for general traffic.
-  private rateLimiter: RateLimiter = new RateLimiter(60, 10, 2048);
+  // Global cap + per-key (IP, or session for loopback) limiter for general
+  // traffic, with a small reserve so reconnects survive a drained bucket.
+  private requestRateLimiter: RequestRateLimiter = new RequestRateLimiter();
   // Stricter limiter for write tool calls — destructive operations should
   // never need to be issued at high frequency.
   private writeRateLimiter: RateLimiter = new RateLimiter(15, 0.5, 2048);
-  // Global cap independent of caller identity.
-  private globalRateLimiter: RateLimiter = new RateLimiter(120, 30, 4);
 
   public isServerRunning(): boolean {
     return this.isRunning;
@@ -281,9 +223,8 @@ export class HttpServer {
           ztoolkit.log(`[HttpServer] Cleaned up expired session: ${sessionId}`);
         }
       }
-      this.rateLimiter.prune();
+      this.requestRateLimiter.prune();
       this.writeRateLimiter.prune();
-      this.globalRateLimiter.prune();
     }, 60000);
   }
 
@@ -896,10 +837,43 @@ export class HttpServer {
             return;
           }
 
-          // 4. Rate limiting (always on, regardless of allowRemote).
-          const clientKey =
+          // POST body extraction.
+          let requestBody = "";
+          if (method === "POST") {
+            const bodyStart = requestText.indexOf("\r\n\r\n");
+            if (bodyStart !== -1) {
+              requestBody = requestText.substring(bodyStart + 4);
+            }
+          }
+
+          const presentedSessionId = this.getRequestHeader(
+            requestText,
+            "Mcp-Session-Id",
+          );
+          const clientHost =
             (transport.host && String(transport.host)) || "unknown";
-          if (!this.globalRateLimiter.allow("global")) {
+          const isActiveSession = (id: string): boolean =>
+            SESSION_ID_RE.test(id) && this.activeSessions.has(id);
+
+          // 4. Rate limiting (always on, regardless of allowRemote).
+          // Loopback clients are keyed per active session so Claude Code,
+          // its subagents and Claude Desktop don't share one bucket.
+          const rateLimitKey = resolveRateLimitKey({
+            host: clientHost,
+            sessionId: presentedSessionId,
+            isActiveSession,
+            sessionKeyForRemote: false,
+          });
+          const isMcpPath = path === "/mcp" || path.startsWith("/mcp/");
+          const lightweight =
+            isMcpPath &&
+            (method === "DELETE" ||
+              (method === "POST" && isLightweightProtocolRequest(requestBody)));
+          const rejection = this.requestRateLimiter.check(
+            rateLimitKey,
+            lightweight,
+          );
+          if (rejection === "global") {
             ztoolkit.log(`[HttpServer] Global rate limit exceeded`, "warn");
             this.writeJsonResponse(
               output,
@@ -913,9 +887,9 @@ export class HttpServer {
             );
             return;
           }
-          if (!this.rateLimiter.allow(clientKey)) {
+          if (rejection === "client") {
             ztoolkit.log(
-              `[HttpServer] Rate limit exceeded for ${clientKey}`,
+              `[HttpServer] Rate limit exceeded for ${rateLimitKey}`,
               "warn",
             );
             this.writeJsonResponse(
@@ -931,21 +905,8 @@ export class HttpServer {
             return;
           }
 
-          // POST body extraction.
-          let requestBody = "";
-          if (method === "POST") {
-            const bodyStart = requestText.indexOf("\r\n\r\n");
-            if (bodyStart !== -1) {
-              requestBody = requestText.substring(bodyStart + 4);
-            }
-          }
-
           // 5. Session-ID handling.
           let sessionId: string | undefined;
-          const presentedSessionId = this.getRequestHeader(
-            requestText,
-            "Mcp-Session-Id",
-          );
 
           if (path === "/mcp" || path.startsWith("/mcp/")) {
             if (presentedSessionId !== undefined) {
@@ -993,12 +954,15 @@ export class HttpServer {
             path === "/mcp" &&
             this.requestBodyContainsWriteTool(requestBody)
           ) {
-            const writeLimitKey =
-              presentedSessionId &&
-              sessionId === presentedSessionId &&
-              this.activeSessions.has(presentedSessionId)
-                ? `session:${presentedSessionId}`
-                : `client:${clientKey}`;
+            const writeLimitKey = resolveRateLimitKey({
+              host: clientHost,
+              sessionId:
+                sessionId === presentedSessionId
+                  ? presentedSessionId
+                  : undefined,
+              isActiveSession,
+              sessionKeyForRemote: true,
+            });
             if (!this.writeRateLimiter.allow(writeLimitKey)) {
               ztoolkit.log(
                 `[HttpServer] Write rate limit exceeded for ${writeLimitKey}`,
@@ -1317,6 +1281,6 @@ export class HttpServer {
 
 // Single source of truth for the version reported in /capabilities and
 // /mcp/status. Bumped during release per zotero-mcp-plugin/CLAUDE.md.
-export const SERVER_INFO_VERSION = "1.8.9";
+export const SERVER_INFO_VERSION = "1.8.10";
 
 export const httpServer = new HttpServer();
